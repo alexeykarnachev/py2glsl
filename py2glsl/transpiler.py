@@ -297,8 +297,13 @@ class ShaderTranspiler:
     def _convert_expr(self, node: ast.expr) -> str:
         """Convert Python expression to GLSL expression."""
         if isinstance(node, ast.Constant):
-            if isinstance(node.value, (int, float)):
-                return f"{float(node.value)}"
+            if isinstance(node.value, int):
+                return str(node.value)  # Keep integers as integers
+            if isinstance(node.value, float):
+                # Format small floats (< 0.01) with more precision
+                if 0 < abs(node.value) < 0.01:
+                    return f"{node.value:.4f}"
+                return str(node.value)  # Keep original float representation
             raise ValueError(f"Unsupported constant type: {type(node.value)}")
 
         elif isinstance(node, ast.Name):
@@ -345,6 +350,14 @@ class ShaderTranspiler:
             op = {ast.USub: "-", ast.UAdd: "+"}[type(node.op)]
             operand = self._convert_expr(node.operand)
             return f"{op}{operand}"
+
+        elif isinstance(node, ast.BoolOp):
+            op = {
+                ast.And: "&&",
+                ast.Or: "||",
+            }[type(node.op)]
+            values = [self._convert_expr(val) for val in node.values]
+            return f" {op} ".join(f"({val})" for val in values)
 
         raise ValueError(f"Unsupported expression: {ast.dump(node)}")
 
