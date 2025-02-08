@@ -8,6 +8,18 @@ from typing import Any, Dict, Iterator, List, Optional, Set, Union
 
 from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
+# Basic vertex shader that just passes UV coords
+VERTEX_SHADER = """#version 460
+layout(location = 0) in vec2 in_pos;
+layout(location = 1) in vec2 in_uv;
+out vec2 vs_uv;
+
+void main() {
+    gl_Position = vec4(in_pos, 0.0, 1.0);
+    vs_uv = in_uv;
+}
+"""
+
 
 @dataclass
 class ShaderAnalysis:
@@ -24,6 +36,7 @@ class ShaderResult:
 
     fragment_source: str
     uniforms: Dict[str, str]
+    vertex_source: str = VERTEX_SHADER
 
 
 class GLSLContext(Enum):
@@ -44,19 +57,37 @@ class ShaderTranspiler:
         self.declared_vars: Dict[str, str] = {}
         self.context_stack: List[GLSLContext] = [GLSLContext.DEFAULT]
 
+    def _convert_assignment(self, target: str, value: Any) -> str:
+        """Convert Python assignment to GLSL."""
+        # Handle AST nodes directly instead of using isinstance
+        if isinstance(value, ast.Constant):
+            if isinstance(value.value, bool):
+                return f"bool {target} = {str(value.value).lower()};"
+            elif isinstance(value.value, (int, float)):
+                return f"float {target} = {value.value}.0;"
+        elif isinstance(value, ast.Call):
+            if isinstance(value.func, ast.Name):
+                if value.func.id in ("vec2", "Vec2"):
+                    return f"vec2 {target} = vec2({', '.join(self._convert_expr(arg) for arg in value.args)});"
+                elif value.func.id in ("vec3", "Vec3"):
+                    return f"vec3 {target} = vec3({', '.join(self._convert_expr(arg) for arg in value.args)});"
+                elif value.func.id in ("vec4", "Vec4"):
+                    return f"vec4 {target} = vec4({', '.join(self._convert_expr(arg) for arg in value.args)});"
+        elif isinstance(value, ast.BinOp):
+            return f"{self._infer_type(value)} {target} = {self._convert_expr(value)};"
+        elif isinstance(value, ast.Attribute):
+            return f"{self._infer_type(value)} {target} = {self._convert_expr(value)};"
+
+        return f"{self._infer_type(value)} {target} = {self._convert_expr(value)};"
+
     @contextmanager
     def context(self, ctx: GLSLContext) -> Iterator[None]:
         """Context manager for GLSL context tracking."""
-        print(f"\nDEBUG context:")
-        print(f"  Pushing context: {ctx}")
-        print(f"  Current stack: {self.context_stack}")
         self.context_stack.append(ctx)
         try:
             yield
         finally:
-            popped = self.context_stack.pop()
-            print(f"  Popped context: {popped}")
-            print(f"  Remaining stack: {self.context_stack}")
+            self.context_stack.pop()
 
     @property
     def current_context(self) -> GLSLContext:
@@ -100,6 +131,8 @@ class ShaderTranspiler:
             type_name = type_.id
             if type_name in ("float", "Float"):
                 return "float"
+            elif type_name in ("int", "Int"):
+                return "int"
             elif type_name in ("Vec2", "vec2"):
                 return "vec2"
             elif type_name in ("Vec3", "vec3"):
@@ -108,6 +141,8 @@ class ShaderTranspiler:
                 return "vec4"
         elif type_ == float:
             return "float"
+        elif type_ == int:
+            return "int"
         elif self._is_vec2_type(type_):
             return "vec2"
         elif self._is_vec3_type(type_):
@@ -119,7 +154,10 @@ class ShaderTranspiler:
 
     def _infer_type(self, node: ast.AST) -> str:
         """Infer GLSL type from AST node."""
-        if isinstance(node, ast.Call):
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool):
+                return "bool"
+        elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 # Vector constructors
                 if node.func.id in ("vec2", "Vec2"):
@@ -197,25 +235,21 @@ class ShaderTranspiler:
         for node in body:
             if isinstance(node, ast.Return):
                 lines.append(f"return {self._convert_expr(node.value)};")
+
             elif isinstance(node, ast.Assign):
+                # Handle chained assignments (x = y = z = 1.0)
                 value = self._convert_expr(node.value)
-                inferred_type = self._infer_type(node.value)
+                value_type = self._infer_type(node.value)
 
-                # Preserve vector types through operations
-                if isinstance(node.value, ast.Call):
-                    if isinstance(node.value.func, ast.Name):
-                        if node.value.func.id == "normalize":
-                            inferred_type = self._infer_type(node.value.args[0])
-                        elif node.value.func.id == "mix":
-                            inferred_type = self._infer_type(node.value.args[0])
-
-                for target in node.targets:
+                # Process targets in reverse to maintain correct assignment order
+                for target in reversed(node.targets):
                     if isinstance(target, ast.Name):
                         if target.id not in self.declared_vars:
-                            self.declared_vars[target.id] = inferred_type
-                            lines.append(f"{inferred_type} {target.id} = {value};")
+                            lines.append(f"{value_type} {target.id} = {value};")
+                            self.declared_vars[target.id] = value_type
                         else:
                             lines.append(f"{target.id} = {value};")
+
             elif isinstance(node, ast.AugAssign):
                 target = self._convert_expr(node.target)
                 value = self._convert_expr(node.value)
@@ -226,16 +260,32 @@ class ShaderTranspiler:
                     ast.Div: "/=",
                 }[type(node.op)]
                 lines.append(f"{target} {op} {value};")
+
             elif isinstance(node, ast.If):
                 lines.append(f"if ({self._convert_expr(node.test)})")
                 lines.append("{")
                 lines.extend(self._convert_body(node.body))
                 lines.append("}")
                 if node.orelse:
-                    lines.append("else")
-                    lines.append("{")
-                    lines.extend(self._convert_body(node.orelse))
-                    lines.append("}")
+                    if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
+                        # elif case
+                        elif_node = node.orelse[0]
+                        lines.append(f"else if ({self._convert_expr(elif_node.test)})")
+                        lines.append("{")
+                        lines.extend(self._convert_body(elif_node.body))
+                        lines.append("}")
+                        if elif_node.orelse:
+                            lines.append("else")
+                            lines.append("{")
+                            lines.extend(self._convert_body(elif_node.orelse))
+                            lines.append("}")
+                    else:
+                        # else case
+                        lines.append("else")
+                        lines.append("{")
+                        lines.extend(self._convert_body(node.orelse))
+                        lines.append("}")
+
             elif isinstance(node, ast.For):
                 if (
                     isinstance(node.iter, ast.Call)
@@ -259,6 +309,11 @@ class ShaderTranspiler:
                     lines.append("}")
                 else:
                     raise ValueError("Only range-based for loops are supported")
+
+            elif isinstance(node, ast.Expr):
+                # Handle expression statements (like function calls)
+                lines.append(f"{self._convert_expr(node.value)};")
+
         return lines
 
     def _convert_if(self, node: ast.If) -> List[str]:
@@ -301,8 +356,6 @@ class ShaderTranspiler:
 
     def _convert_for(self, node: ast.For) -> List[str]:
         """Convert for loop to GLSL."""
-        print("\nDEBUG _convert_for:")
-        print(f"  Node type: {type(node.iter)}")
 
         if (
             isinstance(node.iter, ast.Call)
@@ -310,7 +363,6 @@ class ShaderTranspiler:
             and node.iter.func.id == "range"
         ):
             var = node.target.id
-            print(f"  Loop variable: {var}")
 
             if len(node.iter.args) == 1:
                 end = self._convert_expr(node.iter.args[0])
@@ -330,57 +382,30 @@ class ShaderTranspiler:
         raise ValueError("Only range-based for loops are supported")
 
     def _convert_expr(self, node: ast.expr) -> str:
-        print(f"\nDEBUG _convert_expr:")
-        print(f"  Node type: {type(node)}")
-        print(f"  Current context: {self.current_context}")
-        print(f"  Context stack: {self.context_stack}")
-
+        """Convert Python expression to GLSL expression."""
         if isinstance(node, ast.Constant):
-            print(f"  Constant value: {node.value}")
-            print(f"  Constant type: {type(node.value)}")
-
+            if isinstance(node.value, bool):
+                return "true" if node.value else "false"
             if isinstance(node.value, (int, float)):
                 if self.current_context == GLSLContext.LOOP_BOUND:
-                    print("  Processing in LOOP_BOUND context")
                     if isinstance(node.value, int):
-                        result = str(node.value)
-                        print(f"  Loop bound result: {result}")
-                        return result
-                    print("  Error: Float in loop bound")
+                        return str(node.value)
                     raise ValueError("Loop bounds must be integers")
-
-                if isinstance(node.value, int):
-                    result = f"{node.value}.0"
-                    print(f"  Float conversion result: {result}")
-                    return result
-                result = str(float(node.value))
-                print(f"  Float result: {result}")
-                return result
+                return f"{float(node.value)}"
 
         elif isinstance(node, ast.Name):
-            print(f"  Name id: {node.id}")
             return node.id
 
         elif isinstance(node, ast.Attribute):
-            print(f"  Attribute: {node.attr}")
             base = self._convert_expr(node.value)
-            result = f"{base}.{node.attr}"
-            print(f"  Attribute result: {result}")
-            return result
+            return f"{base}.{node.attr}"
 
         elif isinstance(node, ast.Call):
-            print(
-                f"  Call func: {node.func.id if isinstance(node.func, ast.Name) else 'unknown'}"
-            )
-            print(f"  Args count: {len(node.args)}")
             if isinstance(node.func, ast.Name):
                 args = [self._convert_expr(arg) for arg in node.args]
-                result = f"{node.func.id}({', '.join(args)})"
-                print(f"  Call result: {result}")
-                return result
+                return f"{node.func.id}({', '.join(args)})"
 
         elif isinstance(node, ast.BinOp):
-            print(f"  BinOp: {type(node.op).__name__}")
             left = self._convert_expr(node.left)
             right = self._convert_expr(node.right)
             if isinstance(node.left, ast.BinOp):
@@ -393,12 +418,9 @@ class ShaderTranspiler:
                 ast.Mult: "*",
                 ast.Div: "/",
             }[type(node.op)]
-            result = f"{left} {op} {right}"
-            print(f"  BinOp result: {result}")
-            return result
+            return f"{left} {op} {right}"
 
         elif isinstance(node, ast.Compare):
-            print(f"  Compare op: {type(node.ops[0]).__name__}")
             left = self._convert_expr(node.left)
             right = self._convert_expr(node.comparators[0])
             op = {
@@ -409,31 +431,22 @@ class ShaderTranspiler:
                 ast.Eq: "==",
                 ast.NotEq: "!=",
             }[type(node.ops[0])]
-            result = f"{left} {op} {right}"
-            print(f"  Compare result: {result}")
-            return result
+            return f"{left} {op} {right}"
 
         elif isinstance(node, ast.UnaryOp):
-            print(f"  UnaryOp: {type(node.op).__name__}")
             op = {ast.USub: "-", ast.UAdd: "+"}[type(node.op)]
             operand = self._convert_expr(node.operand)
-            result = f"{op}{operand}"
-            print(f"  UnaryOp result: {result}")
-            return result
+            return f"{op}{operand}"
 
         elif isinstance(node, ast.BoolOp):
-            print(f"  BoolOp: {type(node.op).__name__}")
             op = {
                 ast.And: "&&",
                 ast.Or: "||",
             }[type(node.op)]
             values = [self._convert_expr(val) for val in node.values]
-            result = f" {op} ".join(f"({val})" for val in values)
-            print(f"  BoolOp result: {result}")
-            return result
+            return f" {op} ".join(f"({val})" for val in values)
 
         error = f"Unsupported expression: {ast.dump(node)}"
-        print(f"  ERROR: {error}")
         raise ValueError(error)
 
     def analyze(self, func: Any) -> ShaderAnalysis:
@@ -441,6 +454,11 @@ class ShaderTranspiler:
         source = inspect.getsource(func)
         source = textwrap.dedent(source)
         tree = ast.parse(source)
+
+        # Check if shader uses u_resolution
+        uses_resolution = "u_resolution" in source
+        if uses_resolution:
+            self.uniforms["u_resolution"] = "vec2"
 
         signature = inspect.signature(func)
 
@@ -486,11 +504,9 @@ class ShaderTranspiler:
     def transform(self, analysis: ShaderAnalysis) -> ShaderResult:
         """Transform Python shader to GLSL."""
         lines = ["#version 460", ""]
-
-        # Add declarations without indentation
         lines.extend(["in vec2 vs_uv;", "out vec4 fs_color;"])
 
-        # Add uniforms without indentation
+        # Add uniforms
         for name, type_ in analysis.uniforms.items():
             lines.append(f"uniform {type_} {name};")
 
@@ -506,13 +522,21 @@ class ShaderTranspiler:
         lines.append(self._convert_function(analysis.main_function, is_main=True))
         lines.append("")
 
-        # Add main function without indentation
-        lines.append("void main()")
-        lines.append("{")
-        lines.append("fs_color = shader(vs_uv);")
-        lines.append("}")
+        # Add main function with proper indentation
+        lines.extend(
+            [
+                "void main()",
+                "{",
+                "    fs_color = shader(vs_uv);",  # Add 4 spaces indentation
+                "}",
+            ]
+        )
 
-        return ShaderResult(fragment_source="\n".join(lines), uniforms=self.uniforms)
+        return ShaderResult(
+            fragment_source="\n".join(lines),
+            vertex_source=VERTEX_SHADER,
+            uniforms=self.uniforms,
+        )
 
 
 def py2glsl(func: Any) -> ShaderResult:

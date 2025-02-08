@@ -1,5 +1,4 @@
-import os
-from pathlib import Path
+import asyncio
 
 import imageio.v3 as iio
 import numpy as np
@@ -15,6 +14,8 @@ from py2glsl import (
     vec2,
     vec4,
 )
+from py2glsl.builtins import length, normalize, sin, smoothstep
+from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
 
 @pytest.fixture
@@ -128,7 +129,7 @@ def test_video_output(temp_dir):
 def test_resolution_uniform():
     """Test u_resolution uniform"""
 
-    def resolution_shader(vs_uv: vec2) -> vec4:
+    def resolution_shader(vs_uv: vec2, *, u_resolution: vec2) -> vec4:
         return vec4(u_resolution.x / 100.0, u_resolution.y / 100.0, 0.0, 1.0)
 
     arr = render_array(resolution_shader, size=(50, 25))
@@ -197,10 +198,7 @@ async def test_animate_window():
     def test_shader(vs_uv: vec2) -> vec4:
         nonlocal render_called
         render_called = True
-        return vec4(1.0)
-
-    # Run animation for a brief moment
-    import asyncio
+        return vec4(1.0, 1.0, 1.0, 1.0)
 
     async def run_animation():
         nonlocal window_created
@@ -208,10 +206,9 @@ async def test_animate_window():
         animate(test_shader, size=(64, 64))
 
     try:
-        # Run animation with timeout
         await asyncio.wait_for(run_animation(), timeout=0.5)
     except asyncio.TimeoutError:
-        pass  # Expected timeout
+        pass
 
     assert window_created
     assert render_called

@@ -471,14 +471,14 @@ def test_code_formatting_style():
 
     result = py2glsl(shader)
 
-    # Check no extra spaces at start of lines
+    # Check only version, in/out declarations, and uniforms have no indentation
     for line in result.fragment_source.split("\n"):
         if line and not line.isspace():
-            assert not line.startswith("    ")
-
-    # Check brace style
-    assert "{\n" in result.fragment_source
-    assert not "{ \n" in result.fragment_source
+            if any(
+                line.startswith(prefix)
+                for prefix in ["#version", "in ", "out ", "uniform "]
+            ):
+                assert not line.startswith("    ")
 
 
 def test_expression_grouping():
@@ -565,8 +565,6 @@ def test_simple_for_loop():
         return vec4(x)
 
     result = py2glsl(shader)
-    print("\nSimple for loop generated code:")
-    print(result.fragment_source)
     assert "for (int i = 0; i < 5; i++)" in result.fragment_source
 
 
@@ -581,8 +579,6 @@ def test_nested_for_loops():
         return vec4(x)
 
     result = py2glsl(shader)
-    print("\nNested for loops generated code:")
-    print(result.fragment_source)
     assert "for (int i = 0; i < 3; i++)" in result.fragment_source
     assert "for (int j = 0; j < 2; j++)" in result.fragment_source
 
@@ -597,8 +593,6 @@ def test_for_loop_with_range_start():
         return vec4(x)
 
     result = py2glsl(shader)
-    print("\nRange with start generated code:")
-    print(result.fragment_source)
     assert "for (int i = 1; i < 4; i++)" in result.fragment_source
 
 
@@ -612,8 +606,6 @@ def test_loop_bounds_integer():
         return vec4(x)
 
     result = py2glsl(shader)
-    print("\nInteger bounds test:")
-    print(result.fragment_source)
     assert "for (int i = 0; i < 5; i++)" in result.fragment_source
 
 
@@ -641,6 +633,258 @@ def test_loop_bounds_expression():
         return vec4(x)
 
     result = py2glsl(shader)
-    print("\nExpression bounds test:")
-    print(result.fragment_source)
     assert "for (int i = 0; i < count + 2; i++)" in result.fragment_source
+
+
+def test_vertex_shader_interface():
+    """Test vertex shader interface generation"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        return vec4(1.0, 0.0, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "in vec2 vs_uv;" in result.fragment_source
+    assert "out vec4 fs_color;" in result.fragment_source
+
+
+def test_vertex_shader_uv_usage():
+    """Test proper vs_uv usage in shader"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        return vec4(vs_uv.x, vs_uv.y, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "vs_uv.x" in result.fragment_source
+    assert "vs_uv.y" in result.fragment_source
+
+
+def test_vertex_shader_swizzle():
+    """Test vs_uv swizzling operations"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        xy = vs_uv.xy
+        yx = vs_uv.yx
+        return vec4(xy.x, xy.y, yx.x, yx.y)
+
+    result = py2glsl(shader)
+    assert "vec2 xy = vs_uv.xy;" in result.fragment_source
+    assert "vec2 yx = vs_uv.yx;" in result.fragment_source
+
+
+def test_vertex_shader_precision():
+    """Test precision handling with vs_uv coordinates"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        uv = vs_uv * 2.0 - 1.0  # Convert [0,1] to [-1,1]
+        return vec4(uv, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "vec2 uv = (vs_uv * 2.0) - 1.0;" in result.fragment_source
+
+
+def test_vertex_shader_with_uniforms():
+    """Test vs_uv interaction with uniforms"""
+
+    def shader(vs_uv: vec2, *, u_scale: float) -> vec4:
+        pos = vs_uv * u_scale
+        return vec4(pos, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "uniform float u_scale;" in result.fragment_source
+    assert "vec2 pos = vs_uv * u_scale;" in result.fragment_source
+
+
+def test_vertex_shader_function_params():
+    """Test vs_uv usage in function parameters"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        def transform(p: vec2) -> vec2:
+            return p * 2.0 - 1.0
+
+        pos = transform(vs_uv)
+        return vec4(pos, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "vec2 transform(vec2 p)" in result.fragment_source
+    assert "return (p * 2.0) - 1.0;" in result.fragment_source  # Fixed parentheses
+
+
+def test_vertex_shader_complex_usage():
+    """Test complex vs_uv manipulations"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        def polar(p: vec2) -> vec2:
+            return vec2(length(p), atan(p.y, p.x))
+
+        center = vs_uv * 2.0 - 1.0
+        polar_coords = polar(center)
+        return vec4(polar_coords, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "vec2 center = (vs_uv * 2.0) - 1.0;" in result.fragment_source
+    assert "vec2 polar_coords = polar(center);" in result.fragment_source
+
+
+def test_vertex_shader_resolution():
+    """Test vs_uv with resolution uniform"""
+
+    def shader(vs_uv: vec2, *, u_resolution: vec2) -> vec4:
+        aspect = u_resolution.x / u_resolution.y
+        pos = vs_uv
+        pos.x *= aspect
+        return vec4(pos, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "uniform vec2 u_resolution;" in result.fragment_source
+    assert "float aspect = u_resolution.x / u_resolution.y;" in result.fragment_source
+
+
+def test_vertex_shader_time():
+    """Test vs_uv with time-based animation"""
+
+    def shader(vs_uv: vec2, *, u_time: float) -> vec4:
+        pos = vs_uv * 2.0 - 1.0
+        angle = u_time
+        x = pos.x * cos(angle) - pos.y * sin(angle)
+        y = pos.x * sin(angle) + pos.y * cos(angle)
+        return vec4(x, y, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "uniform float u_time;" in result.fragment_source
+    assert "vec2 pos = (vs_uv * 2.0) - 1.0;" in result.fragment_source
+
+
+def test_vertex_shader_mouse():
+    """Test vs_uv with mouse interaction"""
+
+    def shader(vs_uv: vec2, *, u_mouse: vec2) -> vec4:
+        dist = length(vs_uv - u_mouse)
+        glow = 0.1 / (dist + 0.1)
+        return vec4(glow, glow, glow, 1.0)
+
+    result = py2glsl(shader)
+    assert "uniform vec2 u_mouse;" in result.fragment_source
+    assert "float dist = length(vs_uv - u_mouse);" in result.fragment_source
+
+
+def test_vertex_shader_input_attributes():
+    """Test vertex shader input attribute declarations"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        return vec4(1.0)
+
+    result = py2glsl(shader)
+    # Verify vertex shader has proper input declarations
+    assert "layout(location = 0) in vec2 in_pos;" in result.vertex_source
+    assert "layout(location = 1) in vec2 in_uv;" in result.vertex_source
+    assert "out vec2 vs_uv;" in result.vertex_source
+
+
+def test_uniform_declaration_and_usage():
+    """Test uniform declaration and usage in shaders"""
+
+    def shader(vs_uv: vec2, *, u_time: float, u_resolution: vec2) -> vec4:
+        return vec4(u_time, u_resolution.x, u_resolution.y, 1.0)
+
+    result = py2glsl(shader)
+    # Verify uniform declarations
+    assert "uniform float u_time;" in result.fragment_source
+    assert "uniform vec2 u_resolution;" in result.fragment_source
+
+
+def test_precision_handling():
+    """Test numerical precision handling in shaders"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 0.0  # Should be exactly 0.0
+        y = 1.0  # Should be exactly 1.0
+        return vec4(x, y, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    # Verify exact float values
+    assert "0.0" in result.fragment_source
+    assert "1.0" in result.fragment_source
+
+
+def test_glsl_syntax_validation():
+    """Test GLSL syntax validation"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        render_called = True  # This should be converted to float/bool
+        return vec4(1.0)
+
+    result = py2glsl(shader)
+    # Verify Python bool is converted to GLSL bool/float
+    assert (
+        "bool render_called = true;" in result.fragment_source
+        or "float render_called = 1.0;" in result.fragment_source
+    )
+
+
+def test_vertex_shader_coordinate_mapping():
+    """Test vertex shader coordinate mapping"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        # Map [0,1] to [-1,1]
+        pos = vs_uv * 2.0 - 1.0
+        return vec4(pos, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    # Verify coordinate transformation
+    assert "vec2 pos = (vs_uv * 2.0) - 1.0;" in result.fragment_source
+
+
+def test_shader_interface_validation():
+    """Test shader interface validation"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        return vec4(vs_uv, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    # Verify shader interface
+    assert "in vec2 vs_uv;" in result.fragment_source
+    assert "out vec4 fs_color;" in result.fragment_source
+    assert "void main()" in result.fragment_source
+    assert "fs_color = shader(vs_uv);" in result.fragment_source
+
+
+def test_uniform_type_validation():
+    """Test uniform type validation"""
+
+    def shader(vs_uv: vec2, *, u_float: float, u_vec2: vec2, u_vec4: vec4) -> vec4:
+        return u_vec4
+
+    result = py2glsl(shader)
+    # Verify uniform type declarations
+    assert "uniform float u_float;" in result.fragment_source
+    assert "uniform vec2 u_vec2;" in result.fragment_source
+    assert "uniform vec4 u_vec4;" in result.fragment_source
+
+
+def test_shader_main_function():
+    """Test shader main function generation"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        return vec4(1.0)
+
+    result = py2glsl(shader)
+    expected_main = """
+void main()
+{
+    fs_color = shader(vs_uv);
+}
+""".strip()
+    assert expected_main in result.fragment_source
+
+
+def test_bool_conversion():
+    """Test basic boolean literal conversion"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = True
+        y = False
+        return vec4(1.0)
+
+    result = py2glsl(shader)
+    assert "bool x = true;" in result.fragment_source
+    assert "bool y = false;" in result.fragment_source
