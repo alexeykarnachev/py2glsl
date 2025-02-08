@@ -2,7 +2,7 @@ import ast
 import inspect
 import textwrap
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
@@ -32,7 +32,7 @@ class ShaderTranspiler:
         self.uniforms: Dict[str, str] = {}
         self.functions: List[ast.FunctionDef] = []
         self.indent_level: int = 0
-        self.declared_vars: Set[str] = set()
+        self.declared_vars: Dict[str, str] = {}
 
     def _indent(self, text: str) -> str:
         """Add proper indentation to text."""
@@ -81,7 +81,10 @@ class ShaderTranspiler:
 
     def _infer_type(self, node: ast.AST) -> str:
         """Infer GLSL type from AST node."""
-        if isinstance(node, ast.Call):
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return "float"
+        elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 if node.func.id in ("vec2", "Vec2"):
                     return "vec2"
@@ -89,104 +92,139 @@ class ShaderTranspiler:
                     return "vec3"
                 elif node.func.id in ("vec4", "Vec4"):
                     return "vec4"
-                elif node.func.id in ("normalize", "length"):
-                    return self._infer_type(node.args[0])
-                elif node.func.id == "dot":
+                elif node.func.id in ("length", "dot", "sin", "cos", "abs"):
                     return "float"
-                elif node.func.id == "mix":
+                elif node.func.id == "normalize":
                     return self._infer_type(node.args[0])
         elif isinstance(node, ast.BinOp):
             left_type = self._infer_type(node.left)
             right_type = self._infer_type(node.right)
-            if "vec" in left_type and "vec" in right_type:
-                return max(left_type, right_type, key=len)
-            elif "vec" in left_type:
-                return left_type
-            elif "vec" in right_type:
-                return right_type
+            if "vec" in left_type or "vec" in right_type:
+                if "vec4" in (left_type, right_type):
+                    return "vec4"
+                elif "vec3" in (left_type, right_type):
+                    return "vec3"
+                elif "vec2" in (left_type, right_type):
+                    return "vec2"
             return "float"
-        elif isinstance(node, ast.Attribute):
-            base_type = self._infer_type(node.value)
-            if node.attr in ("xy", "yz", "xz"):
-                return "vec2"
-            elif node.attr in ("xyz", "rgb"):
-                return "vec3"
-            elif node.attr in ("x", "y", "z", "w"):
-                return "float"
-            return base_type
         elif isinstance(node, ast.Name):
             if node.id in self.declared_vars:
-                return "float"  # Default to float for now
+                return self.declared_vars[node.id]
+            return "float"
+        elif isinstance(node, ast.Attribute):
+            value_type = self._infer_type(node.value)
+            if value_type == "vec4":
+                if node.attr in ("xyz", "zyx"):
+                    return "vec3"
+                elif node.attr in ("xy", "yx", "xz", "zx", "yz", "zy"):
+                    return "vec2"
+                elif node.attr in ("x", "y", "z", "w"):
+                    return "float"
+            elif value_type == "vec3":
+                if node.attr in ("xy", "yx", "xz", "zx", "yz", "zy"):
+                    return "vec2"
+                elif node.attr in ("x", "y", "z"):
+                    return "float"
+            elif value_type == "vec2":
+                if node.attr in ("xy", "yx"):
+                    return "vec2"
+                elif node.attr in ("x", "y"):
+                    return "float"
         return "float"
 
     def _convert_function(self, node: ast.FunctionDef, is_main: bool = False) -> str:
         """Convert Python function to GLSL function."""
-        self.declared_vars = set()
+        self.declared_vars = {}
 
         return_type = self._get_glsl_type(node.returns)
-
         args = []
         for arg in node.args.args:
             arg_type = self._get_glsl_type(arg.annotation)
             args.append(f"{arg_type} {arg.arg}")
-            self.declared_vars.add(arg.arg)
+            self.declared_vars[arg.arg] = arg_type
 
         func_name = "shader" if is_main else node.name
-
-        lines = [f"{return_type} {func_name}({', '.join(args)}) {{"]
+        lines = []
+        lines.append(f"{return_type} {func_name}({', '.join(args)})")
+        lines.append("{")
         self.indent_level += 1
         lines.extend(self._convert_body(node.body))
         self.indent_level -= 1
         lines.append("}")
-
-        return "\n".join(self._indent(line) for line in lines)
+        return "\n".join(lines)
 
     def _convert_body(self, body: List[ast.stmt]) -> List[str]:
         """Convert Python statements to GLSL statements."""
         lines = []
         for node in body:
             if isinstance(node, ast.Return):
-                lines.append(f"return {self._convert_expr(node.value)};")
+                lines.append(self._indent(f"return {self._convert_expr(node.value)};"))
             elif isinstance(node, ast.Assign):
-                target = node.targets[0]
-                if isinstance(target, ast.Name):
-                    value = self._convert_expr(node.value)
-                    if target.id not in self.declared_vars:
-                        var_type = self._infer_type(node.value)
-                        lines.append(f"{var_type} {target.id} = {value};")
-                        self.declared_vars.add(target.id)
-                    else:
-                        lines.append(f"{target.id} = {value};")
+                value = self._convert_expr(node.value)
+                inferred_type = self._infer_type(node.value)
+                for target in reversed(node.targets):
+                    if isinstance(target, ast.Name):
+                        if target.id not in self.declared_vars:
+                            lines.append(
+                                self._indent(f"{inferred_type} {target.id} = {value};")
+                            )
+                            self.declared_vars[target.id] = inferred_type
+                        else:
+                            lines.append(self._indent(f"{target.id} = {value};"))
+            elif isinstance(node, ast.AugAssign):
+                target = self._convert_expr(node.target)
+                value = self._convert_expr(node.value)
+                op = {
+                    ast.Add: "+=",
+                    ast.Sub: "-=",
+                    ast.Mult: "*=",
+                    ast.Div: "/=",
+                }[type(node.op)]
+                lines.append(self._indent(f"{target} {op} {value};"))
             elif isinstance(node, ast.If):
                 lines.extend(self._convert_if(node))
             elif isinstance(node, ast.For):
                 lines.extend(self._convert_for(node))
             elif isinstance(node, ast.Break):
-                lines.append("break;")
+                lines.append(self._indent("break;"))
         return lines
 
     def _convert_if(self, node: ast.If) -> List[str]:
         """Convert if statement to GLSL."""
         lines = []
-        lines.append(f"if ({self._convert_expr(node.test)}) {{")
+        lines.append(self._indent(f"if ({self._convert_expr(node.test)})"))
+        lines.append(self._indent("{"))
         self.indent_level += 1
         lines.extend(self._convert_body(node.body))
         self.indent_level -= 1
+        lines.append(self._indent("}"))
 
         if node.orelse:
             if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
                 elif_node = node.orelse[0]
-                lines.append("} else if (" + self._convert_expr(elif_node.test) + ") {")
+                lines.append(
+                    self._indent(f"else if ({self._convert_expr(elif_node.test)})")
+                )
+                lines.append(self._indent("{"))
                 self.indent_level += 1
                 lines.extend(self._convert_body(elif_node.body))
                 self.indent_level -= 1
+                lines.append(self._indent("}"))
+                if elif_node.orelse:
+                    lines.append(self._indent("else"))
+                    lines.append(self._indent("{"))
+                    self.indent_level += 1
+                    lines.extend(self._convert_body(elif_node.orelse))
+                    self.indent_level -= 1
+                    lines.append(self._indent("}"))
             else:
-                lines.append("} else {")
+                lines.append(self._indent("else"))
+                lines.append(self._indent("{"))
                 self.indent_level += 1
                 lines.extend(self._convert_body(node.orelse))
                 self.indent_level -= 1
+                lines.append(self._indent("}"))
 
-        lines.append("}")
         return lines
 
     def _convert_for(self, node: ast.For) -> List[str]:
@@ -196,20 +234,22 @@ class ShaderTranspiler:
             and isinstance(node.iter.func, ast.Name)
             and node.iter.func.id == "range"
         ):
-
             var = node.target.id
             if len(node.iter.args) == 1:
                 end = self._convert_expr(node.iter.args[0])
-                lines = [f"for (int {var} = 0; {var} < {end}; {var}++) {{"]
+                lines = [self._indent(f"for (int {var} = 0; {var} < {end}; {var}++)")]
             else:
                 start = self._convert_expr(node.iter.args[0])
                 end = self._convert_expr(node.iter.args[1])
-                lines = [f"for (int {var} = {start}; {var} < {end}; {var}++) {{"]
+                lines = [
+                    self._indent(f"for (int {var} = {start}; {var} < {end}; {var}++)")
+                ]
 
+            lines.append(self._indent("{"))
             self.indent_level += 1
             lines.extend(self._convert_body(node.body))
             self.indent_level -= 1
-            lines.append("}")
+            lines.append(self._indent("}"))
             return lines
 
         raise ValueError("Only range-based for loops are supported")
@@ -236,6 +276,10 @@ class ShaderTranspiler:
         elif isinstance(node, ast.BinOp):
             left = self._convert_expr(node.left)
             right = self._convert_expr(node.right)
+            if isinstance(node.left, ast.BinOp):
+                left = f"({left})"
+            if isinstance(node.right, ast.BinOp):
+                right = f"({right})"
             op = {
                 ast.Add: "+",
                 ast.Sub: "-",
@@ -279,7 +323,7 @@ class ShaderTranspiler:
 
         # Validate first argument is vs_uv: vec2
         if params[0][0] != "vs_uv":
-            raise TypeError("First argument must be named 'vs_uv'")
+            raise TypeError("First argument must be vs_uv")
 
         first_param = params[0][1]
         if first_param.annotation == first_param.empty:
@@ -333,15 +377,15 @@ class ShaderTranspiler:
         lines.append("")
 
         # Add main function
-        lines.extend(["void main() {", "    fs_color = shader(vs_uv);", "}"])
+        lines.append("void main() {")
+        lines.append("    fs_color = shader(vs_uv);")
+        lines.append("}")
 
-        return ShaderResult(
-            fragment_source="\n".join(lines), uniforms=analysis.uniforms
-        )
+        return ShaderResult(fragment_source="\n".join(lines), uniforms=self.uniforms)
 
 
-def py2glsl(shader_func: Any) -> ShaderResult:
+def py2glsl(func: Any) -> ShaderResult:
     """Transform Python shader function to GLSL."""
     transpiler = ShaderTranspiler()
-    analysis = transpiler.analyze(shader_func)
+    analysis = transpiler.analyze(func)
     return transpiler.transform(analysis)
