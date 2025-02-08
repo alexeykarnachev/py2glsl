@@ -72,13 +72,10 @@ def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray
                     uniform_type = shader_result.uniforms[name]
                     if uniform_type == "int":
                         program[name].value = int(value)  # Keep integers as integers
-                    elif uniform_type == "float":
-                        program[name].value = float(value)
                     elif isinstance(value, (tuple, list, np.ndarray)):
-                        # Convert sequence elements maintaining their types
-                        program[name].value = tuple(
-                            int(x) if isinstance(x, int) else float(x) for x in value
-                        )
+                        program[name].value = tuple(map(float, value))
+                    else:
+                        program[name].value = float(value)
                 except KeyError:
                     continue
 
@@ -96,10 +93,9 @@ def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray
         ctx.clear()
         vao.render(mode=moderngl.TRIANGLE_STRIP)
 
-        # Read pixels without normalization for integer uniforms
+        # Read pixels and normalize
         data = np.frombuffer(fbo.read(components=4, alignment=1), dtype=np.uint8)
         data = data.reshape(*size, 4)
-
         return data.astype(np.float32) / 255.0
 
 
@@ -120,6 +116,7 @@ def render_gif(
     """Render shader animation to GIF"""
     frames = []
     frame_count = int(duration * fps)
+    frame_duration = 1000 / fps  # Convert to milliseconds per frame
 
     for frame in range(frame_count):
         time = frame / fps
@@ -131,7 +128,12 @@ def render_gif(
         frame_data = render_array(shader_func, size=size, **frame_uniforms)
         frames.append((frame_data * 255).astype(np.uint8))
 
-    imageio.mimsave(filename, frames, fps=fps, format="GIF")
+    imageio.mimsave(
+        filename,
+        frames,
+        format="GIF",
+        duration=frame_duration,  # Use duration in milliseconds instead of fps
+    )
 
 
 def render_video(
@@ -279,10 +281,13 @@ def animate(
                 # Set uniforms
                 for name, value in frame_uniforms.items():
                     if name in shader_result.uniforms:
-                        if isinstance(value, (float, int)):
-                            program[name].value = float(value)
+                        uniform_type = shader_result.uniforms[name]
+                        if uniform_type == "int":
+                            program[name].value = int(value)
                         elif isinstance(value, (tuple, list, np.ndarray)):
                             program[name].value = tuple(map(float, value))
+                        else:
+                            program[name].value = float(value)
 
                 # Render
                 ctx.clear(0.0, 0.0, 0.0, 0.0)
