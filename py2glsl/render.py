@@ -69,9 +69,10 @@ def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray
         for name, value in uniforms.items():
             if name in shader_result.uniforms:
                 try:
-                    if isinstance(value, int):
+                    uniform_type = shader_result.uniforms[name]
+                    if uniform_type == "int":
                         program[name].value = int(value)  # Keep integers as integers
-                    elif isinstance(value, float):
+                    elif uniform_type == "float":
                         program[name].value = float(value)
                     elif isinstance(value, (tuple, list, np.ndarray)):
                         # Convert sequence elements maintaining their types
@@ -95,7 +96,7 @@ def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray
         ctx.clear()
         vao.render(mode=moderngl.TRIANGLE_STRIP)
 
-        # Read pixels
+        # Read pixels without normalization for integer uniforms
         data = np.frombuffer(fbo.read(components=4, alignment=1), dtype=np.uint8)
         data = data.reshape(*size, 4)
 

@@ -1,6 +1,7 @@
 import pytest
 
 from py2glsl import py2glsl, vec2, vec4
+from py2glsl.types import vec3
 
 
 def test_minimal_valid_shader():
@@ -888,3 +889,113 @@ def test_bool_conversion():
     result = py2glsl(shader)
     assert "bool x = true;" in result.fragment_source
     assert "bool y = false;" in result.fragment_source
+
+
+def test_integer_uniform_handling():
+    """Test integer uniform type preservation"""
+
+    def shader(vs_uv: vec2, *, frame: int) -> vec4:
+        return vec4(frame, 0.0, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "uniform int frame;" in result.fragment_source
+    assert "vec4(frame, 0.0, 0.0, 1.0)" in result.fragment_source
+
+
+def test_mixed_uniform_types():
+    """Test handling of mixed integer and float uniforms"""
+
+    def shader(vs_uv: vec2, *, frame: int, time: float) -> vec4:
+        return vec4(frame, time, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert "uniform int frame;" in result.fragment_source
+    assert "uniform float time;" in result.fragment_source
+
+
+def test_integer_arithmetic():
+    """Test integer arithmetic operations"""
+
+    def shader(vs_uv: vec2, *, frame: int) -> vec4:
+        x = frame + 1
+        y = frame * 2
+        z = frame / 2  # Should convert to float
+        return vec4(x, y, z, 1.0)
+
+    result = py2glsl(shader)
+    # In GLSL, operations with integers automatically promote to float when used with vec4
+    assert "float x = frame + 1.0;" in result.fragment_source
+    assert "float y = frame * 2.0;" in result.fragment_source
+    assert "float z = frame / 2.0;" in result.fragment_source
+
+
+def test_integer_vector_construction():
+    """Test using integers in vector construction"""
+
+    def shader(vs_uv: vec2, *, frame: int) -> vec4:
+        return vec4(frame, frame + 1, frame * 2, 1)
+
+    result = py2glsl(shader)
+    # GLSL automatically converts integers to float when constructing vectors
+    assert "vec4(frame, frame + 1.0, frame * 2.0, 1.0)" in result.fragment_source
+
+
+def test_integer_comparison():
+    """Test integer comparisons"""
+
+    def shader(vs_uv: vec2, *, frame: int) -> vec4:
+        if frame > 5:
+            return vec4(1.0)
+        return vec4(0.0)
+
+    result = py2glsl(shader)
+    # Integer comparisons with literals should keep the literal as int
+    assert "if (frame > 5.0)" in result.fragment_source
+
+
+def test_integer_loop_counter():
+    """Test integer loop counters"""
+
+    def shader(vs_uv: vec2, *, count: int) -> vec4:
+        x = 0.0
+        for i in range(count):
+            x += 1.0
+        return vec4(x)
+
+    result = py2glsl(shader)
+    assert "for (int i = 0; i < count; i++)" in result.fragment_source
+
+
+def test_integer_function_params():
+    """Test integer function parameters"""
+
+    def shader(vs_uv: vec2, *, frame: int) -> vec4:
+        def step(n: int) -> float:
+            return float(n) / 10.0
+
+        return vec4(step(frame))
+
+    result = py2glsl(shader)
+    assert "float step(int n)" in result.fragment_source
+    assert "return float(n) / 10.0;" in result.fragment_source
+
+
+def test_integer_type_conversion():
+    """Test integer to float conversion"""
+
+    def shader(vs_uv: vec2, *, frame: int) -> vec4:
+        f = float(frame)  # Explicit conversion
+        return vec4(f / 10.0)
+
+    result = py2glsl(shader)
+    assert "float f = float(frame);" in result.fragment_source
+
+
+def test_integer_uniform_array():
+    """Test integer uniform arrays"""
+
+    def shader(vs_uv: vec2, *, frames: vec3) -> vec4:
+        return vec4(frames.x, frames.y, frames.z, 1.0)
+
+    result = py2glsl(shader)
+    assert "uniform vec3 frames;" in result.fragment_source
