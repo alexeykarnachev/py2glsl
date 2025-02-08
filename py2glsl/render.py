@@ -28,25 +28,25 @@ def gl_context(size: Size) -> Iterator[moderngl.Context]:
 def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray:
     """Render shader to numpy array"""
     with gl_context(size) as ctx:
-        # Create fullscreen quad
+        # Create fullscreen quad with proper UV coordinates
         quad_vertices = np.array(
             [
                 -1.0,
                 -1.0,
                 0.0,
-                0.0,  # bottom left
+                0.0,
                 1.0,
-                -1.0,
-                1.0,
-                0.0,  # bottom right
                 -1.0,
                 1.0,
                 0.0,
-                1.0,  # top left
+                -1.0,
+                1.0,
+                0.0,
                 1.0,
                 1.0,
                 1.0,
-                1.0,  # top right
+                1.0,
+                1.0,
             ],
             dtype="f4",
         )
@@ -63,21 +63,29 @@ def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray
 
         # Set built-in uniforms
         if "u_resolution" in shader_result.uniforms:
-            program["u_resolution"].value = size
+            program["u_resolution"].value = tuple(map(int, size))
 
         # Set custom uniforms
         for name, value in uniforms.items():
             if name in shader_result.uniforms:
                 try:
-                    if isinstance(value, (float, int)):
+                    if isinstance(value, int):
+                        program[name].value = int(value)  # Keep integers as integers
+                    elif isinstance(value, float):
                         program[name].value = float(value)
                     elif isinstance(value, (tuple, list, np.ndarray)):
-                        program[name].value = tuple(map(float, value))
+                        # Convert sequence elements maintaining their types
+                        program[name].value = tuple(
+                            int(x) if isinstance(x, int) else float(x) for x in value
+                        )
                 except KeyError:
                     continue
 
-        # Create vertex array with correct attribute names
-        vao = ctx.vertex_array(program, [(quad, "2f 2f", "in_pos", "in_uv")])
+        vao = ctx.vertex_array(
+            program,
+            [(quad, "2f 2f", "in_pos", "in_uv")],
+            skip_errors=True,
+        )
 
         # Create framebuffer
         fbo = ctx.framebuffer(color_attachments=[ctx.texture(size, 4)])
@@ -213,13 +221,23 @@ def animate(
         # Convert shader to GLSL
         shader_result = py2glsl(shader_func)
 
+        print("Vertex shader:", VERTEX_SHADER)
+        print("Fragment shader:", shader_result.fragment_source)
+
         # Create shader program
         program = ctx.program(
             vertex_shader=VERTEX_SHADER,
             fragment_shader=shader_result.fragment_source,
         )
 
-        vao = ctx.vertex_array(program, [(quad, "2f 2f", "in_pos", "in_uv")])
+        print("Attribute locations:", program._attribute_locations)
+        print("Attribute types:", program._attribute_types)
+
+        vao = ctx.vertex_array(
+            program,
+            [(quad, "2f 2f", "in_pos", "in_uv")],
+            skip_errors=True,
+        )
 
         # Track mouse position
         mouse_pos = [0.0, 0.0]

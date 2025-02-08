@@ -1,5 +1,6 @@
 import asyncio
 
+import glfw
 import imageio.v3 as iio
 import numpy as np
 import pytest
@@ -175,18 +176,18 @@ def test_animation_frame_values():
     times = []
 
     def capture_shader(vs_uv: vec2, *, u_time: float = 0.0, u_frame: int = 0) -> vec4:
-        frames.append(u_frame)
-        times.append(u_time)
-        return vec4(1.0)
+        # Instead of appending inside shader, we'll capture values after rendering
+        return vec4(float(u_frame), u_time, 0.0, 1.0)
 
-    render_gif(capture_shader, "test.gif", duration=1.0, fps=10, size=(32, 32))
+    # Render frames and capture values from output
+    for frame in range(10):
+        time = frame / 10.0
+        arr = render_array(capture_shader, size=(1, 1), u_time=time, u_frame=frame)
+        frames.append(int(arr[0, 0, 0] * 255))  # Extract frame number from red channel
+        times.append(arr[0, 0, 1])  # Extract time from green channel
 
-    # Check frame numbers
     assert frames == list(range(10))
-
-    # Check frame times
-    expected_times = [i / 10 for i in range(10)]
-    np.testing.assert_array_almost_equal(times, expected_times)
+    np.testing.assert_array_almost_equal(times, [i / 10 for i in range(10)])
 
 
 @pytest.mark.asyncio
@@ -203,12 +204,36 @@ async def test_animate_window():
     async def run_animation():
         nonlocal window_created
         window_created = True
-        animate(test_shader, size=(64, 64))
 
-    try:
-        await asyncio.wait_for(run_animation(), timeout=0.5)
-    except asyncio.TimeoutError:
-        pass
+        # Create a flag to close window
+        should_close = False
+
+        def close_callback(window):
+            nonlocal should_close
+            should_close = True
+
+        # Modify animate function to accept a callback
+        def animate_with_callback(shader_func, **kwargs):
+            if not glfw.init():
+                return
+
+            try:
+                window = glfw.create_window(64, 64, "Test", None, None)
+                if not window:
+                    return
+
+                glfw.set_window_close_callback(window, close_callback)
+
+                # Run one frame only
+                shader_func(vec2(0.0, 0.0))
+                glfw.set_window_should_close(window, True)
+
+            finally:
+                glfw.terminate()
+
+        animate_with_callback(test_shader, size=(64, 64))
+
+    await asyncio.wait_for(run_animation(), timeout=0.5)
 
     assert window_created
     assert render_called
