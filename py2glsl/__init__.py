@@ -14,6 +14,7 @@ from py2glsl.builtins import (
     sin,
     smoothstep,
 )
+from py2glsl.render import animate, render_array, render_gif, render_image, render_video
 from py2glsl.transpiler import py2glsl
 from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
@@ -39,4 +40,10 @@ __all__ = [
     "sin",
     "smoothstep",
     "py2glsl",
+    "render_array",
+    "render_image",
+    "animate",
+    "render_gif",
+    "render_video",
+    "animate",
 ]
