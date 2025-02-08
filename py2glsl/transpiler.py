@@ -36,7 +36,16 @@ class ShaderTranspiler:
 
     def _indent(self, text: str) -> str:
         """Add proper indentation to text."""
-        return "    " * self.indent_level + text
+        # Don't indent version, in/out declarations, and uniforms
+        if text.startswith(("#version", "in ", "out ", "uniform ")):
+            return text
+        # Don't indent function declarations and main
+        if text.endswith(("{", "}", "};")) or text.startswith(
+            ("void main", "vec", "float")
+        ):
+            return text
+        # Indent everything else with 4 spaces
+        return "    " + text
 
     def _is_vec2_type(self, type_: Any) -> bool:
         """Check if type is vec2."""
@@ -81,21 +90,32 @@ class ShaderTranspiler:
 
     def _infer_type(self, node: ast.AST) -> str:
         """Infer GLSL type from AST node."""
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, (int, float)):
-                return "float"
-        elif isinstance(node, ast.Call):
+        if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
+                # Vector constructors
                 if node.func.id in ("vec2", "Vec2"):
                     return "vec2"
                 elif node.func.id in ("vec3", "Vec3"):
                     return "vec3"
                 elif node.func.id in ("vec4", "Vec4"):
                     return "vec4"
-                elif node.func.id in ("length", "dot", "sin", "cos", "abs"):
-                    return "float"
+                # Functions that preserve input type
                 elif node.func.id == "normalize":
+                    arg_type = self._infer_type(node.args[0])
+                    if arg_type.startswith("vec"):
+                        return arg_type
+                    return "float"
+                # Functions that return float
+                elif node.func.id in ("length", "dot"):
+                    return "float"
+                # Mix returns the type of its first argument
+                elif node.func.id == "mix":
                     return self._infer_type(node.args[0])
+                # Other functions
+                elif node.func.id in [f.name for f in self.functions]:
+                    for func in self.functions:
+                        if func.name == node.func.id:
+                            return self._get_glsl_type(func.returns)
         elif isinstance(node, ast.BinOp):
             left_type = self._infer_type(node.left)
             right_type = self._infer_type(node.right)
@@ -108,28 +128,17 @@ class ShaderTranspiler:
                     return "vec2"
             return "float"
         elif isinstance(node, ast.Name):
+            # Check uniforms first
+            if node.id in self.uniforms:
+                return self.uniforms[node.id]
+            # Then check local variables
             if node.id in self.declared_vars:
                 return self.declared_vars[node.id]
-            return "float"
         elif isinstance(node, ast.Attribute):
             value_type = self._infer_type(node.value)
-            if value_type == "vec4":
-                if node.attr in ("xyz", "zyx"):
-                    return "vec3"
-                elif node.attr in ("xy", "yx", "xz", "zx", "yz", "zy"):
-                    return "vec2"
-                elif node.attr in ("x", "y", "z", "w"):
-                    return "float"
-            elif value_type == "vec3":
-                if node.attr in ("xy", "yx", "xz", "zx", "yz", "zy"):
-                    return "vec2"
-                elif node.attr in ("x", "y", "z"):
-                    return "float"
-            elif value_type == "vec2":
-                if node.attr in ("xy", "yx"):
-                    return "vec2"
-                elif node.attr in ("x", "y"):
-                    return "float"
+            if value_type.startswith("vec"):
+                components = len(node.attr)
+                return f"vec{components}" if components > 1 else "float"
         return "float"
 
     def _convert_function(self, node: ast.FunctionDef, is_main: bool = False) -> str:
@@ -158,19 +167,26 @@ class ShaderTranspiler:
         lines = []
         for node in body:
             if isinstance(node, ast.Return):
-                lines.append(self._indent(f"return {self._convert_expr(node.value)};"))
+                lines.append(f"return {self._convert_expr(node.value)};")
             elif isinstance(node, ast.Assign):
                 value = self._convert_expr(node.value)
                 inferred_type = self._infer_type(node.value)
-                for target in reversed(node.targets):
+
+                # Preserve vector types through operations
+                if isinstance(node.value, ast.Call):
+                    if isinstance(node.value.func, ast.Name):
+                        if node.value.func.id == "normalize":
+                            inferred_type = self._infer_type(node.value.args[0])
+                        elif node.value.func.id == "mix":
+                            inferred_type = self._infer_type(node.value.args[0])
+
+                for target in node.targets:
                     if isinstance(target, ast.Name):
                         if target.id not in self.declared_vars:
-                            lines.append(
-                                self._indent(f"{inferred_type} {target.id} = {value};")
-                            )
                             self.declared_vars[target.id] = inferred_type
+                            lines.append(f"{inferred_type} {target.id} = {value};")
                         else:
-                            lines.append(self._indent(f"{target.id} = {value};"))
+                            lines.append(f"{target.id} = {value};")
             elif isinstance(node, ast.AugAssign):
                 target = self._convert_expr(node.target)
                 value = self._convert_expr(node.value)
@@ -180,13 +196,37 @@ class ShaderTranspiler:
                     ast.Mult: "*=",
                     ast.Div: "/=",
                 }[type(node.op)]
-                lines.append(self._indent(f"{target} {op} {value};"))
+                lines.append(f"{target} {op} {value};")
             elif isinstance(node, ast.If):
-                lines.extend(self._convert_if(node))
+                lines.append(f"if ({self._convert_expr(node.test)})")
+                lines.append("{")
+                lines.extend(self._convert_body(node.body))
+                lines.append("}")
+                if node.orelse:
+                    lines.append("else")
+                    lines.append("{")
+                    lines.extend(self._convert_body(node.orelse))
+                    lines.append("}")
             elif isinstance(node, ast.For):
-                lines.extend(self._convert_for(node))
-            elif isinstance(node, ast.Break):
-                lines.append(self._indent("break;"))
+                if (
+                    isinstance(node.iter, ast.Call)
+                    and isinstance(node.iter.func, ast.Name)
+                    and node.iter.func.id == "range"
+                ):
+                    if len(node.iter.args) == 1:
+                        end = self._convert_expr(node.iter.args[0])
+                        lines.append(
+                            f"for (int {node.target.id} = 0; {node.target.id} < {end}; {node.target.id}++)"
+                        )
+                    else:
+                        start = self._convert_expr(node.iter.args[0])
+                        end = self._convert_expr(node.iter.args[1])
+                        lines.append(
+                            f"for (int {node.target.id} = {start}; {node.target.id} < {end}; {node.target.id}++)"
+                        )
+                    lines.append("{")
+                    lines.extend(self._convert_body(node.body))
+                    lines.append("}")
         return lines
 
     def _convert_if(self, node: ast.If) -> List[str]:
@@ -358,9 +398,11 @@ class ShaderTranspiler:
     def transform(self, analysis: ShaderAnalysis) -> ShaderResult:
         """Transform Python shader to GLSL."""
         lines = ["#version 460", ""]
+
+        # Add declarations without indentation
         lines.extend(["in vec2 vs_uv;", "out vec4 fs_color;"])
 
-        # Add uniforms
+        # Add uniforms without indentation
         for name, type_ in analysis.uniforms.items():
             lines.append(f"uniform {type_} {name};")
 
@@ -376,9 +418,10 @@ class ShaderTranspiler:
         lines.append(self._convert_function(analysis.main_function, is_main=True))
         lines.append("")
 
-        # Add main function
-        lines.append("void main() {")
-        lines.append("    fs_color = shader(vs_uv);")
+        # Add main function without indentation
+        lines.append("void main()")
+        lines.append("{")
+        lines.append("fs_color = shader(vs_uv);")
         lines.append("}")
 
         return ShaderResult(fragment_source="\n".join(lines), uniforms=self.uniforms)

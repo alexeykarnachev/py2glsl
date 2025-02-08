@@ -370,7 +370,7 @@ def test_builtin_function_types():
     result = py2glsl(shader)
     assert "float d = length(vs_uv);" in result.fragment_source
     assert "vec2 n = normalize(vs_uv);" in result.fragment_source
-    assert "vec3 m = mix(vec3(1), vec3(0), 0.5);" in result.fragment_source
+    assert "vec3 m = mix(vec3(1.0), vec3(0.0), 0.5);" in result.fragment_source
 
 
 def test_code_formatting():
@@ -437,3 +437,119 @@ def test_nested_function_types():
     assert "float circle_sdf(vec2 p, float r)" in result.fragment_source
     assert "float smooth_min(float a, float b, float k)" in result.fragment_source
     assert "float d = circle_sdf(vs_uv, 0.5);" in result.fragment_source
+
+
+def test_error_messages():
+    """Test specific error messages"""
+
+    def shader1(pos: float) -> vec4:
+        return vec4(1.0)
+
+    def shader2(vs_uv: vec2) -> float:
+        return 1.0
+
+    def shader3(vs_uv: vec2, time: float) -> vec4:
+        return vec4(1.0)
+
+    with pytest.raises(TypeError, match="First argument must be vs_uv"):
+        py2glsl(shader1)
+
+    with pytest.raises(TypeError, match="Shader must return vec4"):
+        py2glsl(shader2)
+
+    with pytest.raises(TypeError, match="All arguments except vs_uv must be uniforms"):
+        py2glsl(shader3)
+
+
+def test_code_formatting_style():
+    """Test GLSL code formatting rules"""
+
+    def shader(vs_uv: vec2, *, u_val: float) -> vec4:
+        if u_val > 0.0:
+            return vec4(1.0)
+        return vec4(0.0)
+
+    result = py2glsl(shader)
+
+    # Check no extra spaces at start of lines
+    for line in result.fragment_source.split("\n"):
+        if line and not line.isspace():
+            assert not line.startswith("    ")
+
+    # Check brace style
+    assert "{\n" in result.fragment_source
+    assert not "{ \n" in result.fragment_source
+
+
+def test_expression_grouping():
+    """Test expression parentheses rules"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = vs_uv.x * 2.0 - 1.0
+        y = (vs_uv.y * 2.0) - 1.0
+        return vec4(x, y, 0.0, 1.0)
+
+    result = py2glsl(shader)
+
+    # Both forms should produce same output
+    assert "(vs_uv.x * 2.0) - 1.0" in result.fragment_source
+    assert "(vs_uv.y * 2.0) - 1.0" in result.fragment_source
+
+
+def test_type_inference_consistency():
+    """Test consistent type inference"""
+
+    def shader(vs_uv: vec2, *, u_dir: vec2) -> vec4:
+        n = normalize(u_dir)  # Should stay vec2
+        d = dot(n, vs_uv)  # Should be float
+        return vec4(d)
+
+    result = py2glsl(shader)
+
+    assert "vec2 n = normalize(u_dir)" in result.fragment_source
+    assert "float d = dot(n, vs_uv)" in result.fragment_source
+
+
+def test_function_formatting():
+    """Test function declaration formatting"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        def helper(x: float) -> float:
+            return x * 2.0
+
+        return vec4(helper(vs_uv.x))
+
+    result = py2glsl(shader)
+
+    assert "float helper(float x)\n{" in result.fragment_source
+    assert "vec4 shader(vec2 vs_uv)\n{" in result.fragment_source
+
+
+def test_indentation_consistency():
+    """Test consistent indentation rules"""
+
+    def shader(vs_uv: vec2, *, u_val: float) -> vec4:
+        if u_val > 0.0:
+            x = 1.0
+            if u_val > 1.0:
+                x = 2.0
+        return vec4(x)
+
+    result = py2glsl(shader)
+
+    lines = result.fragment_source.split("\n")
+    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+    assert len(set(indents)) <= 3  # Should only have 0, 4, 8 spaces
+
+
+def test_vector_swizzle_formatting():
+    """Test vector swizzle formatting"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        v = vec4(vs_uv.xy, 0.0, 1.0)
+        return v.rgba
+
+    result = py2glsl(shader)
+
+    assert "vs_uv.xy" in result.fragment_source
+    assert "v.rgba" in result.fragment_source
