@@ -299,3 +299,35 @@ def animate(
 
     finally:
         glfw.terminate()
+
+
+def get_pixel_centered_quad(size: Size) -> np.ndarray:
+    """Create quad vertices with UV coordinates centered on pixels."""
+    w, h = size
+    # Map UV coordinates to pixel centers
+    u_min = 0.5 / w
+    u_max = (w - 0.5) / w
+    v_min = 0.5 / h
+    v_max = (h - 0.5) / h
+
+    return np.array(
+        [
+            -1.0,
+            -1.0,
+            u_min,
+            v_min,  # bottom left
+            1.0,
+            -1.0,
+            u_max,
+            v_min,  # bottom right
+            -1.0,
+            1.0,
+            u_min,
+            v_max,  # top left
+            1.0,
+            1.0,
+            u_max,
+            v_max,  # top right
+        ],
+        dtype="f4",
+    )

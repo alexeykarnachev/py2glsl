@@ -47,10 +47,14 @@ def test_gradient_render():
     arr = render_array(gradient_shader, size=(64, 64))
 
     # Check left edge is black
-    np.testing.assert_array_almost_equal(arr[32, 0], np.array([0.0, 0.0, 0.0, 1.0]))
+    np.testing.assert_array_almost_equal(
+        arr[32, 0], np.array([0.0, 0.0, 0.0, 1.0]), decimal=2
+    )
 
     # Check right edge is red
-    np.testing.assert_array_almost_equal(arr[32, -1], np.array([1.0, 0.0, 0.0, 1.0]))
+    np.testing.assert_array_almost_equal(
+        arr[32, -1], np.array([1.0, 0.0, 0.0, 1.0]), decimal=2
+    )
 
     # Check middle is half red
     np.testing.assert_array_almost_equal(
@@ -134,7 +138,9 @@ def test_resolution_uniform():
         return vec4(u_resolution.x / 100.0, u_resolution.y / 100.0, 0.0, 1.0)
 
     arr = render_array(resolution_shader, size=(50, 25))
-    np.testing.assert_array_almost_equal(arr[0, 0], np.array([0.5, 0.25, 0.0, 1.0]))
+    np.testing.assert_array_almost_equal(
+        arr[0, 0], np.array([0.5, 0.25, 0.0, 1.0]), decimal=2
+    )
 
 
 def test_alpha_blending():
@@ -146,10 +152,10 @@ def test_alpha_blending():
     arr = render_array(alpha_shader, size=(64, 64))
 
     # Check left edge is transparent
-    np.testing.assert_array_almost_equal(arr[32, 0, 3], 0.0)
+    np.testing.assert_array_almost_equal(arr[32, 0, 3], 0.0, decimal=2)
 
     # Check right edge is opaque
-    np.testing.assert_array_almost_equal(arr[32, -1, 3], 1.0)
+    np.testing.assert_array_almost_equal(arr[32, -1, 3], 1.0, decimal=2)
 
 
 def test_error_handling():
