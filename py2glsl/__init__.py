@@ -1,3 +1,5 @@
+import numpy as np
+
 from py2glsl.builtins import (
     abs,
     atan,
@@ -13,11 +15,14 @@ from py2glsl.builtins import (
     smoothstep,
 )
 from py2glsl.transpiler import py2glsl
-from py2glsl.types import vec2, vec3, vec4
+from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "Vec2",
+    "Vec3",
+    "Vec4",
     "vec2",
     "vec3",
     "vec4",

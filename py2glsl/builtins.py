@@ -1,72 +1,66 @@
-import math
-from typing import Union
+from typing import TypeAlias, Union
 
-from py2glsl.types import Number, vec2, vec3, vec4
+import numpy as np
 
-Number = Union[float, vec2, vec3, vec4]
+Number: TypeAlias = Union[float, np.ndarray]
 
 
 def abs(x: Number) -> Number:
-    return x  # Stub for now
+    """Working NumPy implementation for testing"""
+    return np.abs(x)
 
 
 def atan(y: float, x: float = 0.0) -> float:
-    return 0.0  # Stub for now
+    """Working NumPy implementation for testing"""
+    return float(np.arctan2(y, x) if x != 0.0 else np.arctan(y))
 
 
-def clamp(x: Number, min_val: Number, max_val: Number) -> Number:
-    return min(max(x, min_val), max_val)
+def clamp(x: Number, minVal: Number, maxVal: Number) -> Number:
+    """Working NumPy implementation for testing"""
+    return np.clip(x, minVal, maxVal)
 
 
 def cos(x: float) -> float:
-    return 0.0  # Stub for now
+    """Working NumPy implementation for testing"""
+    return float(np.cos(x))
 
 
-def dot(x: Number, y: Number) -> float:
-    if isinstance(x, vec2) and isinstance(y, vec2):
-        return x.x * y.x + x.y * y.y
-    elif isinstance(x, vec3) and isinstance(y, vec3):
-        return x.x * y.x + x.y * y.y + x.z * y.z
-    elif isinstance(x, vec4) and isinstance(y, vec4):
-        return x.x * y.x + x.y * y.y + x.z * y.z + x.w * y.w
-    raise TypeError(f"Cannot calculate dot product of {type(x)} and {type(y)}")
+def dot(x: np.ndarray, y: np.ndarray) -> float:
+    """Working NumPy implementation for testing"""
+    return float(np.dot(x, y))
 
 
-def length(x: Number) -> float:
-    if isinstance(x, (int, float)):
-        return abs(float(x))
-    elif isinstance(x, vec2):
-        return math.sqrt(x.x * x.x + x.y * x.y)
-    elif isinstance(x, vec3):
-        return math.sqrt(x.x * x.x + x.y * x.y + x.z * x.z)
-    elif isinstance(x, vec4):
-        return math.sqrt(x.x * x.x + x.y * x.y + x.z * x.z + x.w * x.w)
-    raise TypeError(f"Cannot calculate length of {type(x)}")
+def length(x: np.ndarray) -> float:
+    """Working NumPy implementation for testing"""
+    return float(np.linalg.norm(x))
 
 
 def max(x: Number, y: Number) -> Number:
-    return x  # Stub for now
+    """Working NumPy implementation for testing"""
+    return np.maximum(x, y)
 
 
 def min(x: Number, y: Number) -> Number:
-    return x  # Stub for now
+    """Working NumPy implementation for testing"""
+    return np.minimum(x, y)
 
 
 def mix(x: Number, y: Number, a: Number) -> Number:
+    """Working NumPy implementation for testing"""
     return x * (1.0 - a) + y * a
 
 
-def normalize(x: Number) -> Number:
-    l = length(x)
-    if l == 0:
-        return x
-    return x / l
+def normalize(x: np.ndarray) -> np.ndarray:
+    """Working NumPy implementation for testing"""
+    return x / np.linalg.norm(x)
 
 
 def sin(x: float) -> float:
-    return 0.0  # Stub for now
+    """Working NumPy implementation for testing"""
+    return float(np.sin(x))
 
 
 def smoothstep(edge0: Number, edge1: Number, x: Number) -> Number:
+    """Working NumPy implementation for testing"""
     t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
     return t * t * (3.0 - 2.0 * t)
