@@ -284,7 +284,7 @@ def test_complex_math() -> None:
     result = py2glsl(shader)
     assert "float fbm(vec2 p)" in result.fragment_source
     assert "float noise(vec2 p)" in result.fragment_source
-    assert "for (int i = 0; i < 6; i++)" in result.fragment_source  # Fixed: removed .0
+    assert "for (int i = 0; i < 6; i++)" in result.fragment_source
 
 
 def test_complex_vector_operations() -> None:
@@ -346,7 +346,7 @@ def test_ray_marching() -> None:
     assert "vec2 repeat(vec2 p, float size)" in result.fragment_source
     assert "float ray_march(vec2 ro, vec2 rd)" in result.fragment_source
     assert "for (int i = 0; i < 64; i++)" in result.fragment_source
-    assert "if (d < 0.0010)" in result.fragment_source
+    assert "if (d < 0.001)" in result.fragment_source
 
 
 def test_complex_uniforms() -> None:

@@ -1,8 +1,10 @@
 import ast
 import inspect
 import textwrap
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Union
+from enum import Enum, auto
+from typing import Any, Dict, Iterator, List, Optional, Set, Union
 
 from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
@@ -24,6 +26,13 @@ class ShaderResult:
     uniforms: Dict[str, str]
 
 
+class GLSLContext(Enum):
+    DEFAULT = auto()
+    LOOP_BOUND = auto()  # For loop bounds and indices
+    ARITHMETIC = auto()  # For general math expressions
+    VECTOR_INIT = auto()  # Keep existing vector context
+
+
 class ShaderTranspiler:
     """Transform Python shader functions to GLSL."""
 
@@ -33,6 +42,26 @@ class ShaderTranspiler:
         self.functions: List[ast.FunctionDef] = []
         self.indent_level: int = 0
         self.declared_vars: Dict[str, str] = {}
+        self.context_stack: List[GLSLContext] = [GLSLContext.DEFAULT]
+
+    @contextmanager
+    def context(self, ctx: GLSLContext) -> Iterator[None]:
+        """Context manager for GLSL context tracking."""
+        print(f"\nDEBUG context:")
+        print(f"  Pushing context: {ctx}")
+        print(f"  Current stack: {self.context_stack}")
+        self.context_stack.append(ctx)
+        try:
+            yield
+        finally:
+            popped = self.context_stack.pop()
+            print(f"  Popped context: {popped}")
+            print(f"  Remaining stack: {self.context_stack}")
+
+    @property
+    def current_context(self) -> GLSLContext:
+        """Get current GLSL context."""
+        return self.context_stack[-1]
 
     def _indent(self, text: str) -> str:
         """Add proper indentation to text."""
@@ -213,20 +242,23 @@ class ShaderTranspiler:
                     and isinstance(node.iter.func, ast.Name)
                     and node.iter.func.id == "range"
                 ):
-                    if len(node.iter.args) == 1:
-                        end = self._convert_expr(node.iter.args[0])
-                        lines.append(
-                            f"for (int {node.target.id} = 0; {node.target.id} < {end}; {node.target.id}++)"
-                        )
-                    else:
-                        start = self._convert_expr(node.iter.args[0])
-                        end = self._convert_expr(node.iter.args[1])
-                        lines.append(
-                            f"for (int {node.target.id} = {start}; {node.target.id} < {end}; {node.target.id}++)"
-                        )
+                    with self.context(GLSLContext.LOOP_BOUND):
+                        if len(node.iter.args) == 1:
+                            end = self._convert_expr(node.iter.args[0])
+                            lines.append(
+                                f"for (int {node.target.id} = 0; {node.target.id} < {end}; {node.target.id}++)"
+                            )
+                        else:
+                            start = self._convert_expr(node.iter.args[0])
+                            end = self._convert_expr(node.iter.args[1])
+                            lines.append(
+                                f"for (int {node.target.id} = {start}; {node.target.id} < {end}; {node.target.id}++)"
+                            )
                     lines.append("{")
                     lines.extend(self._convert_body(node.body))
                     lines.append("}")
+                else:
+                    raise ValueError("Only range-based for loops are supported")
         return lines
 
     def _convert_if(self, node: ast.If) -> List[str]:
@@ -269,56 +301,86 @@ class ShaderTranspiler:
 
     def _convert_for(self, node: ast.For) -> List[str]:
         """Convert for loop to GLSL."""
+        print("\nDEBUG _convert_for:")
+        print(f"  Node type: {type(node.iter)}")
+
         if (
             isinstance(node.iter, ast.Call)
             and isinstance(node.iter.func, ast.Name)
             and node.iter.func.id == "range"
         ):
             var = node.target.id
+            print(f"  Loop variable: {var}")
+
             if len(node.iter.args) == 1:
                 end = self._convert_expr(node.iter.args[0])
-                lines = [self._indent(f"for (int {var} = 0; {var} < {end}; {var}++)")]
+                lines = [f"for (int {var} = 0; {var} < {end}; {var}++)"]
             else:
                 start = self._convert_expr(node.iter.args[0])
                 end = self._convert_expr(node.iter.args[1])
-                lines = [
-                    self._indent(f"for (int {var} = {start}; {var} < {end}; {var}++)")
-                ]
+                lines = [f"for (int {var} = {start}; {var} < {end}; {var}++)"]
 
-            lines.append(self._indent("{"))
+            lines.append("{")
             self.indent_level += 1
             lines.extend(self._convert_body(node.body))
             self.indent_level -= 1
-            lines.append(self._indent("}"))
+            lines.append("}")
             return lines
 
         raise ValueError("Only range-based for loops are supported")
 
     def _convert_expr(self, node: ast.expr) -> str:
-        """Convert Python expression to GLSL expression."""
+        print(f"\nDEBUG _convert_expr:")
+        print(f"  Node type: {type(node)}")
+        print(f"  Current context: {self.current_context}")
+        print(f"  Context stack: {self.context_stack}")
+
         if isinstance(node, ast.Constant):
-            if isinstance(node.value, int):
-                return str(node.value)  # Keep integers as integers
-            if isinstance(node.value, float):
-                # Format small floats (< 0.01) with more precision
-                if 0 < abs(node.value) < 0.01:
-                    return f"{node.value:.4f}"
-                return str(node.value)  # Keep original float representation
-            raise ValueError(f"Unsupported constant type: {type(node.value)}")
+            print(f"  Constant value: {node.value}")
+            print(f"  Constant type: {type(node.value)}")
+
+            if isinstance(node.value, (int, float)):
+                if self.current_context == GLSLContext.LOOP_BOUND:
+                    print("  Processing in LOOP_BOUND context")
+                    if isinstance(node.value, int):
+                        result = str(node.value)
+                        print(f"  Loop bound result: {result}")
+                        return result
+                    print("  Error: Float in loop bound")
+                    raise ValueError("Loop bounds must be integers")
+
+                if isinstance(node.value, int):
+                    result = f"{node.value}.0"
+                    print(f"  Float conversion result: {result}")
+                    return result
+                result = str(float(node.value))
+                print(f"  Float result: {result}")
+                return result
 
         elif isinstance(node, ast.Name):
+            print(f"  Name id: {node.id}")
             return node.id
 
         elif isinstance(node, ast.Attribute):
+            print(f"  Attribute: {node.attr}")
             base = self._convert_expr(node.value)
-            return f"{base}.{node.attr}"
+            result = f"{base}.{node.attr}"
+            print(f"  Attribute result: {result}")
+            return result
 
         elif isinstance(node, ast.Call):
+            print(
+                f"  Call func: {node.func.id if isinstance(node.func, ast.Name) else 'unknown'}"
+            )
+            print(f"  Args count: {len(node.args)}")
             if isinstance(node.func, ast.Name):
                 args = [self._convert_expr(arg) for arg in node.args]
-                return f"{node.func.id}({', '.join(args)})"
+                result = f"{node.func.id}({', '.join(args)})"
+                print(f"  Call result: {result}")
+                return result
 
         elif isinstance(node, ast.BinOp):
+            print(f"  BinOp: {type(node.op).__name__}")
             left = self._convert_expr(node.left)
             right = self._convert_expr(node.right)
             if isinstance(node.left, ast.BinOp):
@@ -331,9 +393,12 @@ class ShaderTranspiler:
                 ast.Mult: "*",
                 ast.Div: "/",
             }[type(node.op)]
-            return f"{left} {op} {right}"
+            result = f"{left} {op} {right}"
+            print(f"  BinOp result: {result}")
+            return result
 
         elif isinstance(node, ast.Compare):
+            print(f"  Compare op: {type(node.ops[0]).__name__}")
             left = self._convert_expr(node.left)
             right = self._convert_expr(node.comparators[0])
             op = {
@@ -344,22 +409,32 @@ class ShaderTranspiler:
                 ast.Eq: "==",
                 ast.NotEq: "!=",
             }[type(node.ops[0])]
-            return f"{left} {op} {right}"
+            result = f"{left} {op} {right}"
+            print(f"  Compare result: {result}")
+            return result
 
         elif isinstance(node, ast.UnaryOp):
+            print(f"  UnaryOp: {type(node.op).__name__}")
             op = {ast.USub: "-", ast.UAdd: "+"}[type(node.op)]
             operand = self._convert_expr(node.operand)
-            return f"{op}{operand}"
+            result = f"{op}{operand}"
+            print(f"  UnaryOp result: {result}")
+            return result
 
         elif isinstance(node, ast.BoolOp):
+            print(f"  BoolOp: {type(node.op).__name__}")
             op = {
                 ast.And: "&&",
                 ast.Or: "||",
             }[type(node.op)]
             values = [self._convert_expr(val) for val in node.values]
-            return f" {op} ".join(f"({val})" for val in values)
+            result = f" {op} ".join(f"({val})" for val in values)
+            print(f"  BoolOp result: {result}")
+            return result
 
-        raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+        error = f"Unsupported expression: {ast.dump(node)}"
+        print(f"  ERROR: {error}")
+        raise ValueError(error)
 
     def analyze(self, func: Any) -> ShaderAnalysis:
         """Analyze Python shader function and extract structure."""

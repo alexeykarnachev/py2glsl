@@ -553,3 +553,94 @@ def test_vector_swizzle_formatting():
 
     assert "vs_uv.xy" in result.fragment_source
     assert "v.rgba" in result.fragment_source
+
+
+def test_simple_for_loop():
+    """Test basic for loop with integer bounds"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 0.0
+        for i in range(5):
+            x += 1.0
+        return vec4(x)
+
+    result = py2glsl(shader)
+    print("\nSimple for loop generated code:")
+    print(result.fragment_source)
+    assert "for (int i = 0; i < 5; i++)" in result.fragment_source
+
+
+def test_nested_for_loops():
+    """Test nested for loops with integer bounds"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 0.0
+        for i in range(3):
+            for j in range(2):
+                x += 1.0
+        return vec4(x)
+
+    result = py2glsl(shader)
+    print("\nNested for loops generated code:")
+    print(result.fragment_source)
+    assert "for (int i = 0; i < 3; i++)" in result.fragment_source
+    assert "for (int j = 0; j < 2; j++)" in result.fragment_source
+
+
+def test_for_loop_with_range_start():
+    """Test for loop with start and end range"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 0.0
+        for i in range(1, 4):
+            x += 1.0
+        return vec4(x)
+
+    result = py2glsl(shader)
+    print("\nRange with start generated code:")
+    print(result.fragment_source)
+    assert "for (int i = 1; i < 4; i++)" in result.fragment_source
+
+
+def test_loop_bounds_integer():
+    """Test that loop bounds remain integers"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 0.0
+        for i in range(5):  # Simple integer bound
+            x += 1.0
+        return vec4(x)
+
+    result = py2glsl(shader)
+    print("\nInteger bounds test:")
+    print(result.fragment_source)
+    assert "for (int i = 0; i < 5; i++)" in result.fragment_source
+
+
+def test_loop_bounds_float_error():
+    """Test that float loop bounds raise error"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 0.0
+        for i in range(5.0):  # Should raise error
+            x += 1.0
+        return vec4(x)
+
+    with pytest.raises(ValueError, match="Loop bounds must be integers"):
+        py2glsl(shader)
+
+
+def test_loop_bounds_expression():
+    """Test loop bounds with expressions"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 0.0
+        count = 3
+        for i in range(count + 2):  # Expression that evaluates to integer
+            x += 1.0
+        return vec4(x)
+
+    result = py2glsl(shader)
+    print("\nExpression bounds test:")
+    print(result.fragment_source)
+    assert "for (int i = 0; i < count + 2; i++)" in result.fragment_source
