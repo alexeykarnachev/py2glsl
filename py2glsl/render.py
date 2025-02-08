@@ -116,24 +116,101 @@ def render_gif(
     """Render shader animation to GIF"""
     frames = []
     frame_count = int(duration * fps)
-    frame_duration = 1000 / fps  # Convert to milliseconds per frame
+    frame_duration = int(1000 / fps)  # Convert to integer milliseconds per frame
 
-    for frame in range(frame_count):
-        time = frame / fps
-        frame_uniforms = {
-            **uniforms,
-            "u_time": time,
-            "u_frame": frame,
-        }
-        frame_data = render_array(shader_func, size=size, **frame_uniforms)
-        frames.append((frame_data * 255).astype(np.uint8))
+    with gl_context(size) as ctx:
+        # Create fullscreen quad with proper UV coordinates
+        quad_vertices = np.array(
+            [
+                -1.0,
+                -1.0,
+                0.0,
+                0.0,
+                1.0,
+                -1.0,
+                1.0,
+                0.0,
+                -1.0,
+                1.0,
+                0.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+            ],
+            dtype="f4",
+        )
+        quad = ctx.buffer(quad_vertices.tobytes())
 
-    imageio.mimsave(
-        filename,
-        frames,
-        format="GIF",
-        duration=frame_duration,  # Use duration in milliseconds instead of fps
-    )
+        # Convert shader to GLSL
+        shader_result = py2glsl(shader_func)
+
+        # Create shader program
+        program = ctx.program(
+            vertex_shader=VERTEX_SHADER,
+            fragment_shader=shader_result.fragment_source,
+        )
+
+        # Set built-in uniforms
+        if "u_resolution" in shader_result.uniforms:
+            program["u_resolution"].value = tuple(map(int, size))
+
+        vao = ctx.vertex_array(
+            program,
+            [(quad, "2f 2f", "in_pos", "in_uv")],
+            skip_errors=True,
+        )
+
+        # Create framebuffer
+        fbo = ctx.framebuffer(color_attachments=[ctx.texture(size, 4)])
+
+        # Render each frame
+        for frame in range(frame_count):
+            time = frame / fps
+            frame_uniforms = {
+                **uniforms,
+                "u_time": time,
+                "u_frame": frame,
+            }
+
+            # Set custom uniforms for this frame
+            for name, value in frame_uniforms.items():
+                if name in shader_result.uniforms:
+                    try:
+                        uniform_type = shader_result.uniforms[name]
+                        if uniform_type == "int":
+                            program[name].value = int(value)
+                        elif isinstance(value, (tuple, list, np.ndarray)):
+                            program[name].value = tuple(map(float, value))
+                        else:
+                            program[name].value = float(value)
+                    except KeyError:
+                        continue
+
+            # Clear and render frame
+            fbo.use()
+            ctx.clear(0.0, 0.0, 0.0, 0.0)
+            vao.render(mode=moderngl.TRIANGLE_STRIP)
+
+            # Read pixels and convert to PIL Image
+            data = np.frombuffer(fbo.read(components=4, alignment=1), dtype=np.uint8)
+            frame_data = data.reshape(*size, 4)
+
+            # Convert to PIL Image and append to frames
+            img = Image.fromarray(frame_data, mode="RGBA")
+            frames.append(img.convert("RGB"))  # Convert to RGB mode
+
+    # Save as animated GIF
+    if frames:
+        frames[0].save(
+            filename,
+            save_all=True,
+            append_images=frames[1:],
+            duration=frame_duration,
+            loop=0,
+            optimize=False,
+        )
 
 
 def render_video(

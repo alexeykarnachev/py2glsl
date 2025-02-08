@@ -1,11 +1,10 @@
-import numpy as np
-
 from py2glsl.builtins import (
     abs,
     atan,
     clamp,
     cos,
     dot,
+    floor,
     length,
     max,
     min,
@@ -13,6 +12,7 @@ from py2glsl.builtins import (
     normalize,
     sin,
     smoothstep,
+    sqrt,
 )
 from py2glsl.render import animate, render_array, render_gif, render_image, render_video
 from py2glsl.transpiler import py2glsl
@@ -32,6 +32,7 @@ __all__ = [
     "clamp",
     "cos",
     "dot",
+    "floor",
     "length",
     "max",
     "min",
@@ -46,4 +47,5 @@ __all__ = [
     "render_gif",
     "render_video",
     "animate",
+    "sqrt",
 ]

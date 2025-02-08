@@ -35,6 +35,16 @@ def length(x: np.ndarray) -> float:
     return float(np.linalg.norm(x))
 
 
+def floor(x: Number) -> Number:
+    """Working NumPy implementation for testing"""
+    return np.floor(x)
+
+
+def sqrt(x: Number) -> Number:
+    """Working NumPy implementation for testing"""
+    return np.sqrt(x)
+
+
 def max(x: Number, y: Number) -> Number:
     """Working NumPy implementation for testing"""
     return np.maximum(x, y)
