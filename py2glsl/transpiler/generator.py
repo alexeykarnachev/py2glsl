@@ -271,8 +271,8 @@ class GLSLGenerator:
         # Get return type from annotation
         return_type = self.analysis.type_registry.get_type(node.returns.id)
 
-        # Use "shader" name for the main function
-        function_name = "shader" if node == self.analysis.main_function else node.name
+        # Keep original function name
+        function_name = node.name
 
         # Build argument list and track parameter names
         args = []
@@ -331,7 +331,6 @@ class GLSLGenerator:
 
         # Uniform declarations
         for name, glsl_type in sorted(self.analysis.uniforms.items()):
-            # Explicitly add uniform keyword here instead of relying on GLSLType.__str__
             self.add_line(f"uniform {glsl_type.name} {name};")
         if self.analysis.uniforms:
             self.add_line()
@@ -342,14 +341,17 @@ class GLSLGenerator:
             self.add_line()
 
         # Generate main shader function
-        self.generate_function(self.analysis.main_function)
+        main_func = self.analysis.main_function
+        # Keep original function name instead of using "shader"
+        self.generate_function(main_func)
         self.add_line()
 
         # Generate main function
         self.add_line("void main()")
         self.add_line("{")
         self.indent_level += 1
-        self.add_line(f"fs_color = {self.analysis.main_function.name}(vs_uv);")
+        # Use original function name in the call
+        self.add_line(f"fs_color = {main_func.name}(vs_uv);")
         self.indent_level -= 1
         self.add_line("}")
 
