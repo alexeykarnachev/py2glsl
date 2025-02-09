@@ -1,84 +1,124 @@
 """GLSL code generator."""
 
 import ast
-from typing import Dict, List, Optional, Set, Union
+from typing import List, Optional, Set
 
-from py2glsl.transpiler.analyzer import ShaderAnalysis
-from py2glsl.transpiler.constants import (
-    FLOAT_TYPE,
-    GLSL_VERSION,
-    INT_TYPE,
-    VEC2_TYPE,
-    VEC4_TYPE,
+from loguru import logger
+
+from py2glsl.transpiler.analyzer import GLSLContext, ShaderAnalysis
+from py2glsl.transpiler.types import (
+    BOOL,
+    FLOAT,
+    INT,
+    VEC2,
+    VEC3,
+    VEC4,
+    GLSLType,
+    TypeKind,
 )
-from py2glsl.transpiler.types import GLSLContext, GLSLType
 
 
 class GLSLGenerator:
     """Generates GLSL code from analyzed shader."""
 
-    def __init__(self, analysis: ShaderAnalysis) -> None:
+    def __init__(self, analysis: ShaderAnalysis):
         """Initialize generator with analysis results."""
         self.analysis = analysis
+        self.indent_level = 0
+        self.lines: List[str] = []
         self.current_scope = "global"
         self.scope_stack: List[str] = []
-        self.declared_vars: Dict[str, Set[str]] = {}
-        self.context_stack: List[GLSLContext] = [GLSLContext.DEFAULT]
 
-    def _enter_scope(self, name: str) -> None:
+    def enter_scope(self, name: str) -> None:
         """Enter a new scope."""
         self.scope_stack.append(self.current_scope)
         self.current_scope = name
-        if name not in self.declared_vars:
-            self.declared_vars[name] = set()
 
-    def _exit_scope(self) -> None:
+    def exit_scope(self) -> None:
         """Exit current scope."""
-        self.current_scope = self.scope_stack.pop()
+        if self.scope_stack:
+            self.current_scope = self.scope_stack.pop()
+        else:
+            self.current_scope = "global"
 
-    def _push_context(self, ctx: GLSLContext) -> None:
-        """Push new context onto stack."""
-        self.context_stack.append(ctx)
+    def indent(self) -> str:
+        """Get current indentation."""
+        return "    " * self.indent_level
 
-    def _pop_context(self) -> None:
-        """Pop context from stack."""
-        self.context_stack.pop()
+    def add_line(self, line: str = "") -> None:
+        """Add line with proper indentation."""
+        if line.strip():
+            # Don't indent version, in/out declarations, and uniforms
+            if any(
+                line.startswith(prefix)
+                for prefix in ["#version", "in ", "out ", "uniform "]
+            ):
+                self.lines.append(line)
+            else:
+                self.lines.append(f"{self.indent()}{line}")
+        else:
+            self.lines.append("")
 
-    def _convert_expression(self, node: ast.AST) -> str:
-        """Convert Python expression to GLSL."""
-        if isinstance(node, ast.Constant):
+    def get_type(self, node: ast.AST) -> GLSLType:
+        """Get GLSL type for node."""
+        if isinstance(node, ast.Name):
+            # Check variable type in current scope
+            if node.id in self.analysis.var_types[self.current_scope]:
+                return self.analysis.var_types[self.current_scope][node.id]
+            # Check uniforms
+            if node.id in self.analysis.uniforms:
+                return self.analysis.uniforms[node.id]
+            # Special case for vs_uv
+            if node.id == "vs_uv":
+                return VEC2
+        elif isinstance(node, ast.Num):
+            return INT if isinstance(node.n, int) else FLOAT
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, bool):
+                return BOOL
+            elif isinstance(node.value, int):
+                return INT
+            elif isinstance(node.value, float):
+                return FLOAT
+        return FLOAT
+
+    def generate_expression(self, node: ast.AST, parenthesize: bool = False) -> str:
+        """Generate GLSL expression."""
+        if isinstance(node, ast.Name):
+            return node.id
+
+        elif isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return str(node.value).lower()
-            if isinstance(node.value, (int, float)):
+            elif isinstance(node.value, (int, float)):
+                # Ensure float literals have decimal point
                 return f"{float(node.value)}"
             return "0.0"
 
-        elif isinstance(node, ast.Name):
-            return node.id
-
-        elif isinstance(node, ast.Attribute):
-            base = self._convert_expression(node.value)
-            return f"{base}.{node.attr}"
-
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
-                args = [self._convert_expression(arg) for arg in node.args]
+                args = [self.generate_expression(arg) for arg in node.args]
+                # Vector constructors
+                if node.func.id in ("vec2", "Vec2", "vec3", "Vec3", "vec4", "Vec4"):
+                    return f"{node.func.id.lower()}({', '.join(args)})"
+                # Regular function call
                 return f"{node.func.id}({', '.join(args)})"
 
         elif isinstance(node, ast.BinOp):
-            left = self._convert_expression(node.left)
-            right = self._convert_expression(node.right)
+            left = self.generate_expression(node.left, True)
+            right = self.generate_expression(node.right, True)
             op = {
                 ast.Add: "+",
                 ast.Sub: "-",
                 ast.Mult: "*",
                 ast.Div: "/",
             }[type(node.op)]
-            return f"({left} {op} {right})"
+            expr = f"{left} {op} {right}"
+            return f"({expr})" if parenthesize else expr
 
         elif isinstance(node, ast.Compare):
-            left = self._convert_expression(node.left)
-            right = self._convert_expression(node.comparators[0])
+            left = self.generate_expression(node.left, True)
+            right = self.generate_expression(node.comparators[0], True)
             op = {
                 ast.Lt: "<",
                 ast.LtE: "<=",
@@ -87,66 +127,63 @@ class GLSLGenerator:
                 ast.Eq: "==",
                 ast.NotEq: "!=",
             }[type(node.ops[0])]
-            return f"({left} {op} {right})"
+            expr = f"{left} {op} {right}"
+            return f"({expr})" if parenthesize else expr
+
+        elif isinstance(node, ast.Attribute):
+            value = self.generate_expression(node.value)
+            return f"{value}.{node.attr}"
 
         elif isinstance(node, ast.UnaryOp):
             op = {ast.USub: "-", ast.UAdd: "+"}[type(node.op)]
-            operand = self._convert_expression(node.operand)
-            return f"{op}{operand}"
+            operand = self.generate_expression(node.operand, True)
+            expr = f"{op}{operand}"
+            return f"({expr})" if parenthesize else expr
 
         raise ValueError(f"Unsupported expression: {ast.dump(node)}")
 
-    def _convert_statement(self, node: ast.AST) -> List[str]:
-        """Convert Python statement to GLSL."""
+    def generate_statement(self, node: ast.AST) -> None:
+        """Generate GLSL statement."""
         if isinstance(node, ast.Assign):
-            value = self._convert_expression(node.value)
-            lines = []
+            value = self.generate_expression(node.value)
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    var_type = self.analysis.type_info.get_type(node.value)
-                    if target.id not in self.declared_vars.get(
-                        self.current_scope, set()
-                    ):
-                        lines.append(f"{str(var_type)} {target.id} = {value};")
-                        self.declared_vars[self.current_scope].add(target.id)
+                    var_type = self.analysis.var_types[self.current_scope].get(
+                        target.id
+                    )
+                    if var_type:
+                        self.add_line(f"{str(var_type)} {target.id} = {value};")
                     else:
-                        lines.append(f"{target.id} = {value};")
-            return lines
+                        self.add_line(f"{target.id} = {value};")
 
         elif isinstance(node, ast.AugAssign):
-            target = self._convert_expression(node.target)
-            value = self._convert_expression(node.value)
+            target = self.generate_expression(node.target)
+            value = self.generate_expression(node.value)
             op = {
                 ast.Add: "+=",
                 ast.Sub: "-=",
                 ast.Mult: "*=",
                 ast.Div: "/=",
             }[type(node.op)]
-            return [f"{target} {op} {value};"]
+            self.add_line(f"{target} {op} {value};")
 
         elif isinstance(node, ast.If):
-            condition = self._convert_expression(node.test)
-            body = []
+            cond = self.generate_expression(node.test)
+            self.add_line(f"if ({cond})")
+            self.add_line("{")
+            self.indent_level += 1
             for stmt in node.body:
-                body.extend(self._convert_statement(stmt))
-
-            else_body = []
+                self.generate_statement(stmt)
+            self.indent_level -= 1
+            self.add_line("}")
             if node.orelse:
+                self.add_line("else")
+                self.add_line("{")
+                self.indent_level += 1
                 for stmt in node.orelse:
-                    else_body.extend(self._convert_statement(stmt))
-
-            lines = [f"if ({condition})"]
-            lines.append("{")
-            lines.extend(f"    {line}" for line in body)
-            lines.append("}")
-
-            if else_body:
-                lines.append("else")
-                lines.append("{")
-                lines.extend(f"    {line}" for line in else_body)
-                lines.append("}")
-
-            return lines
+                    self.generate_statement(stmt)
+                self.indent_level -= 1
+                self.add_line("}")
 
         elif isinstance(node, ast.For):
             if (
@@ -154,109 +191,99 @@ class GLSLGenerator:
                 and isinstance(node.iter.func, ast.Name)
                 and node.iter.func.id == "range"
             ):
-                self._push_context(GLSLContext.LOOP_BOUND)
                 if len(node.iter.args) == 1:
-                    end = self._convert_expression(node.iter.args[0])
+                    end = self.generate_expression(node.iter.args[0])
                     init = f"int {node.target.id} = 0"
-                    condition = f"{node.target.id} < {end}"
+                    cond = f"{node.target.id} < {end}"
                 else:
-                    start = self._convert_expression(node.iter.args[0])
-                    end = self._convert_expression(node.iter.args[1])
+                    start = self.generate_expression(node.iter.args[0])
+                    end = self.generate_expression(node.iter.args[1])
                     init = f"int {node.target.id} = {start}"
-                    condition = f"{node.target.id} < {end}"
-                self._pop_context()
-
-                increment = f"{node.target.id}++"
-
-                body = []
+                    cond = f"{node.target.id} < {end}"
+                self.add_line(f"for ({init}; {cond}; {node.target.id}++)")
+                self.add_line("{")
+                self.indent_level += 1
                 for stmt in node.body:
-                    body.extend(self._convert_statement(stmt))
-
-                lines = [f"for ({init}; {condition}; {increment})"]
-                lines.append("{")
-                lines.extend(f"    {line}" for line in body)
-                lines.append("}")
-                return lines
+                    self.generate_statement(stmt)
+                self.indent_level -= 1
+                self.add_line("}")
 
         elif isinstance(node, ast.Return):
-            value = self._convert_expression(node.value)
-            return [f"return {value};"]
+            value = self.generate_expression(node.value)
+            self.add_line(f"return {value};")
 
         elif isinstance(node, ast.Expr):
-            value = self._convert_expression(node.value)
-            return [f"{value};"]
+            value = self.generate_expression(node.value)
+            self.add_line(f"{value};")
 
-        return []
+    def generate_function(self, node: ast.FunctionDef) -> None:
+        """Generate GLSL function."""
+        self.enter_scope(node.name)
 
-    def _convert_function(
-        self, node: ast.FunctionDef, is_main: bool = False
-    ) -> List[str]:
-        """Convert Python function to GLSL."""
-        self._enter_scope(node.name)
+        # Get return type from annotation
+        return_type = self.analysis.type_registry.get_type(node.returns.id)
 
-        # Get correct return type
-        if node.name == self.analysis.main_function.name:
-            return_type = GLSLType(VEC4_TYPE)
-        else:
-            return_type = self.analysis.type_info.get_type(node.returns)
-
-        # Build argument list with correct types
+        # Build argument list
         args = []
         for arg in node.args.args:
-            if arg.arg == "vs_uv":
-                args.append(f"vec2 {arg.arg}")  # Always vec2 for vs_uv
-            else:
-                arg_type = self.analysis.type_info.get_type(arg)
+            arg_type = self.analysis.var_types[node.name].get(arg.arg)
+            if arg_type:
                 args.append(f"{str(arg_type)} {arg.arg}")
 
-        # Format function
-        lines = [f"{str(return_type)} {node.name}({', '.join(args)})"]
-        lines.append("{")
+        # Generate function declaration
+        self.add_line(f"{str(return_type)} {node.name}({', '.join(args)})")
+        self.add_line("{")
+        self.indent_level += 1
 
-        # Convert body with proper variable declarations
-        body_lines = []
+        # Generate hoisted variable declarations
+        if node.name in self.analysis.hoisted_vars:
+            for var_name in sorted(self.analysis.hoisted_vars[node.name]):
+                var_type = self.analysis.var_types[node.name][var_name]
+                self.add_line(f"{str(var_type)} {var_name};")
+            if self.analysis.hoisted_vars[node.name]:
+                self.add_line("")
+
+        # Generate function body
         for stmt in node.body:
-            body_lines.extend(self._convert_statement(stmt))
+            self.generate_statement(stmt)
 
-        lines.extend(f"    {line}" for line in body_lines)
-        lines.append("}")
+        self.indent_level -= 1
+        self.add_line("}")
 
-        self._exit_scope()
-        return lines
+        self.exit_scope()
 
     def generate(self) -> str:
         """Generate complete GLSL shader code."""
-        lines = [
-            GLSL_VERSION,
-            "",
-            "in vec2 vs_uv;",
-            "out vec4 fs_color;",
-            "",
-        ]
+        # Version declaration
+        self.add_line("#version 460")
+        self.add_line()
 
-        # Add uniforms (only once, at global scope)
-        for name, glsl_type in self.analysis.uniforms.items():
-            lines.append(f"uniform {glsl_type.name} {name};")
+        # Input/output declarations
+        self.add_line("in vec2 vs_uv;")
+        self.add_line("out vec4 fs_color;")
+        self.add_line()
+
+        # Uniform declarations
+        for name, glsl_type in sorted(self.analysis.uniforms.items()):
+            self.add_line(f"uniform {str(glsl_type)} {name};")
         if self.analysis.uniforms:
-            lines.append("")
+            self.add_line()
 
-        # Add functions
+        # Generate functions
         for func in self.analysis.functions:
-            lines.extend(self._convert_function(func))
-            lines.append("")
+            self.generate_function(func)
+            self.add_line()
 
-        # Add shader function
-        lines.extend(self._convert_function(self.analysis.main_function))
-        lines.append("")
+        # Generate main shader function
+        self.generate_function(self.analysis.main_function)
+        self.add_line()
 
-        # Add main function
-        lines.extend(
-            [
-                "void main()",
-                "{",
-                f"    fs_color = {self.analysis.main_function.name}(vs_uv);",
-                "}",
-            ]
-        )
+        # Generate main function
+        self.add_line("void main()")
+        self.add_line("{")
+        self.indent_level += 1
+        self.add_line(f"fs_color = {self.analysis.main_function.name}(vs_uv);")
+        self.indent_level -= 1
+        self.add_line("}")
 
-        return "\n".join(lines)
+        return "\n".join(self.lines)

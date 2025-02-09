@@ -1,143 +1,231 @@
-"""Type system for GLSL code generation."""
+"""GLSL type system and type operations."""
 
-import ast
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Dict, Optional, Set, Union
+from typing import Optional, Set, Tuple, Union
 
-from py2glsl.transpiler.constants import (
-    BOOL_TYPE,
-    FLOAT_TYPE,
-    INT_TYPE,
-    VEC2_TYPE,
-    VEC3_TYPE,
-    VEC4_TYPE,
-)
+import numpy as np
 
 
-class GLSLContext(Enum):
-    """Context for GLSL code generation."""
+class TypeKind(Enum):
+    """Kind of GLSL type."""
 
-    DEFAULT = auto()
-    LOOP_BOUND = auto()  # For loop bounds and indices
-    ARITHMETIC = auto()  # For general math expressions
-    VECTOR_INIT = auto()  # Keep existing vector context
+    VOID = auto()
+    BOOL = auto()
+    INT = auto()
+    FLOAT = auto()
+    VEC2 = auto()
+    VEC3 = auto()
+    VEC4 = auto()
+    MAT2 = auto()
+    MAT3 = auto()
+    MAT4 = auto()
+    SAMPLER2D = auto()
 
 
-@dataclass
+@dataclass(frozen=True)
 class GLSLType:
-    """Represents a GLSL type with optional qualifiers."""
+    """Represents a GLSL type with qualifiers and metadata."""
 
-    name: str
+    kind: TypeKind
     is_uniform: bool = False
-    is_varying: bool = False
+    is_const: bool = False
     is_attribute: bool = False
     array_size: Optional[int] = None
 
+    @property
+    def name(self) -> str:
+        """Get GLSL type name."""
+        base = {
+            TypeKind.VOID: "void",
+            TypeKind.BOOL: "bool",
+            TypeKind.INT: "int",
+            TypeKind.FLOAT: "float",
+            TypeKind.VEC2: "vec2",
+            TypeKind.VEC3: "vec3",
+            TypeKind.VEC4: "vec4",
+            TypeKind.MAT2: "mat2",
+            TypeKind.MAT3: "mat3",
+            TypeKind.MAT4: "mat4",
+            TypeKind.SAMPLER2D: "sampler2D",
+        }[self.kind]
+
+        if self.array_size is not None:
+            return f"{base}[{self.array_size}]"
+        return base
+
     def __str__(self) -> str:
-        """Convert to GLSL type declaration."""
+        """Convert to GLSL declaration."""
         parts = []
         if self.is_uniform:
             parts.append("uniform")
-        if self.is_varying:
-            parts.append("varying")
+        if self.is_const:
+            parts.append("const")
         if self.is_attribute:
             parts.append("attribute")
         parts.append(self.name)
-        if self.array_size is not None:
-            parts[-1] = f"{parts[-1]}[{self.array_size}]"
         return " ".join(parts)
 
+    def is_numeric(self) -> bool:
+        """Check if type is numeric (int/float/vector)."""
+        return self.kind in {
+            TypeKind.INT,
+            TypeKind.FLOAT,
+            TypeKind.VEC2,
+            TypeKind.VEC3,
+            TypeKind.VEC4,
+        }
+
+    def is_scalar(self) -> bool:
+        """Check if type is scalar."""
+        return self.kind in {TypeKind.INT, TypeKind.FLOAT, TypeKind.BOOL}
+
     def is_vector(self) -> bool:
-        return self.name.startswith("vec")
+        """Check if type is vector."""
+        return self.kind in {TypeKind.VEC2, TypeKind.VEC3, TypeKind.VEC4}
+
+    def is_matrix(self) -> bool:
+        """Check if type is matrix."""
+        return self.kind in {TypeKind.MAT2, TypeKind.MAT3, TypeKind.MAT4}
 
     def vector_size(self) -> int:
-        return int(self.name[3]) if self.is_vector() else 0
+        """Get vector size if vector type."""
+        if not self.is_vector():
+            raise TypeError("Not a vector type")
+        return {
+            TypeKind.VEC2: 2,
+            TypeKind.VEC3: 3,
+            TypeKind.VEC4: 4,
+        }[self.kind]
+
+    def component_type(self) -> "GLSLType":
+        """Get component type for vectors/matrices."""
+        if self.is_vector():
+            return FLOAT
+        if self.is_matrix():
+            return FLOAT
+        raise TypeError("Type has no components")
+
+    def can_convert_to(self, target: "GLSLType") -> bool:
+        """Check if this type can be converted to target."""
+        # Same type always works
+        if self == target:
+            return True
+
+        # Numeric conversions
+        if self.is_numeric() and target.is_numeric():
+            # Scalar to vector promotion
+            if self.is_scalar() and target.is_vector():
+                return True
+            # Vector size must match
+            if self.is_vector() and target.is_vector():
+                return self.vector_size() == target.vector_size()
+            # Int to float conversion
+            if self.kind == TypeKind.INT and target.kind == TypeKind.FLOAT:
+                return True
+
+        return False
+
+    def common_type(self, other: "GLSLType") -> Optional["GLSLType"]:
+        """Find common type for operation between two types."""
+        if self == other:
+            return self
+
+        if self.is_numeric() and other.is_numeric():
+            # Vector takes precedence
+            if self.is_vector() and other.is_vector():
+                if self.vector_size() == other.vector_size():
+                    return self
+            elif self.is_vector():
+                return self
+            elif other.is_vector():
+                return other
+
+            # Float takes precedence over int
+            if TypeKind.FLOAT in (self.kind, other.kind):
+                return FLOAT
+            return INT
+
+        return None
 
 
-class TypeInference:
-    """GLSL type inference system."""
-
-    def __init__(self) -> None:
-        self.type_map: Dict[str, GLSLType] = {}
-        self.current_context = GLSLContext.DEFAULT
-
-    def get_type(self, node: ast.AST) -> GLSLType:
-        """Infer GLSL type from AST node."""
-        # Special case for shader parameter
-        if isinstance(node, ast.Name) and node.id == "vs_uv":
-            return GLSLType(VEC2_TYPE)
-
-        # Handle variable names
-        if isinstance(node, ast.Name):
-            return self.type_map.get(node.id, GLSLType(FLOAT_TYPE))
-
-        # Handle constants
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, bool):
-                return GLSLType(BOOL_TYPE)
-            elif isinstance(node.value, int):
-                return GLSLType(INT_TYPE)
-            return GLSLType(FLOAT_TYPE)
-
-        # Handle vector constructors and function calls
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                if node.func.id in ("vec2", "Vec2"):
-                    return GLSLType(VEC2_TYPE)
-                elif node.func.id in ("vec3", "Vec3"):
-                    return GLSLType(VEC3_TYPE)
-                elif node.func.id in ("vec4", "Vec4"):
-                    return GLSLType(VEC4_TYPE)
-
-        # Handle binary operations
-        if isinstance(node, ast.BinOp):
-            left_type = self.get_type(node.left)
-            right_type = self.get_type(node.right)
-
-            # Vector operations take precedence
-            if left_type.is_vector() or right_type.is_vector():
-                return left_type if left_type.is_vector() else right_type
-
-            # Integer operations in loop context
-            if self.current_context == GLSLContext.LOOP_BOUND:
-                if left_type.name == INT_TYPE and right_type.name == INT_TYPE:
-                    return GLSLType(INT_TYPE)
-
-            return GLSLType(FLOAT_TYPE)
-
-        # Handle vector swizzling
-        if isinstance(node, ast.Attribute):
-            base_type = self.get_type(node.value)
-            if base_type.is_vector():
-                swizzle = node.attr
-                if len(swizzle) == 1:
-                    return GLSLType(FLOAT_TYPE)
-                return GLSLType(f"vec{len(swizzle)}")
-
-        return GLSLType(FLOAT_TYPE)
-
-    def register_type(self, name: str, glsl_type: GLSLType) -> None:
-        """Register type for a variable."""
-        self.type_map[name] = glsl_type
-
-    def set_context(self, context: GLSLContext) -> None:
-        """Set current type inference context."""
-        self.current_context = context
+# Singleton instances for built-in types
+VOID = GLSLType(TypeKind.VOID)
+BOOL = GLSLType(TypeKind.BOOL)
+INT = GLSLType(TypeKind.INT)
+FLOAT = GLSLType(TypeKind.FLOAT)
+VEC2 = GLSLType(TypeKind.VEC2)
+VEC3 = GLSLType(TypeKind.VEC3)
+VEC4 = GLSLType(TypeKind.VEC4)
+MAT2 = GLSLType(TypeKind.MAT2)
+MAT3 = GLSLType(TypeKind.MAT3)
+MAT4 = GLSLType(TypeKind.MAT4)
+SAMPLER2D = GLSLType(TypeKind.SAMPLER2D)
 
 
-def validate_types(left: GLSLType, right: GLSLType, op: ast.operator) -> GLSLType:
-    """Validate type compatibility and return result type."""
-    # Vector operations
-    if left.is_vector() or right.is_vector():
-        if left.is_vector() and right.is_vector():
-            if left.vector_size() != right.vector_size():
-                raise TypeError("Vector operations require matching dimensions")
-            return left
-        return left if left.is_vector() else right
+class TypeRegistry:
+    """Registry of GLSL types and operations."""
 
-    # Numeric operations
-    if left.name in (FLOAT_TYPE, INT_TYPE) and right.name in (FLOAT_TYPE, INT_TYPE):
-        return GLSLType(FLOAT_TYPE)
+    def __init__(self):
+        """Initialize registry."""
+        self.types: Set[GLSLType] = {
+            VOID,
+            BOOL,
+            INT,
+            FLOAT,
+            VEC2,
+            VEC3,
+            VEC4,
+            MAT2,
+            MAT3,
+            MAT4,
+            SAMPLER2D,
+        }
 
-    raise TypeError(f"Invalid operation between {left.name} and {right.name}")
+    def get_type(self, name: str) -> GLSLType:
+        """Get type by name."""
+        for t in self.types:
+            if t.name == name:
+                return t
+        raise KeyError(f"Unknown type: {name}")
+
+    def validate_operation(
+        self, op: str, left: GLSLType, right: GLSLType
+    ) -> Optional[GLSLType]:
+        """Validate operation between types and return result type."""
+        if not (left in self.types and right in self.types):
+            return None
+
+        # Get common numeric type
+        result = left.common_type(right)
+        if result is None:
+            return None
+
+        # Validate operation
+        if op in ("+", "-", "*", "/"):
+            return result
+        elif op in ("==", "!=", "<", "<=", ">", ">="):
+            return BOOL
+
+        return None
+
+
+# NumPy array type aliases
+Vec2 = np.ndarray  # shape (2,)
+Vec3 = np.ndarray  # shape (3,)
+Vec4 = np.ndarray  # shape (4,)
+
+
+def vec2(x: float, y: float) -> Vec2:
+    """Create 2D vector."""
+    return np.array([x, y], dtype=np.float32)
+
+
+def vec3(x: float, y: float, z: float) -> Vec3:
+    """Create 3D vector."""
+    return np.array([x, y, z], dtype=np.float32)
+
+
+def vec4(x: float, y: float, z: float, w: float) -> Vec4:
+    """Create 4D vector."""
+    return np.array([x, y, z, w], dtype=np.float32)

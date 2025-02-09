@@ -4,13 +4,12 @@ import ast
 import inspect
 import textwrap
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Dict
 
 from loguru import logger
 
 from .analyzer import ShaderAnalysis, ShaderAnalyzer
 from .constants import VERTEX_SHADER
-from .formatter import GLSLFormatter
 from .generator import GLSLGenerator
 from .types import GLSLType
 
@@ -24,19 +23,8 @@ class ShaderResult:
     vertex_source: str = VERTEX_SHADER
 
 
-def py2glsl(func: Any) -> ShaderResult:
-    """Transform Python shader function to GLSL.
-
-    Args:
-        func: Python function to transform to GLSL shader
-
-    Returns:
-        ShaderResult containing generated GLSL code
-
-    Raises:
-        TypeError: If shader function is invalid
-        ValueError: If shader code is invalid
-    """
+def py2glsl(func: any) -> ShaderResult:
+    """Transform Python shader function to GLSL."""
     try:
         # Get source code and clean it
         source = inspect.getsource(func)
@@ -73,7 +61,7 @@ def py2glsl(func: Any) -> ShaderResult:
         logger.error(f"Failed to parse AST: {e}\nSource:\n{source}")
         raise ValueError(f"Invalid Python syntax in shader function: {str(e)}") from e
 
-    # Analyze shader using AST directly
+    # Analyze shader
     try:
         analyzer = ShaderAnalyzer()
         analysis = analyzer.analyze(new_tree)
@@ -90,7 +78,7 @@ def py2glsl(func: Any) -> ShaderResult:
         logger.error(f"GLSL generation failed: {e}")
         raise ValueError(f"Could not generate GLSL code: {str(e)}") from e
 
-    # Extract uniform information for result
+    # Extract uniform information
     uniforms = {
         name: str(glsl_type).split()[-1]  # Get base type without qualifiers
         for name, glsl_type in analysis.uniforms.items()

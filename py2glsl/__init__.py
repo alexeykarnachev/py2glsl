@@ -21,12 +21,14 @@ from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 __version__ = "0.1.0"
 
 __all__ = [
+    # Types
     "Vec2",
     "Vec3",
     "Vec4",
     "vec2",
     "vec3",
     "vec4",
+    # Built-in functions
     "abs",
     "atan",
     "clamp",
@@ -40,12 +42,13 @@ __all__ = [
     "normalize",
     "sin",
     "smoothstep",
+    "sqrt",
+    # Core functionality
     "py2glsl",
+    # Rendering functions
     "render_array",
     "render_image",
-    "animate",
     "render_gif",
     "render_video",
     "animate",
-    "sqrt",
 ]

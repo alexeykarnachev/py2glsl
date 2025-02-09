@@ -1,180 +1,304 @@
 """Shader analysis for GLSL code generation."""
 
 import ast
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Set
+from enum import Enum, auto
+from typing import Dict, List, Optional, Set, Union, cast
 
 from loguru import logger
 
-from py2glsl.transpiler.constants import FLOAT_TYPE, INT_TYPE, VEC2_TYPE, VEC4_TYPE
-from py2glsl.transpiler.types import GLSLContext, GLSLType, TypeInference
+from py2glsl.transpiler.types import (
+    BOOL,
+    FLOAT,
+    INT,
+    VEC2,
+    VEC3,
+    VEC4,
+    GLSLType,
+    TypeRegistry,
+)
 
 
-@dataclass
+class GLSLContext(Enum):
+    """Context for shader analysis."""
+
+    DEFAULT = auto()  # Default context
+    LOOP = auto()  # Inside loop (for integer inference)
+    FUNCTION = auto()  # Inside function definition
+    VECTOR_INIT = auto()  # Vector initialization
+    EXPRESSION = auto()  # Inside expression
+
+
 class ShaderAnalysis:
     """Result of shader analysis."""
 
-    uniforms: Dict[str, GLSLType]
-    functions: List[ast.FunctionDef]
-    main_function: ast.FunctionDef
-    type_info: TypeInference
-    hoisted_vars: Dict[str, Set[str]]  # Scope -> Variables
-
-
-class ShaderAnalyzer:
-    def __init__(self) -> None:
-        """Initialize analyzer."""
-        self.hoisted_vars: Dict[str, Set[str]] = {}
-        self.current_scope = "global"
-        self.scope_stack: List[str] = []
+    def __init__(self):
         self.uniforms: Dict[str, GLSLType] = {}
         self.functions: List[ast.FunctionDef] = []
         self.main_function: Optional[ast.FunctionDef] = None
-        self.type_inference = TypeInference()
-        self._init_scope("global")
+        self.type_registry = TypeRegistry()
+        self.hoisted_vars: Dict[str, Set[str]] = {"global": set()}
+        self.var_types: Dict[str, Dict[str, GLSLType]] = {"global": {}}
+        self.current_scope = "global"
+        self.scope_stack: List[str] = []
 
-    def _init_scope(self, scope_name: str) -> None:
-        """Initialize a new scope."""
-        if scope_name not in self.hoisted_vars:
-            self.hoisted_vars[scope_name] = set()
 
-    def _analyze_arguments(self, func_def: ast.FunctionDef) -> None:
-        """Analyze function arguments and collect uniforms."""
-        logger.debug(f"Analyzing arguments for function: {func_def.name}")
-        self._init_scope(func_def.name)
+class ShaderAnalyzer:
+    """Analyzes Python shader code for GLSL generation."""
 
-        # Register vs_uv type
-        if func_def.args.args:
-            first_arg = func_def.args.args[0]
-            if first_arg.arg != "vs_uv":
-                raise TypeError("First argument must be vs_uv: vec2")
+    def __init__(self):
+        self.analysis = ShaderAnalysis()
+        self.current_context = GLSLContext.DEFAULT
+        self.context_stack: List[GLSLContext] = []
 
-            # Always register vs_uv as vec2
-            self.type_inference.register_type(first_arg.arg, GLSLType(VEC2_TYPE))
+    def push_context(self, ctx: GLSLContext) -> None:
+        """Push new analysis context."""
+        self.context_stack.append(self.current_context)
+        self.current_context = ctx
 
-        # Process keyword-only arguments as uniforms
-        for arg in func_def.args.kwonlyargs:
-            if not arg.annotation:
-                raise TypeError("All uniform arguments must have type annotations")
-
-            if arg.arg.startswith("_"):
-                continue
-
-            # Convert Python type annotation to GLSL type
-            glsl_type = self._analyze_type_annotation(arg.annotation)
-            glsl_type.is_uniform = True
-
-            # Register uniform and type
-            self.uniforms[arg.arg] = glsl_type
-            self.type_inference.register_type(arg.arg, glsl_type)
-            self.hoisted_vars[func_def.name].add(arg.arg)
-
-    def _analyze_body(self, func_def: ast.FunctionDef) -> None:
-        """Analyze function body."""
-        self._enter_scope(func_def.name)
-
-        try:
-            # Register return type
-            if func_def.returns:
-                return_type = self._analyze_type_annotation(func_def.returns)
-                self.type_inference.register_type("return", return_type)
-
-            # Collect hoisted variables
-            self._collect_hoisted_vars(func_def)
-
-            # Collect nested functions
-            for node in func_def.body:
-                if isinstance(node, ast.FunctionDef):
-                    self.functions.append(node)
-                    self._analyze_body(node)
-
-        finally:
-            self._exit_scope()
-
-    def _collect_hoisted_vars(self, node: ast.AST) -> None:
-        """Collect variables that need to be hoisted in current scope."""
-        for child in ast.walk(node):
-            if isinstance(child, ast.Assign):
-                for target in child.targets:
-                    if isinstance(target, ast.Name):
-                        if target.id not in self.hoisted_vars[self.current_scope]:
-                            var_type = self.type_inference.get_type(child.value)
-                            self.type_inference.register_type(target.id, var_type)
-                            self.hoisted_vars[self.current_scope].add(target.id)
-
-            elif isinstance(child, ast.For):
-                if isinstance(child.target, ast.Name):
-                    if child.target.id not in self.hoisted_vars[self.current_scope]:
-                        self.type_inference.register_type(
-                            child.target.id, GLSLType(INT_TYPE)
-                        )
-                        self.hoisted_vars[self.current_scope].add(child.target.id)
-
-    def _analyze_type_annotation(self, node: ast.AST) -> GLSLType:
-        """Convert Python type annotation to GLSL type."""
-        if isinstance(node, ast.Name):
-            if node.id in ("vec2", "Vec2"):
-                return GLSLType(VEC2_TYPE)
-            elif node.id in ("vec3", "Vec3"):
-                return GLSLType(VEC3_TYPE)
-            elif node.id in ("vec4", "Vec4"):
-                return GLSLType(VEC4_TYPE)
-            elif node.id == "float":
-                return GLSLType(FLOAT_TYPE)
-            elif node.id == "int":
-                return GLSLType(INT_TYPE)
-
-        # Default to vec4 for shader return type
-        if self.current_scope == "shader":
-            return GLSLType(VEC4_TYPE)
-
-        return GLSLType(FLOAT_TYPE)
-
-    def _enter_scope(self, name: str) -> None:
-        """Enter a new scope."""
-        self._init_scope(name)
-        self.scope_stack.append(self.current_scope)
-        self.current_scope = name
-
-    def _exit_scope(self) -> None:
-        """Exit current scope."""
-        if self.scope_stack:
-            self.current_scope = self.scope_stack.pop()
+    def pop_context(self) -> None:
+        """Pop analysis context."""
+        if self.context_stack:
+            self.current_context = self.context_stack.pop()
         else:
-            self.current_scope = "global"
+            self.current_context = GLSLContext.DEFAULT
+
+    def enter_scope(self, name: str) -> None:
+        """Enter a new variable scope."""
+        if name not in self.analysis.hoisted_vars:
+            self.analysis.hoisted_vars[name] = set()
+            self.analysis.var_types[name] = {}
+        self.analysis.scope_stack.append(self.analysis.current_scope)
+        self.analysis.current_scope = name
+
+    def exit_scope(self) -> None:
+        """Exit current scope."""
+        if self.analysis.scope_stack:
+            self.analysis.current_scope = self.analysis.scope_stack.pop()
+        else:
+            self.analysis.current_scope = "global"
+
+    def register_variable(self, name: str, glsl_type: GLSLType) -> None:
+        """Register variable in current scope."""
+        scope = self.analysis.current_scope
+        if name not in self.analysis.hoisted_vars[scope]:
+            self.analysis.hoisted_vars[scope].add(name)
+            self.analysis.var_types[scope][name] = glsl_type
+
+    def get_variable_type(self, name: str) -> Optional[GLSLType]:
+        """Get type of variable from current or parent scope."""
+        scope = self.analysis.current_scope
+        while True:
+            if name in self.analysis.var_types[scope]:
+                return self.analysis.var_types[scope][name]
+            if scope == "global":
+                break
+            scope = self.analysis.scope_stack[-1]
+        return None
+
+    def infer_type(self, node: ast.AST) -> GLSLType:
+        """Infer GLSL type from AST node."""
+        if isinstance(node, ast.Name):
+            # Handle vs_uv special case
+            if node.id == "vs_uv":
+                return VEC2
+            # Look up variable type
+            var_type = self.get_variable_type(node.id)
+            if var_type:
+                return var_type
+            # Check uniforms
+            if node.id in self.analysis.uniforms:
+                return self.analysis.uniforms[node.id]
+
+        elif isinstance(node, ast.Num):
+            # Integer literals in loop context stay int
+            if self.current_context == GLSLContext.LOOP and isinstance(node.n, int):
+                return INT
+            # Otherwise default to float
+            return FLOAT
+
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, bool):
+                return BOOL
+            elif isinstance(node.value, int):
+                if self.current_context == GLSLContext.LOOP:
+                    return INT
+                return FLOAT
+            elif isinstance(node.value, float):
+                return FLOAT
+
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                # Vector constructors
+                if node.func.id in ("vec2", "Vec2"):
+                    return VEC2
+                elif node.func.id in ("vec3", "Vec3"):
+                    return VEC3
+                elif node.func.id in ("vec4", "Vec4"):
+                    return VEC4
+                # Built-in functions
+                return self.infer_builtin_return_type(node.func.id, node.args)
+
+        elif isinstance(node, ast.BinOp):
+            left_type = self.infer_type(node.left)
+            right_type = self.infer_type(node.right)
+            return self.infer_binary_op_type(left_type, right_type, type(node.op))
+
+        elif isinstance(node, ast.Attribute):
+            value_type = self.infer_type(node.value)
+            if value_type.is_vector():
+                # Handle swizzling
+                if len(node.attr) == 1:
+                    return FLOAT
+                elif len(node.attr) == 2:
+                    return VEC2
+                elif len(node.attr) == 3:
+                    return VEC3
+                elif len(node.attr) == 4:
+                    return VEC4
+
+        return FLOAT  # Default to float for unknown expressions
+
+    def infer_builtin_return_type(
+        self, func_name: str, args: List[ast.AST]
+    ) -> GLSLType:
+        """Infer return type of built-in function."""
+        arg_types = [self.infer_type(arg) for arg in args]
+
+        # Scalar return
+        if func_name in {"length", "dot"}:
+            return FLOAT
+
+        # Same as input vector
+        if func_name in {"normalize", "abs"}:
+            if arg_types and arg_types[0].is_vector():
+                return arg_types[0]
+            return FLOAT
+
+        # Component-wise operations
+        if func_name in {"sin", "cos", "floor", "ceil"}:
+            return arg_types[0] if arg_types else FLOAT
+
+        return FLOAT
+
+    def infer_binary_op_type(
+        self, left: GLSLType, right: GLSLType, op: type
+    ) -> GLSLType:
+        """Infer result type of binary operation."""
+        # Vector operations take precedence
+        if left.is_vector() or right.is_vector():
+            return left if left.is_vector() else right
+
+        # Integer operations in loop context
+        if self.current_context == GLSLContext.LOOP:
+            if left.kind == right.kind == INT:
+                return INT
+
+        # Default to float for numeric operations
+        return FLOAT
+
+    def analyze_function_def(self, node: ast.FunctionDef) -> None:
+        """Analyze function definition."""
+        self.enter_scope(node.name)
+
+        # Only check vs_uv requirement for top-level functions
+        if len(self.analysis.scope_stack) == 1:  # We're at top level
+            # Analyze arguments
+            if node.args.args:
+                first_arg = node.args.args[0]
+                if first_arg.arg != "vs_uv":
+                    raise TypeError("First argument must be vs_uv: vec2")
+                self.register_variable("vs_uv", VEC2)
+
+            # Process uniforms (keyword-only arguments)
+            for arg in node.args.kwonlyargs:
+                if arg.annotation is None:
+                    raise TypeError(f"Uniform {arg.arg} must have type annotation")
+                base_type = self.get_type_from_annotation(arg.annotation)
+                # Create new type instance with is_uniform=True
+                uniform_type = GLSLType(
+                    kind=base_type.kind,
+                    is_uniform=True,
+                    is_const=base_type.is_const,
+                    is_attribute=base_type.is_attribute,
+                    array_size=base_type.array_size,
+                )
+                self.analysis.uniforms[arg.arg] = uniform_type
+
+            # Store as main function
+            self.analysis.main_function = node
+        else:
+            # For nested functions, just analyze arguments normally
+            for arg in node.args.args:
+                if arg.annotation:
+                    arg_type = self.get_type_from_annotation(arg.annotation)
+                    self.register_variable(arg.arg, arg_type)
+                self.analysis.functions.append(node)
+
+        # Analyze body
+        for stmt in node.body:
+            self.analyze_statement(stmt)
+
+        self.exit_scope()
+
+    def analyze_statement(self, node: ast.AST) -> None:
+        """Analyze statement node."""
+        if isinstance(node, ast.Assign):
+            value_type = self.infer_type(node.value)
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.register_variable(target.id, value_type)
+
+        elif isinstance(node, ast.AugAssign):
+            if isinstance(node.target, ast.Name):
+                value_type = self.infer_type(node.value)
+                self.register_variable(node.target.id, value_type)
+
+        elif isinstance(node, ast.For):
+            self.push_context(GLSLContext.LOOP)
+            if isinstance(node.target, ast.Name):
+                self.register_variable(node.target.id, INT)
+            for stmt in node.body:
+                self.analyze_statement(stmt)
+            self.pop_context()
+
+        elif isinstance(node, ast.If):
+            for stmt in node.body:
+                self.analyze_statement(stmt)
+            for stmt in node.orelse:
+                self.analyze_statement(stmt)
+
+        elif isinstance(node, ast.FunctionDef):
+            self.analyze_function_def(node)
+
+    def get_type_from_annotation(self, annotation: ast.AST) -> GLSLType:
+        """Convert Python type annotation to GLSL type."""
+        if isinstance(annotation, ast.Name):
+            if annotation.id in ("vec2", "Vec2"):
+                return VEC2
+            elif annotation.id in ("vec3", "Vec3"):
+                return VEC3
+            elif annotation.id in ("vec4", "Vec4"):
+                return VEC4
+            elif annotation.id == "float":
+                return FLOAT
+            elif annotation.id == "int":
+                return INT
+            elif annotation.id == "bool":
+                return BOOL
+        raise TypeError(f"Unsupported type annotation: {annotation}")
 
     def analyze(self, tree: ast.Module) -> ShaderAnalysis:
-        """Analyze shader function or AST."""
-        if not isinstance(tree.body[0], ast.FunctionDef):
-            raise TypeError("Expected a function definition")
+        """Analyze shader AST."""
+        self.analysis = ShaderAnalysis()
 
-        func_def = tree.body[0]
-        logger.debug(f"Found function definition: {func_def.name}")
+        # Find and analyze shader function
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                logger.debug(f"Found function definition: {node.name}")
+                self.analyze_function_def(node)
 
-        # Initialize analysis state
-        self.uniforms = {}
-        self.functions = []
-        self.main_function = func_def
-        self.type_inference = TypeInference()
-        self.hoisted_vars = {"global": set()}
-        self.current_scope = "global"
-        self.scope_stack = []
+        # Check that we found a main function
+        if not self.analysis.main_function:
+            raise ValueError("No shader function found")
 
-        # Analyze function
-        self._analyze_arguments(func_def)
-        self._analyze_body(func_def)
-
-        # Ensure shader returns vec4
-        if not isinstance(func_def.returns, ast.Name) or func_def.returns.id not in (
-            "vec4",
-            "Vec4",
-        ):
-            raise TypeError("Shader must return vec4")
-
-        return ShaderAnalysis(
-            uniforms=self.uniforms,
-            functions=self.functions,
-            main_function=self.main_function,
-            type_info=self.type_inference,
-            hoisted_vars=self.hoisted_vars,
-        )
+        return self.analysis
