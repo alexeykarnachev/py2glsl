@@ -57,8 +57,7 @@ class GLSLType:
     def __str__(self) -> str:
         """Convert to GLSL declaration."""
         parts = []
-        if self.is_uniform:
-            parts.append("uniform")
+        # Only add qualifiers when explicitly requested
         if self.is_const:
             parts.append("const")
         if self.is_attribute:

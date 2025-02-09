@@ -263,7 +263,8 @@ class GLSLGenerator:
 
         # Uniform declarations
         for name, glsl_type in sorted(self.analysis.uniforms.items()):
-            self.add_line(f"uniform {str(glsl_type)} {name};")
+            # Explicitly add uniform keyword here instead of relying on GLSLType.__str__
+            self.add_line(f"uniform {glsl_type.name} {name};")
         if self.analysis.uniforms:
             self.add_line()
 
