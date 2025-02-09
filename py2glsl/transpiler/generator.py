@@ -6,16 +6,7 @@ from typing import List, Optional, Set
 from loguru import logger
 
 from py2glsl.transpiler.analyzer import GLSLContext, ShaderAnalysis
-from py2glsl.transpiler.types import (
-    BOOL,
-    FLOAT,
-    INT,
-    VEC2,
-    VEC3,
-    VEC4,
-    GLSLType,
-    TypeKind,
-)
+from py2glsl.transpiler.types import BOOL, FLOAT, INT, VEC2, VEC3, VEC4, GLSLType
 
 
 class GLSLGenerator:
