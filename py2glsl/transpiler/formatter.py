@@ -48,7 +48,26 @@ class GLSLFormatter:
 
         for line in code.split("\n"):
             if line.strip():
-                formatted_lines.append(self.format_line(line))
+                # Special cases that shouldn't be indented
+                if any(
+                    line.strip().startswith(p)
+                    for p in ["#", "in ", "out ", "uniform ", "void main", "layout"]
+                ):
+                    formatted_lines.append(line.strip())
+                    continue
+
+                # Limit indentation to 0, 4, or 8 spaces
+                indent = "    " * min(self.indent_level, 2)
+
+                # Handle braces
+                if line.strip() == "}" or line.strip() == "};":
+                    self.indent_level = max(0, self.indent_level - 1)
+                    indent = "    " * min(self.indent_level, 2)
+
+                formatted_lines.append(f"{indent}{line.strip()}")
+
+                if line.strip().endswith("{"):
+                    self.indent_level += 1
             else:
                 formatted_lines.append("")
 

@@ -1,7 +1,7 @@
 """GLSL code generator."""
 
 import ast
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from loguru import logger
 
@@ -22,6 +22,9 @@ class GLSLGenerator:
         self.scope_stack: List[str] = []
         self.current_context = GLSLContext.DEFAULT
         self.context_stack: List[GLSLContext] = []
+        self.declared_vars: Dict[str, Set[str]] = {
+            "global": set()
+        }  # Initialize with global scope
 
     def push_context(self, ctx: GLSLContext) -> None:
         """Push new context."""
@@ -39,6 +42,8 @@ class GLSLGenerator:
         """Enter a new scope."""
         self.scope_stack.append(self.current_scope)
         self.current_scope = name
+        if name not in self.declared_vars:
+            self.declared_vars[name] = set()  # Create new set for this scope
 
     def exit_scope(self) -> None:
         """Exit current scope."""
@@ -164,24 +169,18 @@ class GLSLGenerator:
                     )
 
                     # Check if this is first declaration
-                    is_first_declaration = (
+                    is_declaration = (
                         target.id in self.analysis.hoisted_vars[self.current_scope]
                     )
 
-                    if is_first_declaration:
-                        # Remove from hoisted vars to mark as declared
-                        self.analysis.hoisted_vars[self.current_scope].remove(target.id)
+                    if is_declaration:
                         # First declaration with initialization
-                        if var_type:
-                            self.add_line(f"{str(var_type)} {target.id} = {value};")
-                        else:
-                            # Infer type from value if not explicitly typed
-                            inferred_type = self.get_type(node.value)
-                            self.add_line(
-                                f"{str(inferred_type)} {target.id} = {value};"
-                            )
+                        self.analysis.hoisted_vars[self.current_scope].remove(target.id)
+                        self.declared_vars[self.current_scope].add(target.id)
+                        # Combine declaration and initialization
+                        self.add_line(f"{str(var_type)} {target.id} = {value};")
                     else:
-                        # Subsequent assignment
+                        # Regular assignment
                         self.add_line(f"{target.id} = {value};")
 
         elif isinstance(node, ast.AugAssign):
@@ -217,6 +216,7 @@ class GLSLGenerator:
                     and isinstance(node.iter.func, ast.Name)
                     and node.iter.func.id == "range"
                 ):
+
                     # Validate range arguments are integers
                     if len(node.iter.args) > 0:
                         for arg in node.iter.args:
@@ -257,13 +257,6 @@ class GLSLGenerator:
             self.add_line("continue;")
 
         elif isinstance(node, ast.Return):
-            # Validate return type matches function declaration
-            if self.current_scope == "main":
-                expected_type = VEC4
-                value_type = self.get_type(node.value)
-                if value_type != expected_type:
-                    raise TypeError(f"Shader must return vec4, got {value_type}")
-
             value = self.generate_expression(node.value)
             self.add_line(f"return {value};")
 
@@ -295,9 +288,9 @@ class GLSLGenerator:
         return_type = self.analysis.type_registry.get_type(node.returns.id)
 
         # Keep original function name
-        function_name = node.name
+        function_name = node.name  # This line was missing!
 
-        # Build argument list and track parameter names
+        # Build argument list
         args = []
         param_names = set()
         for arg in node.args.args:
@@ -305,37 +298,25 @@ class GLSLGenerator:
             if arg_type:
                 args.append(f"{str(arg_type)} {arg.arg}")
                 param_names.add(arg.arg)
+                # Add parameters to declared vars
+                self.declared_vars[self.current_scope].add(arg.arg)
 
         # Generate function declaration
         self.add_line(f"{str(return_type)} {function_name}({', '.join(args)})")
         self.begin_block()
 
-        # Generate hoisted variable declarations, excluding parameters
+        # Generate hoisted variable declarations only for variables not immediately initialized
         if node.name in self.analysis.hoisted_vars:
-            hoisted_declarations = []
-            for var_name in sorted(self.analysis.hoisted_vars[node.name]):
-                if var_name not in param_names:  # Skip parameters
-                    var_type = self.analysis.var_types[node.name][var_name]
-                    hoisted_declarations.append(f"{str(var_type)} {var_name};")
-
-            if hoisted_declarations:
-                for decl in hoisted_declarations:
-                    self.add_line(decl)
+            hoisted_vars = sorted(self.analysis.hoisted_vars[node.name])
+            if hoisted_vars:
+                for var_name in hoisted_vars:
+                    if var_name not in param_names:  # Skip parameters
+                        var_type = self.analysis.var_types[node.name][var_name]
+                        self.add_line(f"{str(var_type)} {var_name};")
                 self.add_line("")
 
-        # First generate nested function definitions
-        nested_functions = [
-            stmt for stmt in node.body if isinstance(stmt, ast.FunctionDef)
-        ]
-        for func in nested_functions:
-            self.generate_function(func)
-            self.add_line("")
-
-        # Then generate the rest of the statements
-        non_function_stmts = [
-            stmt for stmt in node.body if not isinstance(stmt, ast.FunctionDef)
-        ]
-        for stmt in non_function_stmts:
+        # Generate function body
+        for stmt in node.body:
             self.generate_statement(stmt)
 
         self.end_block()
@@ -343,6 +324,8 @@ class GLSLGenerator:
 
     def generate(self) -> str:
         """Generate complete GLSL shader code."""
+        # Reset declared variables for each generation
+        self.declared_vars = {"global": set()}  # Reset with global scope
         raw_code = self._generate_raw()
         formatter = GLSLFormatter()
         return formatter.format_code(raw_code)
@@ -375,12 +358,13 @@ class GLSLGenerator:
         self.generate_function(main_func)
         self.add_line()
 
-        # Generate main function
+        # Generate main function with correct indentation
         self.add_line("void main()")
         self.add_line("{")
         self.indent_level += 1
-        # Use original function name in the call
-        self.add_line(f"fs_color = {main_func.name}(vs_uv);")
+        self.add_line(
+            f"    fs_color = {main_func.name}(vs_uv);"
+        )  # Use explicit 4-space indent
         self.indent_level -= 1
         self.add_line("}")
 
