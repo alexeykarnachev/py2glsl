@@ -8,14 +8,51 @@ from .constants import GLSL_VERSION, INDENT
 class GLSLFormatter:
     """Handles GLSL code formatting."""
 
-    def __init__(self) -> None:
-        """Initialize formatter."""
+    def __init__(self):
         self.indent_level = 0
         self.lines: List[str] = []
+        self._indent_str = "    "  # Fixed 4-space indentation
 
     def _indent(self) -> str:
         """Get current indentation string."""
         return INDENT * self.indent_level
+
+    def format_line(self, line: str) -> str:
+        """Format a single line with proper indentation."""
+        if not line.strip():
+            return ""
+
+        # Don't indent preprocessor directives, in/out declarations, and uniforms
+        if any(
+            line.startswith(prefix)
+            for prefix in ["#", "in ", "out ", "uniform ", "void main", "layout"]
+        ):
+            return line.strip()
+
+        # Don't indent closing braces
+        if line.strip() == "}":
+            self.indent_level = max(0, self.indent_level - 1)
+
+        result = f"{self._indent_str * self.indent_level}{line.strip()}"
+
+        # Increase indent after opening brace
+        if line.strip().endswith("{"):
+            self.indent_level += 1
+
+        return result
+
+    def format_code(self, code: str) -> str:
+        """Format complete GLSL code."""
+        self.indent_level = 0
+        formatted_lines = []
+
+        for line in code.split("\n"):
+            if line.strip():
+                formatted_lines.append(self.format_line(line))
+            else:
+                formatted_lines.append("")
+
+        return "\n".join(formatted_lines)
 
     def add_line(self, line: str = "") -> None:
         """Add a line of code with proper indentation."""

@@ -4,7 +4,7 @@ import ast
 import inspect
 import textwrap
 from dataclasses import dataclass
-from typing import Dict
+from typing import Any, Dict
 
 from loguru import logger
 
@@ -23,7 +23,7 @@ class ShaderResult:
     vertex_source: str = VERTEX_SHADER
 
 
-def py2glsl(func: any) -> ShaderResult:
+def py2glsl(func: Any) -> ShaderResult:
     """Transform Python shader function to GLSL."""
     try:
         # Get source code and clean it
@@ -48,6 +48,8 @@ def py2glsl(func: any) -> ShaderResult:
         # Extract just the function definition
         if isinstance(tree.body[0], ast.FunctionDef):
             func_def = tree.body[0]
+            # Rename function to 'shader' for consistency
+            func_def.name = "shader"
             # Create new AST with just the function
             new_tree = ast.Module(body=[func_def], type_ignores=[])
             logger.debug(f"Extracted function AST:\n{ast.dump(new_tree, indent=2)}")
@@ -65,6 +67,11 @@ def py2glsl(func: any) -> ShaderResult:
     try:
         analyzer = ShaderAnalyzer()
         analysis = analyzer.analyze(new_tree)
+
+        # Validate shader return type
+        if not isinstance(func_def.returns, ast.Name) or func_def.returns.id != "vec4":
+            raise TypeError("Shader must return vec4")
+
     except (TypeError, ValueError) as e:
         logger.error(f"Shader analysis failed: {e}")
         raise TypeError(f"Invalid shader function: {str(e)}") from e

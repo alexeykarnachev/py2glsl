@@ -207,19 +207,24 @@ class ShaderAnalyzer:
 
         # Only check vs_uv requirement for top-level functions
         if len(self.analysis.scope_stack) == 1:  # We're at top level
+            # Validate return type
+            if not isinstance(node.returns, ast.Name) or node.returns.id != "vec4":
+                raise TypeError("Shader must return vec4")
+
             # Analyze arguments
-            if node.args.args:
-                first_arg = node.args.args[0]
-                if first_arg.arg != "vs_uv":
-                    raise TypeError("First argument must be vs_uv: vec2")
-                self.register_variable("vs_uv", VEC2)
+            if not node.args.args or node.args.args[0].arg != "vs_uv":
+                raise TypeError("First argument must be vs_uv: vec2")
+            self.register_variable("vs_uv", VEC2)
+
+            # Validate all other arguments are uniforms
+            if len(node.args.args) > 1:
+                raise TypeError("All arguments except vs_uv must be uniforms")
 
             # Process uniforms (keyword-only arguments)
             for arg in node.args.kwonlyargs:
                 if arg.annotation is None:
                     raise TypeError(f"Uniform {arg.arg} must have type annotation")
                 base_type = self.get_type_from_annotation(arg.annotation)
-                # Create new type instance with is_uniform=True
                 uniform_type = GLSLType(
                     kind=base_type.kind,
                     is_uniform=True,
@@ -237,7 +242,7 @@ class ShaderAnalyzer:
                 if arg.annotation:
                     arg_type = self.get_type_from_annotation(arg.annotation)
                     self.register_variable(arg.arg, arg_type)
-                self.analysis.functions.append(node)
+            self.analysis.functions.append(node)
 
         # Analyze body
         for stmt in node.body:

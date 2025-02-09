@@ -6,6 +6,7 @@ from typing import List, Optional, Set
 from loguru import logger
 
 from py2glsl.transpiler.analyzer import GLSLContext, ShaderAnalysis
+from py2glsl.transpiler.formatter import GLSLFormatter
 from py2glsl.transpiler.types import BOOL, FLOAT, INT, VEC2, VEC3, VEC4, GLSLType
 
 
@@ -157,22 +158,30 @@ class GLSLGenerator:
             value = self.generate_expression(node.value)
             for target in node.targets:
                 if isinstance(target, ast.Name):
+                    # Get variable type
                     var_type = self.analysis.var_types[self.current_scope].get(
                         target.id
                     )
-                    if var_type:
-                        # First declaration
-                        if target.id in self.analysis.hoisted_vars[self.current_scope]:
-                            # Remove from hoisted vars but keep the type
-                            self.analysis.hoisted_vars[self.current_scope].remove(
-                                target.id
-                            )
-                            # Generate declaration with initialization
+
+                    # Check if this is first declaration
+                    is_first_declaration = (
+                        target.id in self.analysis.hoisted_vars[self.current_scope]
+                    )
+
+                    if is_first_declaration:
+                        # Remove from hoisted vars to mark as declared
+                        self.analysis.hoisted_vars[self.current_scope].remove(target.id)
+                        # First declaration with initialization
+                        if var_type:
                             self.add_line(f"{str(var_type)} {target.id} = {value};")
                         else:
-                            # Subsequent assignments
-                            self.add_line(f"{target.id} = {value};")
+                            # Infer type from value if not explicitly typed
+                            inferred_type = self.get_type(node.value)
+                            self.add_line(
+                                f"{str(inferred_type)} {target.id} = {value};"
+                            )
                     else:
+                        # Subsequent assignment
                         self.add_line(f"{target.id} = {value};")
 
         elif isinstance(node, ast.AugAssign):
@@ -208,6 +217,13 @@ class GLSLGenerator:
                     and isinstance(node.iter.func, ast.Name)
                     and node.iter.func.id == "range"
                 ):
+                    # Validate range arguments are integers
+                    if len(node.iter.args) > 0:
+                        for arg in node.iter.args:
+                            if isinstance(arg, (ast.Constant, ast.Num)):
+                                if isinstance(arg.value, float):
+                                    raise ValueError("Loop bounds must be integers")
+
                     # Handle range arguments
                     if len(node.iter.args) == 1:
                         # range(end)
@@ -241,6 +257,13 @@ class GLSLGenerator:
             self.add_line("continue;")
 
         elif isinstance(node, ast.Return):
+            # Validate return type matches function declaration
+            if self.current_scope == "main":
+                expected_type = VEC4
+                value_type = self.get_type(node.value)
+                if value_type != expected_type:
+                    raise TypeError(f"Shader must return vec4, got {value_type}")
+
             value = self.generate_expression(node.value)
             self.add_line(f"return {value};")
 
@@ -319,6 +342,12 @@ class GLSLGenerator:
         self.exit_scope()
 
     def generate(self) -> str:
+        """Generate complete GLSL shader code."""
+        raw_code = self._generate_raw()
+        formatter = GLSLFormatter()
+        return formatter.format_code(raw_code)
+
+    def _generate_raw(self) -> str:
         """Generate complete GLSL shader code."""
         # Version declaration
         self.add_line("#version 460")
