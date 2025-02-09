@@ -164,6 +164,11 @@ class ShaderAnalyzer:
         """Infer return type of built-in function."""
         arg_types = [self.infer_type(arg) for arg in args]
 
+        # Special cases for specific functions
+        if func_name == "mix":
+            # mix returns same type as first argument
+            return arg_types[0] if arg_types else FLOAT
+
         # Scalar return
         if func_name in {"length", "dot"}:
             return FLOAT

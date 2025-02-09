@@ -163,10 +163,12 @@ class GLSLGenerator:
                     if var_type:
                         # First declaration
                         if target.id in self.analysis.hoisted_vars[self.current_scope]:
-                            self.add_line(f"{str(var_type)} {target.id} = {value};")
+                            # Remove from hoisted vars but keep the type
                             self.analysis.hoisted_vars[self.current_scope].remove(
                                 target.id
                             )
+                            # Generate declaration with initialization
+                            self.add_line(f"{str(var_type)} {target.id} = {value};")
                         else:
                             # Subsequent assignments
                             self.add_line(f"{target.id} = {value};")
