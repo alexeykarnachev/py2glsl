@@ -25,22 +25,24 @@ class ShaderAnalysis:
 class ShaderAnalyzer:
     def __init__(self) -> None:
         """Initialize analyzer."""
-        self.hoisted_vars = {"global": set()}
+        self.hoisted_vars: Dict[str, Set[str]] = {}
         self.current_scope = "global"
-        self.scope_stack = []
-
+        self.scope_stack: List[str] = []
         self.uniforms: Dict[str, GLSLType] = {}
         self.functions: List[ast.FunctionDef] = []
         self.main_function: Optional[ast.FunctionDef] = None
         self.type_inference = TypeInference()
+        self._init_scope("global")
+
+    def _init_scope(self, scope_name: str) -> None:
+        if scope_name not in self.hoisted_vars:
+            self.hoisted_vars[scope_name] = set()
 
     def _analyze_arguments(self, func_def: ast.FunctionDef) -> None:
-        """Analyze function arguments and collect uniforms.
-
-        Args:
-            func_def: Function definition AST node
-        """
+        """Analyze function arguments and collect uniforms."""
         logger.debug(f"Analyzing arguments for function: {func_def.name}")
+
+        self._init_scope(func_def.name)
 
         # First check vs_uv argument
         if func_def.args.args:
@@ -49,6 +51,9 @@ class ShaderAnalyzer:
                 raise TypeError("First argument must be vs_uv: vec2")
             if not self._is_valid_vs_uv_type(first_arg.annotation):
                 raise TypeError("First argument must be vs_uv: vec2")
+
+            # Register vs_uv type
+            self.type_inference.register_type(first_arg.arg, GLSLType(VEC2_TYPE))
 
         # Process keyword-only arguments as uniforms
         for arg in func_def.args.kwonlyargs:
@@ -67,8 +72,11 @@ class ShaderAnalyzer:
             self.uniforms[arg.arg] = glsl_type
             logger.debug(f"Registered uniform: {arg.arg}: {glsl_type}")
 
+            # Register type
+            self.type_inference.register_type(arg.arg, glsl_type)
+
             # Add to hoisted variables for the current scope
-            self.hoisted_vars[self.current_scope].add(arg.arg)
+            self.hoisted_vars[func_def.name].add(arg.arg)
 
     def _analyze_body(self, func_def: ast.FunctionDef) -> None:
         """Analyze function body."""
@@ -92,14 +100,7 @@ class ShaderAnalyzer:
             self._exit_scope()
 
     def _collect_hoisted_vars(self, node: ast.AST) -> None:
-        """Collect all variables that need to be hoisted in current scope.
-
-        This method walks the AST and identifies all variables that need declaration
-        at the start of their scope.
-
-        Args:
-            node: AST node to analyze
-        """
+        """Collect all variables that need to be hoisted in current scope."""
         # Track variables we've seen to avoid duplicates
         seen_vars: Set[str] = set()
 
@@ -128,7 +129,7 @@ class ShaderAnalyzer:
                         self.hoisted_vars[self.current_scope].add(var_name)
                         seen_vars.add(var_name)
                         # Register as int type for loop counters
-                        self.type_inference.register_type(var_name, GLSLType("int"))
+                        self.type_inference.register_type(var_name, GLSLType(INT_TYPE))
                         logger.debug(
                             f"Hoisted loop variable {var_name} in scope {self.current_scope}"
                         )
@@ -192,7 +193,9 @@ class ShaderAnalyzer:
             self.functions = []
             self.main_function = func_def
             self.type_inference = TypeInference()
-            self.hoisted_vars = {}
+            self.hoisted_vars = {"global": set()}
+            self.current_scope = "global"
+            self.scope_stack = []
 
             # Analyze function arguments
             self._analyze_arguments(func_def)
@@ -213,14 +216,16 @@ class ShaderAnalyzer:
             raise
 
     def _enter_scope(self, name: str) -> None:
+        self._init_scope(name)
         self.scope_stack.append(self.current_scope)
         self.current_scope = name
-        if name not in self.hoisted_vars:
-            self.hoisted_vars[name] = set()
 
     def _exit_scope(self) -> None:
         """Exit current scope."""
-        self.current_scope = "global"
+        if self.scope_stack:
+            self.current_scope = self.scope_stack.pop()
+        else:
+            self.current_scope = "global"
 
     def _is_valid_vs_uv_type(self, annotation: Optional[ast.AST]) -> bool:
         """Check if type annotation is valid for vs_uv."""
@@ -243,13 +248,3 @@ class ShaderAnalyzer:
             }
             return type_map.get(annotation.id, GLSLType(FLOAT_TYPE))
         return GLSLType(FLOAT_TYPE)
-
-    def _analyze_variables(self, node: ast.AST) -> None:
-        """Analyze variable declarations and usage."""
-        for child in ast.walk(node):
-            if isinstance(child, ast.Assign):
-                for target in child.targets:
-                    if isinstance(target, ast.Name):
-                        glsl_type = self.type_inference.get_type(child.value)
-                        self.type_inference.register_type(target.id, glsl_type)
-                        self.hoisted_vars[self.current_scope].add(target.id)
