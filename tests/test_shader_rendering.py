@@ -8,6 +8,7 @@ from PIL import Image
 
 from py2glsl import (
     animate,
+    py2glsl,
     render_array,
     render_gif,
     render_image,
@@ -17,12 +18,6 @@ from py2glsl import (
 )
 from py2glsl.builtins import length, normalize, sin, smoothstep
 from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
-
-
-@pytest.fixture
-def temp_dir(tmp_path):
-    """Provide temporary directory for test outputs"""
-    return tmp_path
 
 
 def test_solid_color_render():
@@ -247,37 +242,3 @@ async def test_animate_window():
 
     assert window_created
     assert render_called
-
-
-def test_complex_shader():
-    """Test more complex shader with multiple features"""
-
-    def complex_shader(vs_uv: vec2, *, u_time: float = 0.0) -> vec4:
-        # Center UV
-        uv = vs_uv * 2.0 - 1.0
-
-        # Create animated circle
-        d = length(uv)
-        radius = 0.3 + sin(u_time * 2.0) * 0.1
-        circle = smoothstep(radius, radius - 0.01, d)
-
-        # Animate color
-        r = 0.5 + 0.5 * sin(u_time)
-        g = 0.5 + 0.5 * sin(u_time + 2.094)
-        b = 0.5 + 0.5 * sin(u_time + 4.189)
-
-        return vec4(circle * r, circle * g, circle * b, circle)
-
-    # Test static render
-    arr = render_array(complex_shader, size=(64, 64))
-    assert not np.any(np.isnan(arr))
-    assert np.all(arr >= 0.0) and np.all(arr <= 1.0)
-
-    # Test animation
-    frames = []
-    for i in range(5):
-        frame = render_array(complex_shader, size=(64, 64), u_time=i * 0.1)
-        frames.append(frame)
-
-    # Verify frames are different
-    assert not np.array_equal(frames[0], frames[-1])

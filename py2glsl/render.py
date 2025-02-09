@@ -9,7 +9,8 @@ import moderngl
 import numpy as np
 from PIL import Image
 
-from py2glsl.transpiler import VERTEX_SHADER, py2glsl
+from py2glsl.transpiler import py2glsl
+from py2glsl.transpiler.constants import VERTEX_SHADER
 from py2glsl.types import vec4
 
 Size = Tuple[int, int]
