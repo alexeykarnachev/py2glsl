@@ -246,6 +246,16 @@ class ShaderAnalyzer:
             value_type = self.infer_type(node.value)
             for target in node.targets:
                 if isinstance(target, ast.Name):
+                    # For function calls, use the function's return type
+                    if isinstance(node.value, ast.Call):
+                        if isinstance(node.value.func, ast.Name):
+                            func_name = node.value.func.id
+                            for func in self.analysis.functions:
+                                if func.name == func_name:
+                                    value_type = self.get_type_from_annotation(
+                                        func.returns
+                                    )
+                                    break
                     self.register_variable(target.id, value_type)
 
         elif isinstance(node, ast.AugAssign):

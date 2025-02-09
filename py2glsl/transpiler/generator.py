@@ -19,6 +19,20 @@ class GLSLGenerator:
         self.lines: List[str] = []
         self.current_scope = "global"
         self.scope_stack: List[str] = []
+        self.current_context = GLSLContext.DEFAULT
+        self.context_stack: List[GLSLContext] = []
+
+    def push_context(self, ctx: GLSLContext) -> None:
+        """Push new context."""
+        self.context_stack.append(self.current_context)
+        self.current_context = ctx
+
+    def pop_context(self) -> None:
+        """Pop context."""
+        if self.context_stack:
+            self.current_context = self.context_stack.pop()
+        else:
+            self.current_context = GLSLContext.DEFAULT
 
     def enter_scope(self, name: str) -> None:
         """Enter a new scope."""
@@ -76,14 +90,18 @@ class GLSLGenerator:
     def generate_expression(self, node: ast.AST, parenthesize: bool = False) -> str:
         """Generate GLSL expression."""
         if isinstance(node, ast.Name):
-            return node.id
+            return node.id  # Simply return the identifier name
 
-        elif isinstance(node, ast.Constant):
+        if isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return str(node.value).lower()
-            elif isinstance(node.value, (int, float)):
-                # Ensure float literals have decimal point
+            elif isinstance(node.value, int):
+                # Don't add .0 to integers in loop contexts
+                if self.current_context == GLSLContext.LOOP:
+                    return str(node.value)
                 return f"{float(node.value)}"
+            elif isinstance(node.value, float):
+                return f"{node.value}"
             return "0.0"
 
         elif isinstance(node, ast.Call):
@@ -143,7 +161,15 @@ class GLSLGenerator:
                         target.id
                     )
                     if var_type:
-                        self.add_line(f"{str(var_type)} {target.id} = {value};")
+                        # First declaration
+                        if target.id in self.analysis.hoisted_vars[self.current_scope]:
+                            self.add_line(f"{str(var_type)} {target.id} = {value};")
+                            self.analysis.hoisted_vars[self.current_scope].remove(
+                                target.id
+                            )
+                        else:
+                            # Subsequent assignments
+                            self.add_line(f"{target.id} = {value};")
                     else:
                         self.add_line(f"{target.id} = {value};")
 
@@ -161,43 +187,56 @@ class GLSLGenerator:
         elif isinstance(node, ast.If):
             cond = self.generate_expression(node.test)
             self.add_line(f"if ({cond})")
-            self.add_line("{")
-            self.indent_level += 1
+            self.begin_block()
             for stmt in node.body:
                 self.generate_statement(stmt)
-            self.indent_level -= 1
-            self.add_line("}")
+            self.end_block()
             if node.orelse:
                 self.add_line("else")
-                self.add_line("{")
-                self.indent_level += 1
+                self.begin_block()
                 for stmt in node.orelse:
                     self.generate_statement(stmt)
-                self.indent_level -= 1
-                self.add_line("}")
+                self.end_block()
 
         elif isinstance(node, ast.For):
-            if (
-                isinstance(node.iter, ast.Call)
-                and isinstance(node.iter.func, ast.Name)
-                and node.iter.func.id == "range"
-            ):
-                if len(node.iter.args) == 1:
-                    end = self.generate_expression(node.iter.args[0])
-                    init = f"int {node.target.id} = 0"
-                    cond = f"{node.target.id} < {end}"
+            self.push_context(GLSLContext.LOOP)
+            try:
+                if (
+                    isinstance(node.iter, ast.Call)
+                    and isinstance(node.iter.func, ast.Name)
+                    and node.iter.func.id == "range"
+                ):
+                    # Handle range arguments
+                    if len(node.iter.args) == 1:
+                        # range(end)
+                        end = self.generate_expression(node.iter.args[0])
+                        init = f"int {node.target.id} = 0"
+                        cond = f"{node.target.id} < {end}"
+                    elif len(node.iter.args) == 2:
+                        # range(start, end)
+                        start = self.generate_expression(node.iter.args[0])
+                        end = self.generate_expression(node.iter.args[1])
+                        init = f"int {node.target.id} = {start}"
+                        cond = f"{node.target.id} < {end}"
+                    else:
+                        raise ValueError("Range with step not supported in GLSL")
+
+                    # Generate for loop
+                    self.add_line(f"for ({init}; {cond}; {node.target.id}++)")
+                    self.begin_block()
+                    for stmt in node.body:
+                        self.generate_statement(stmt)
+                    self.end_block()
                 else:
-                    start = self.generate_expression(node.iter.args[0])
-                    end = self.generate_expression(node.iter.args[1])
-                    init = f"int {node.target.id} = {start}"
-                    cond = f"{node.target.id} < {end}"
-                self.add_line(f"for ({init}; {cond}; {node.target.id}++)")
-                self.add_line("{")
-                self.indent_level += 1
-                for stmt in node.body:
-                    self.generate_statement(stmt)
-                self.indent_level -= 1
-                self.add_line("}")
+                    raise ValueError("Only range-based for loops are supported in GLSL")
+            finally:
+                self.pop_context()
+
+        elif isinstance(node, ast.Break):
+            self.add_line("break;")
+
+        elif isinstance(node, ast.Continue):
+            self.add_line("continue;")
 
         elif isinstance(node, ast.Return):
             value = self.generate_expression(node.value)
@@ -207,12 +246,31 @@ class GLSLGenerator:
             value = self.generate_expression(node.value)
             self.add_line(f"{value};")
 
+        elif isinstance(node, ast.FunctionDef):
+            self.generate_function(node)
+
+        else:
+            raise ValueError(f"Unsupported statement type: {type(node)}")
+
+    def begin_block(self) -> None:
+        """Begin a new block with increased indentation."""
+        self.add_line("{")
+        self.indent_level += 1
+
+    def end_block(self) -> None:
+        """End current block with decreased indentation."""
+        self.indent_level -= 1
+        self.add_line("}")
+
     def generate_function(self, node: ast.FunctionDef) -> None:
         """Generate GLSL function."""
         self.enter_scope(node.name)
 
         # Get return type from annotation
         return_type = self.analysis.type_registry.get_type(node.returns.id)
+
+        # Use "shader" name for the main function
+        function_name = "shader" if node == self.analysis.main_function else node.name
 
         # Build argument list and track parameter names
         args = []
@@ -221,12 +279,11 @@ class GLSLGenerator:
             arg_type = self.analysis.var_types[node.name].get(arg.arg)
             if arg_type:
                 args.append(f"{str(arg_type)} {arg.arg}")
-                param_names.add(arg.arg)  # Track parameter names
+                param_names.add(arg.arg)
 
         # Generate function declaration
-        self.add_line(f"{str(return_type)} {node.name}({', '.join(args)})")
-        self.add_line("{")
-        self.indent_level += 1
+        self.add_line(f"{str(return_type)} {function_name}({', '.join(args)})")
+        self.begin_block()
 
         # Generate hoisted variable declarations, excluding parameters
         if node.name in self.analysis.hoisted_vars:
@@ -241,13 +298,22 @@ class GLSLGenerator:
                     self.add_line(decl)
                 self.add_line("")
 
-        # Generate function body
-        for stmt in node.body:
+        # First generate nested function definitions
+        nested_functions = [
+            stmt for stmt in node.body if isinstance(stmt, ast.FunctionDef)
+        ]
+        for func in nested_functions:
+            self.generate_function(func)
+            self.add_line("")
+
+        # Then generate the rest of the statements
+        non_function_stmts = [
+            stmt for stmt in node.body if not isinstance(stmt, ast.FunctionDef)
+        ]
+        for stmt in non_function_stmts:
             self.generate_statement(stmt)
 
-        self.indent_level -= 1
-        self.add_line("}")
-
+        self.end_block()
         self.exit_scope()
 
     def generate(self) -> str:
