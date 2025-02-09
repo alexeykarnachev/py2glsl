@@ -59,6 +59,9 @@ class TypeInference:
 
     def get_type(self, node: ast.AST) -> GLSLType:
         """Infer GLSL type from AST node."""
+        if isinstance(node, ast.Name) and node.id == "vs_uv":
+            return GLSLType(VEC2_TYPE)
+
         if isinstance(node, ast.Name):
             return self.type_map.get(node.id, GLSLType(FLOAT_TYPE))
 
