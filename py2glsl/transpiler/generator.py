@@ -223,24 +223,31 @@ class GLSLGenerator:
         # Get return type from annotation
         return_type = self.analysis.type_registry.get_type(node.returns.id)
 
-        # Build argument list
+        # Build argument list and track parameter names
         args = []
+        param_names = set()
         for arg in node.args.args:
             arg_type = self.analysis.var_types[node.name].get(arg.arg)
             if arg_type:
                 args.append(f"{str(arg_type)} {arg.arg}")
+                param_names.add(arg.arg)  # Track parameter names
 
         # Generate function declaration
         self.add_line(f"{str(return_type)} {node.name}({', '.join(args)})")
         self.add_line("{")
         self.indent_level += 1
 
-        # Generate hoisted variable declarations
+        # Generate hoisted variable declarations, excluding parameters
         if node.name in self.analysis.hoisted_vars:
+            hoisted_declarations = []
             for var_name in sorted(self.analysis.hoisted_vars[node.name]):
-                var_type = self.analysis.var_types[node.name][var_name]
-                self.add_line(f"{str(var_type)} {var_name};")
-            if self.analysis.hoisted_vars[node.name]:
+                if var_name not in param_names:  # Skip parameters
+                    var_type = self.analysis.var_types[node.name][var_name]
+                    hoisted_declarations.append(f"{str(var_type)} {var_name};")
+
+            if hoisted_declarations:
+                for decl in hoisted_declarations:
+                    self.add_line(decl)
                 self.add_line("")
 
         # Generate function body
