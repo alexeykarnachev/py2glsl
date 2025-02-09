@@ -174,15 +174,14 @@ class GLSLGenerator:
                     )
 
                     if is_declaration:
-                        # First declaration with initialization
+                        # Remove from hoisted vars to prevent redeclaration
                         self.analysis.hoisted_vars[self.current_scope].remove(target.id)
                         self.declared_vars[self.current_scope].add(target.id)
-                        # Combine declaration and initialization
+                        # Only declare with initialization
                         self.add_line(f"{str(var_type)} {target.id} = {value};")
                     else:
                         # Regular assignment
                         self.add_line(f"{target.id} = {value};")
-
         elif isinstance(node, ast.AugAssign):
             target = self.generate_expression(node.target)
             value = self.generate_expression(node.value)
@@ -193,7 +192,6 @@ class GLSLGenerator:
                 ast.Div: "/=",
             }[type(node.op)]
             self.add_line(f"{target} {op} {value};")
-
         elif isinstance(node, ast.If):
             cond = self.generate_expression(node.test)
             self.add_line(f"if ({cond})")
@@ -207,7 +205,6 @@ class GLSLGenerator:
                 for stmt in node.orelse:
                     self.generate_statement(stmt)
                 self.end_block()
-
         elif isinstance(node, ast.For):
             self.push_context(GLSLContext.LOOP)
             try:
@@ -249,24 +246,18 @@ class GLSLGenerator:
                     raise ValueError("Only range-based for loops are supported in GLSL")
             finally:
                 self.pop_context()
-
         elif isinstance(node, ast.Break):
             self.add_line("break;")
-
         elif isinstance(node, ast.Continue):
             self.add_line("continue;")
-
         elif isinstance(node, ast.Return):
             value = self.generate_expression(node.value)
             self.add_line(f"return {value};")
-
         elif isinstance(node, ast.Expr):
             value = self.generate_expression(node.value)
             self.add_line(f"{value};")
-
         elif isinstance(node, ast.FunctionDef):
             self.generate_function(node)
-
         else:
             raise ValueError(f"Unsupported statement type: {type(node)}")
 

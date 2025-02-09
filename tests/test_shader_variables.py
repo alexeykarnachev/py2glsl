@@ -81,7 +81,7 @@ def test_variable_reuse():
 
     result = py2glsl(shader)
     assert "vec2 local_uv;" in result.fragment_source  # Should be hoisted
-    assert "local_uv = vs_uv * 2.0 - 1.0;" in result.fragment_source
+    assert "local_uv = (vs_uv * 2.0) - 1.0;" in result.fragment_source
     assert "local_uv = local_uv * 0.5;" in result.fragment_source
 
 
