@@ -3,10 +3,15 @@
 import ast
 from typing import Dict, List, Optional, Set, Union
 
-from .analyzer import ShaderAnalysis
-from .constants import FLOAT_TYPE, INT_TYPE, VEC2_TYPE, VEC3_TYPE, VEC4_TYPE
-from .formatter import GLSLFormatter
-from .types import GLSLContext, GLSLType, TypeInference
+from py2glsl.transpiler.analyzer import ShaderAnalysis
+from py2glsl.transpiler.constants import (
+    FLOAT_TYPE,
+    GLSL_VERSION,
+    INT_TYPE,
+    VEC2_TYPE,
+    VEC4_TYPE,
+)
+from py2glsl.transpiler.types import GLSLContext, GLSLType
 
 
 class GLSLGenerator:
@@ -15,7 +20,6 @@ class GLSLGenerator:
     def __init__(self, analysis: ShaderAnalysis) -> None:
         """Initialize generator with analysis results."""
         self.analysis = analysis
-        self.formatter = GLSLFormatter()
         self.current_scope = "global"
         self.scope_stack: List[str] = []
         self.declared_vars: Dict[str, Set[str]] = {}
@@ -40,36 +44,14 @@ class GLSLGenerator:
         """Pop context from stack."""
         self.context_stack.pop()
 
-    @property
-    def current_context(self) -> GLSLContext:
-        """Get current context."""
-        return self.context_stack[-1]
-
-    def _generate_hoisted_declarations(self, scope: str) -> List[str]:
-        """Generate hoisted variable declarations for scope."""
-        declarations = []
-        vars_to_hoist = self.analysis.hoisted_vars.get(scope, set())
-        for var in sorted(vars_to_hoist):
-            if var not in self.declared_vars.get(scope, set()):
-                glsl_type = self.analysis.type_info.get_type(
-                    ast.Name(id=var, ctx=ast.Load())
-                )
-                declarations.append(f"{str(glsl_type)} {var};")
-                self.declared_vars[scope].add(var)
-        return declarations
-
     def _convert_expression(self, node: ast.AST) -> str:
         """Convert Python expression to GLSL."""
         if isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return str(node.value).lower()
             if isinstance(node.value, (int, float)):
-                if self.current_context == GLSLContext.LOOP_BOUND:
-                    if isinstance(node.value, int):
-                        return str(node.value)
-                    raise ValueError("Loop bounds must be integers")
                 return f"{float(node.value)}"
-            return "0.0"  # Default for other constants
+            return "0.0"
 
         elif isinstance(node, ast.Name):
             return node.id
@@ -81,7 +63,7 @@ class GLSLGenerator:
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 args = [self._convert_expression(arg) for arg in node.args]
-                return self.formatter.format_function_call(node.func.id, args)
+                return f"{node.func.id}({', '.join(args)})"
 
         elif isinstance(node, ast.BinOp):
             left = self._convert_expression(node.left)
@@ -92,7 +74,7 @@ class GLSLGenerator:
                 ast.Mult: "*",
                 ast.Div: "/",
             }[type(node.op)]
-            return self.formatter.format_binary_op(left, op, right, True)
+            return f"({left} {op} {right})"
 
         elif isinstance(node, ast.Compare):
             left = self._convert_expression(node.left)
@@ -105,28 +87,20 @@ class GLSLGenerator:
                 ast.Eq: "==",
                 ast.NotEq: "!=",
             }[type(node.ops[0])]
-            return self.formatter.format_binary_op(left, op, right, True)
+            return f"({left} {op} {right})"
 
         elif isinstance(node, ast.UnaryOp):
             op = {ast.USub: "-", ast.UAdd: "+"}[type(node.op)]
             operand = self._convert_expression(node.operand)
             return f"{op}{operand}"
 
-        elif isinstance(node, ast.BoolOp):
-            op = {
-                ast.And: "&&",
-                ast.Or: "||",
-            }[type(node.op)]
-            values = [self._convert_expression(val) for val in node.values]
-            return f" {op} ".join(f"({val})" for val in values)
-
         raise ValueError(f"Unsupported expression: {ast.dump(node)}")
 
     def _convert_statement(self, node: ast.AST) -> List[str]:
         """Convert Python statement to GLSL."""
         if isinstance(node, ast.Assign):
-            lines = []
             value = self._convert_expression(node.value)
+            lines = []
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     var_type = self.analysis.type_info.get_type(node.value)
@@ -139,6 +113,17 @@ class GLSLGenerator:
                         lines.append(f"{target.id} = {value};")
             return lines
 
+        elif isinstance(node, ast.AugAssign):
+            target = self._convert_expression(node.target)
+            value = self._convert_expression(node.value)
+            op = {
+                ast.Add: "+=",
+                ast.Sub: "-=",
+                ast.Mult: "*=",
+                ast.Div: "/=",
+            }[type(node.op)]
+            return [f"{target} {op} {value};"]
+
         elif isinstance(node, ast.If):
             condition = self._convert_expression(node.test)
             body = []
@@ -150,8 +135,7 @@ class GLSLGenerator:
                 for stmt in node.orelse:
                     else_body.extend(self._convert_statement(stmt))
 
-            lines = []
-            lines.append(f"if ({condition})")
+            lines = [f"if ({condition})"]
             lines.append("{")
             lines.extend(f"    {line}" for line in body)
             lines.append("}")
@@ -188,18 +172,19 @@ class GLSLGenerator:
                 for stmt in node.body:
                     body.extend(self._convert_statement(stmt))
 
-                lines = []
-                lines.append(f"for ({init}; {condition}; {increment})")
+                lines = [f"for ({init}; {condition}; {increment})"]
                 lines.append("{")
                 lines.extend(f"    {line}" for line in body)
                 lines.append("}")
                 return lines
 
         elif isinstance(node, ast.Return):
-            return [f"return {self._convert_expression(node.value)};"]
+            value = self._convert_expression(node.value)
+            return [f"return {value};"]
 
         elif isinstance(node, ast.Expr):
-            return [f"{self._convert_expression(node.value)};"]
+            value = self._convert_expression(node.value)
+            return [f"{value};"]
 
         return []
 
@@ -209,84 +194,69 @@ class GLSLGenerator:
         """Convert Python function to GLSL."""
         self._enter_scope(node.name)
 
-        # Generate hoisted declarations
-        lines = self._generate_hoisted_declarations(node.name)
+        # Get correct return type
+        if node.name == self.analysis.main_function.name:
+            return_type = GLSLType(VEC4_TYPE)
+        else:
+            return_type = self.analysis.type_info.get_type(node.returns)
 
-        # Convert function body
+        # Build argument list with correct types
+        args = []
+        for arg in node.args.args:
+            if arg.arg == "vs_uv":
+                args.append(f"vec2 {arg.arg}")  # Always vec2 for vs_uv
+            else:
+                arg_type = self.analysis.type_info.get_type(arg)
+                args.append(f"{str(arg_type)} {arg.arg}")
+
+        # Format function
+        lines = [f"{str(return_type)} {node.name}({', '.join(args)})"]
+        lines.append("{")
+
+        # Convert body with proper variable declarations
         body_lines = []
         for stmt in node.body:
             body_lines.extend(self._convert_statement(stmt))
 
+        lines.extend(f"    {line}" for line in body_lines)
+        lines.append("}")
+
         self._exit_scope()
-
-        # Get return type and function name
-        return_type = (
-            self.analysis.type_info.get_type(node.returns)
-            if node.returns
-            else GLSLType("void")
-        )
-        func_name = "shader" if is_main else node.name
-
-        # Build argument list
-        args = []
-        for arg in node.args.args:
-            arg_type = self.analysis.type_info.get_type(arg.annotation)
-            args.append(f"{str(arg_type)} {arg.arg}")
-
-        # Format function
-        result = [
-            f"{str(return_type)} {func_name}({', '.join(args)})",
-            "{",
-        ]
-
-        # Add declarations and body with proper indentation
-        if lines:
-            result.extend(f"    {line}" for line in lines)
-        result.extend(f"    {line}" for line in body_lines)
-
-        result.append("}")
-        return result
+        return lines
 
     def generate(self) -> str:
         """Generate complete GLSL shader code."""
-        # Generate uniform declarations
-        uniforms = [
-            f"uniform {str(glsl_type)} {name};"
-            for name, glsl_type in self.analysis.uniforms.items()
-        ]
-
-        # Generate nested functions
-        functions = []
-        for func in self.analysis.functions:
-            functions.extend(self._convert_function(func))
-            functions.append("")
-
-        # Generate shader function
-        shader_func = self._convert_function(self.analysis.main_function, is_main=False)
-
-        # Format complete shader with proper indentation and structure
         lines = [
-            "#version 460",
+            GLSL_VERSION,
             "",
             "in vec2 vs_uv;",
             "out vec4 fs_color;",
             "",
         ]
 
-        # Add uniforms
-        if uniforms:
-            lines.extend(uniforms)
+        # Add uniforms (only once, at global scope)
+        for name, glsl_type in self.analysis.uniforms.items():
+            lines.append(f"uniform {glsl_type.name} {name};")
+        if self.analysis.uniforms:
             lines.append("")
 
         # Add functions
-        if functions:
-            lines.extend(functions)
+        for func in self.analysis.functions:
+            lines.extend(self._convert_function(func))
+            lines.append("")
 
         # Add shader function
-        lines.extend(shader_func)
+        lines.extend(self._convert_function(self.analysis.main_function))
         lines.append("")
 
         # Add main function
-        lines.extend(["void main()", "{", "    fs_color = shader(vs_uv);", "}"])
+        lines.extend(
+            [
+                "void main()",
+                "{",
+                f"    fs_color = {self.analysis.main_function.name}(vs_uv);",
+                "}",
+            ]
+        )
 
         return "\n".join(lines)
