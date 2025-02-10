@@ -124,21 +124,26 @@ class ShaderAnalyzer:
 
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
-                # Type conversion functions
+                # First check if it's a user-defined function
+                for func in self.analysis.functions:
+                    if func.name == node.func.id:
+                        return self.get_type_from_annotation(func.returns)
+
+                # Type conversion functions (existing code)
                 if node.func.id == "float":
                     return FLOAT
                 elif node.func.id == "bool":
                     return BOOL
                 elif node.func.id == "int":
                     return INT
-                # Vector constructors
+                # Vector constructors (existing code)
                 elif node.func.id in ("vec2", "Vec2"):
                     return VEC2
                 elif node.func.id in ("vec3", "Vec3"):
                     return VEC3
                 elif node.func.id in ("vec4", "Vec4"):
                     return VEC4
-                # Built-in functions
+                # Built-in functions (existing code)
                 return self.infer_builtin_return_type(node.func.id, node.args)
 
         elif isinstance(node, ast.BinOp):
