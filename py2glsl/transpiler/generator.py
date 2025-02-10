@@ -163,25 +163,18 @@ class GLSLGenerator:
             value = self.generate_expression(node.value)
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    # Get variable type
                     var_type = self.analysis.var_types[self.current_scope].get(
                         target.id
                     )
 
-                    # Check if this is first declaration
-                    is_declaration = (
-                        target.id in self.analysis.hoisted_vars[self.current_scope]
-                    )
-
-                    if is_declaration:
-                        # Remove from hoisted vars to prevent redeclaration
-                        self.analysis.hoisted_vars[self.current_scope].remove(target.id)
-                        self.declared_vars[self.current_scope].add(target.id)
-                        # Only declare with initialization
-                        self.add_line(f"{str(var_type)} {target.id} = {value};")
-                    else:
-                        # Regular assignment
+                    # Check if variable was already declared
+                    if target.id in self.declared_vars[self.current_scope]:
+                        # Just assignment
                         self.add_line(f"{target.id} = {value};")
+                    else:
+                        # First declaration with initialization
+                        self.add_line(f"{str(var_type)} {target.id} = {value};")
+                        self.declared_vars[self.current_scope].add(target.id)
         elif isinstance(node, ast.AugAssign):
             target = self.generate_expression(node.target)
             value = self.generate_expression(node.value)
@@ -274,37 +267,36 @@ class GLSLGenerator:
     def generate_function(self, node: ast.FunctionDef) -> None:
         """Generate GLSL function."""
         self.enter_scope(node.name)
-
-        # Get return type from annotation
         return_type = self.analysis.type_registry.get_type(node.returns.id)
-
-        # Keep original function name
-        function_name = node.name  # This line was missing!
-
-        # Build argument list
         args = []
-        param_names = set()
+        param_names = set()  # Track parameter names
+
+        # Generate argument list
         for arg in node.args.args:
             arg_type = self.analysis.var_types[node.name].get(arg.arg)
             if arg_type:
                 args.append(f"{str(arg_type)} {arg.arg}")
-                param_names.add(arg.arg)
-                # Add parameters to declared vars
+                param_names.add(arg.arg)  # Remember parameter names
+                # Add parameters to declared vars to prevent redeclaration
                 self.declared_vars[self.current_scope].add(arg.arg)
 
         # Generate function declaration
-        self.add_line(f"{str(return_type)} {function_name}({', '.join(args)})")
+        self.add_line(f"{str(return_type)} {node.name}({', '.join(args)})")
         self.begin_block()
 
-        # Generate hoisted variable declarations only for variables not immediately initialized
-        if node.name in self.analysis.hoisted_vars:
-            hoisted_vars = sorted(self.analysis.hoisted_vars[node.name])
-            if hoisted_vars:
-                for var_name in hoisted_vars:
-                    if var_name not in param_names:  # Skip parameters
-                        var_type = self.analysis.var_types[node.name][var_name]
-                        self.add_line(f"{str(var_type)} {var_name};")
-                self.add_line("")
+        # Only declare variables that aren't parameters
+        hoisted = sorted(
+            var
+            for var in self.analysis.hoisted_vars[node.name]
+            if var not in param_names
+        )
+        if hoisted:
+            for var_name in hoisted:
+                var_type = self.analysis.var_types[node.name][var_name]
+                self.add_line(f"{str(var_type)} {var_name};")
+                # Add to declared vars to prevent redeclaration
+                self.declared_vars[self.current_scope].add(var_name)
+            self.add_line("")
 
         # Generate function body
         for stmt in node.body:

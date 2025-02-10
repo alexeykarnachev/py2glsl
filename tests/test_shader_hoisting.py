@@ -1,21 +1,7 @@
-import asyncio
-
-import glfw
-import imageio.v3 as iio
 import numpy as np
 import pytest
-from PIL import Image
 
-from py2glsl import (
-    animate,
-    py2glsl,
-    render_array,
-    render_gif,
-    render_image,
-    render_video,
-    vec2,
-    vec4,
-)
+from py2glsl import py2glsl, render_array, vec2, vec4
 from py2glsl.builtins import length, normalize, sin, smoothstep
 from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
@@ -30,6 +16,10 @@ def test_basic_variable_hoisting():
     result = py2glsl(shader)
     assert "float x;" in result.fragment_source
     assert "x = 1.0;" in result.fragment_source
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
 
 
 def test_if_scope_hoisting():
@@ -47,6 +37,10 @@ def test_if_scope_hoisting():
     assert "x = 1.0;" in result.fragment_source
     assert "x = 0.0;" in result.fragment_source
 
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
+
 
 def test_loop_scope_hoisting():
     """Test variable hoisting from loop scope"""
@@ -63,6 +57,10 @@ def test_loop_scope_hoisting():
     assert "float x;" in result.fragment_source
     assert "sum = 0.0;" in result.fragment_source
     assert "x = float(i);" in result.fragment_source
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
 
 
 def test_nested_scope_hoisting():
@@ -83,6 +81,10 @@ def test_nested_scope_hoisting():
     assert "y = 2.0;" in result.fragment_source
     assert "x = y;" in result.fragment_source
 
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
+
 
 def test_multiple_variable_hoisting():
     """Test hoisting of multiple variables"""
@@ -100,6 +102,10 @@ def test_multiple_variable_hoisting():
     assert "vec2 v2;" in result.fragment_source
     assert "vec3 v3;" in result.fragment_source
 
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
+
 
 def test_function_scope_isolation():
     """Test variable isolation between functions"""
@@ -116,7 +122,6 @@ def test_function_scope_isolation():
         return vec4(func1() + func2(), 0.0, 0.0, 1.0)
 
     result = py2glsl(shader)
-    # Count occurrences of variable declarations in different functions
     func1_part = result.fragment_source[
         result.fragment_source.find("func1") : result.fragment_source.find("func2")
     ]
@@ -124,6 +129,10 @@ def test_function_scope_isolation():
 
     assert "float x;" in func1_part
     assert "float x;" in func2_part
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
 
 
 def test_reused_variable_single_declaration():
@@ -136,6 +145,81 @@ def test_reused_variable_single_declaration():
         return vec4(x, 0.0, 0.0, 1.0)
 
     result = py2glsl(shader)
-    # Count occurrences of declaration vs assignment
     assert result.fragment_source.count("float x;") == 1
     assert result.fragment_source.count("x =") == 3
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
+
+
+def test_hoisting_with_immediate_init():
+    """Test variables are not redeclared when hoisted and immediately initialized"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 1.0  # Should be hoisted and initialized in one statement
+        return vec4(x, 0.0, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert result.fragment_source.count("float x") == 1
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
+
+
+def test_hoisting_multiple_variables():
+    """Test multiple variables are hoisted correctly without redeclaration"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        x = 1.0
+        y = 2.0
+        z = x + y
+        return vec4(x, y, z, 1.0)
+
+    result = py2glsl(shader)
+    assert result.fragment_source.count("float x") == 1
+    assert result.fragment_source.count("float y") == 1
+    assert result.fragment_source.count("float z") == 1
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
+
+
+def test_hoisting_with_vector_components():
+    """Test hoisting with vector component assignments"""
+
+    def shader(vs_uv: vec2) -> vec4:
+        v = vec2(1.0, 2.0)
+        x = v.x
+        y = v.y
+        return vec4(x, y, 0.0, 1.0)
+
+    result = py2glsl(shader)
+    assert result.fragment_source.count("vec2 v") == 1
+    assert result.fragment_source.count("float x") == 1
+    assert result.fragment_source.count("float y") == 1
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
+
+
+def test_hoisting_with_complex_expressions():
+    """Test hoisting with more complex expressions similar to failing shader"""
+
+    def shader(vs_uv: vec2, *, u_time: float = 0.0) -> vec4:
+        x = sin(u_time)
+        y = x * 2.0
+        z = smoothstep(0.0, 1.0, y)
+        return vec4(x, y, z, 1.0)
+
+    result = py2glsl(shader)
+    assert result.fragment_source.count("float x") == 1
+    assert result.fragment_source.count("float y") == 1
+    assert result.fragment_source.count("float z") == 1
+
+    # Verify shader compiles and runs
+    arr = render_array(shader, size=(64, 64))
+    assert not np.any(np.isnan(arr))
