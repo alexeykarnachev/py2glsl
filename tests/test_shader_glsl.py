@@ -28,11 +28,8 @@ def test_glsl_syntax_validation():
         return vec4(1.0)
 
     result = py2glsl(shader)
-    # Verify Python bool is converted to GLSL bool/float
-    assert (
-        "bool render_called = true;" in result.fragment_source
-        or "float render_called = 1.0;" in result.fragment_source
-    )
+    assert "bool render_called;" in result.fragment_source
+    assert "render_called = true;" in result.fragment_source
 
 
 def test_shader_interface_validation():

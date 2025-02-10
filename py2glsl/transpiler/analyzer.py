@@ -134,8 +134,15 @@ class ShaderAnalyzer:
 
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
+                # Type conversion functions
+                if node.func.id == "float":
+                    return FLOAT
+                elif node.func.id == "bool":
+                    return BOOL
+                elif node.func.id == "int":
+                    return INT
                 # Vector constructors
-                if node.func.id in ("vec2", "Vec2"):
+                elif node.func.id in ("vec2", "Vec2"):
                     return VEC2
                 elif node.func.id in ("vec3", "Vec3"):
                     return VEC3

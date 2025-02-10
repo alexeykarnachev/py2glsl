@@ -61,8 +61,10 @@ def test_bool_conversion():
         return vec4(1.0)
 
     result = py2glsl(shader)
-    assert "bool x = true;" in result.fragment_source
-    assert "bool y = false;" in result.fragment_source
+    assert "bool x;" in result.fragment_source
+    assert "x = true;" in result.fragment_source
+    assert "bool y;" in result.fragment_source
+    assert "y = false;" in result.fragment_source
 
 
 def test_integer_arithmetic():
@@ -75,10 +77,12 @@ def test_integer_arithmetic():
         return vec4(x, y, z, 1.0)
 
     result = py2glsl(shader)
-    # In GLSL, operations with integers automatically promote to float when used with vec4
-    assert "float x = frame + 1.0;" in result.fragment_source
-    assert "float y = frame * 2.0;" in result.fragment_source
-    assert "float z = frame / 2.0;" in result.fragment_source
+    assert "float x;" in result.fragment_source
+    assert "x = frame + 1.0;" in result.fragment_source
+    assert "float y;" in result.fragment_source
+    assert "y = frame * 2.0;" in result.fragment_source
+    assert "float z;" in result.fragment_source
+    assert "z = frame / 2.0;" in result.fragment_source
 
 
 def test_integer_vector_construction():

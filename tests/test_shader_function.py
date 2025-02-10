@@ -64,7 +64,8 @@ def test_function_return_type():
 
     result = py2glsl(shader)
     assert "vec2 get_normal(vec2 p)" in result.fragment_source
-    assert "vec2 n = get_normal(vs_uv);" in result.fragment_source
+    assert "vec2 n;" in result.fragment_source
+    assert "n = get_normal(vs_uv);" in result.fragment_source
 
 
 def test_code_formatting():
@@ -98,17 +99,17 @@ def test_function_calls_chain():
     )
 
 
-def test_builtin_functions() -> None:
+def test_builtin_functions():
     def builtin_shader(vs_uv: vec2) -> vec4:
         l = length(vs_uv)
         n = normalize(vs_uv)
         return vec4(n, l, 1.0)
 
-    result = py2glsl(
-        builtin_shader
-    )  # Fixed: using builtin_shader instead of result_shader
-    assert "float l = length(vs_uv);" in result.fragment_source
-    assert "vec2 n = normalize(vs_uv);" in result.fragment_source
+    result = py2glsl(builtin_shader)
+    assert "float l;" in result.fragment_source
+    assert "l = length(vs_uv);" in result.fragment_source
+    assert "vec2 n;" in result.fragment_source
+    assert "n = normalize(vs_uv);" in result.fragment_source
 
 
 def test_builtin_functions_chain():

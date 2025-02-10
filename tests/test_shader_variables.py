@@ -20,13 +20,14 @@ from py2glsl.builtins import length, normalize, sin, smoothstep
 from py2glsl.types import Vec2, Vec3, Vec4, vec2, vec3, vec4
 
 
-def test_variables() -> None:
+def test_variables():
     def var_shader(vs_uv: vec2) -> vec4:
         x = 1.0
         return vec4(x, 0.0, 0.0, 1.0)
 
     result = py2glsl(var_shader)
-    assert "float x = 1.0;" in result.fragment_source
+    assert "float x;" in result.fragment_source
+    assert "x = 1.0;" in result.fragment_source
 
 
 def test_chained_assignments():
@@ -37,9 +38,12 @@ def test_chained_assignments():
         return vec4(x, y, z, 1.0)
 
     result = py2glsl(shader)
-    assert "float x = 1.0;" in result.fragment_source
-    assert "float y = 1.0;" in result.fragment_source
-    assert "float z = 1.0;" in result.fragment_source
+    assert "float x;" in result.fragment_source
+    assert "float y;" in result.fragment_source
+    assert "float z;" in result.fragment_source
+    assert "x = 1.0;" in result.fragment_source
+    assert "y = 1.0;" in result.fragment_source
+    assert "z = 1.0;" in result.fragment_source
 
 
 def test_compound_assignments() -> None:

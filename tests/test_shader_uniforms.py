@@ -80,7 +80,8 @@ def test_complex_uniforms() -> None:
     assert "uniform vec4 u_color1;" in result.fragment_source
     assert "uniform vec4 u_color2;" in result.fragment_source
     assert "uniform vec4 u_params;" in result.fragment_source
-    assert "float aspect = u_resolution.x / u_resolution.y;" in result.fragment_source
+    assert "float aspect;" in result.fragment_source
+    assert "aspect = u_resolution.x / u_resolution.y;" in result.fragment_source
 
 
 def test_uniform_declaration_and_usage():
