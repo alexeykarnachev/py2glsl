@@ -131,7 +131,9 @@ def test_integer_type_conversion():
         return vec4(f / 10.0)
 
     result = py2glsl(shader)
-    assert "float f = float(frame);" in result.fragment_source
+    # Update test to expect separate declaration and initialization
+    assert "float f;" in result.fragment_source
+    assert "f = float(frame);" in result.fragment_source
 
 
 def test_error_handling() -> None:
