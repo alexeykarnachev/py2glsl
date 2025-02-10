@@ -57,6 +57,12 @@ source .venv/bin/activate  # or .venv/Scripts/activate on Windows
 uv sync
 ```
 
+Install pre-commit hooks:
+```bash
+uv pip install pre-commit
+pre-commit install
+```
+
 ## Usage
 
 ### Basic Shader
