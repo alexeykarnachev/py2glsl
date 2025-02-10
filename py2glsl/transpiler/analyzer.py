@@ -14,6 +14,7 @@ from py2glsl.transpiler.types import (
     VEC3,
     VEC4,
     GLSLType,
+    TypeKind,
     TypeRegistry,
 )
 
@@ -79,17 +80,6 @@ class ShaderAnalyzer:
         else:
             self.analysis.current_scope = "global"
 
-    def register_variable(self, name: str, glsl_type: GLSLType) -> None:
-        """Register variable in current scope."""
-        scope = self.analysis.current_scope
-        logger.debug(
-            f"Registering variable {name} of type {glsl_type} in scope {scope}"
-        )
-        if name not in self.analysis.hoisted_vars[scope]:
-            self.analysis.hoisted_vars[scope].add(name)
-            self.analysis.var_types[scope][name] = glsl_type
-            logger.debug(f"Added {name} to hoisted vars in {scope}")
-
     def get_variable_type(self, name: str) -> Optional[GLSLType]:
         """Get type of variable from current or parent scope."""
         scope = self.analysis.current_scope
@@ -124,7 +114,7 @@ class ShaderAnalyzer:
 
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
-                return BOOL
+                return BOOL  # Fixed: Return BOOL type for boolean literals
             elif isinstance(node.value, int):
                 if self.current_context == GLSLContext.LOOP:
                     return INT
@@ -271,48 +261,76 @@ class ShaderAnalyzer:
             # Pre-analyze range arguments to ensure integer types
             if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name):
                 if node.iter.func.id == "range":
-                    # First, analyze all variables used in range expressions
+                    # Register loop variable as integer
+                    if isinstance(node.target, ast.Name):
+                        logger.debug(
+                            f"Registering loop variable {node.target.id} as INT"
+                        )
+                        self.register_variable(node.target.id, INT)
+
+                    # Analyze range arguments
                     for arg in node.iter.args:
                         if isinstance(arg, ast.Name):
-                            # Force integer type for variables used in range
                             self.register_variable(arg.id, INT)
                         elif isinstance(arg, ast.BinOp):
-                            # Handle binary operations in range bounds
                             if isinstance(arg.left, ast.Name):
                                 self.register_variable(arg.left.id, INT)
                             if isinstance(arg.right, ast.Name):
                                 self.register_variable(arg.right.id, INT)
                         elif isinstance(arg, (ast.Constant, ast.Num)):
-                            # Validate numeric literals
                             value = getattr(arg, "value", getattr(arg, "n", None))
                             if isinstance(value, float):
                                 raise ValueError("Loop bounds must be integers")
 
-            # Register loop variable as integer
-            if isinstance(node.target, ast.Name):
-                self.register_variable(node.target.id, INT)
-
             # Process loop body
             for stmt in node.body:
+                # For assignments in loop body, ensure variables are hoisted
+                if isinstance(stmt, ast.Assign):
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Name):
+                            value_type = self.infer_type(stmt.value)
+                            logger.debug(
+                                f"Hoisting loop variable {target.id} as {value_type}"
+                            )
+                            self.register_variable(target.id, value_type)
                 self.analyze_statement(stmt)
 
             self.pop_context()
 
         elif isinstance(node, ast.Assign):
             value_type = self.infer_type(node.value)
+            logger.debug(f"Analyzing assignment with inferred type: {value_type}")
+
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    # For function calls, use the function's return type
-                    if isinstance(node.value, ast.Call):
-                        if isinstance(node.value.func, ast.Name):
-                            func_name = node.value.func.id
-                            for func in self.analysis.functions:
-                                if func.name == func_name:
-                                    value_type = self.get_type_from_annotation(
-                                        func.returns
-                                    )
-                                    break
-                    # Register the variable with inferred type
+                    # Handle boolean literals
+                    if isinstance(node.value, ast.Constant) and isinstance(
+                        node.value.value, bool
+                    ):
+                        logger.debug(f"Registering boolean variable {target.id}")
+                        self.register_variable(target.id, BOOL)
+                        continue
+
+                    # Handle type conversion functions
+                    if isinstance(node.value, ast.Call) and isinstance(
+                        node.value.func, ast.Name
+                    ):
+                        func_name = node.value.func.id
+                        if func_name == "float":
+                            logger.debug(f"Registering float conversion {target.id}")
+                            self.register_variable(target.id, FLOAT)
+                            continue
+                        elif func_name == "bool":
+                            logger.debug(f"Registering bool conversion {target.id}")
+                            self.register_variable(target.id, BOOL)
+                            continue
+                        elif func_name == "int":
+                            logger.debug(f"Registering int conversion {target.id}")
+                            self.register_variable(target.id, INT)
+                            continue
+
+                    # Default case
+                    logger.debug(f"Registering variable {target.id} as {value_type}")
                     self.register_variable(target.id, value_type)
 
         elif isinstance(node, ast.AugAssign):
@@ -406,18 +424,35 @@ class ShaderAnalyzer:
                 self.analysis.hoisted_vars["global"].add(var_name)
 
     def register_variable(self, name: str, glsl_type: GLSLType) -> None:
-        """Register variable with type constraint awareness."""
+        """Register variable in current scope."""
         scope = self.analysis.current_scope
+        logger.debug(
+            f"Registering variable {name} of type {glsl_type} in scope {scope}"
+        )
 
-        # Check if there's a type constraint
+        # Important: Don't override existing type if already registered
+        if name in self.analysis.var_types[scope]:
+            existing_type = self.analysis.var_types[scope][name]
+            logger.debug(
+                f"Variable {name} already registered with type {existing_type}"
+            )
+            return
+
+        # Check if there's a type constraint first
         if name in self.type_constraints:
-            glsl_type = self.type_constraints[name]
+            constrained_type = self.type_constraints[name]
+            logger.debug(f"Found type constraint for {name}: {constrained_type}")
+            # Only apply constraint if it doesn't conflict with special types
+            if not (
+                glsl_type.kind
+                in (TypeKind.BOOL, TypeKind.VEC2, TypeKind.VEC3, TypeKind.VEC4)
+            ):
+                glsl_type = constrained_type
 
         # Register in current scope
-        if name not in self.analysis.hoisted_vars[scope]:
-            self.analysis.hoisted_vars[scope].add(name)
-            self.analysis.var_types[scope][name] = glsl_type
-            logger.debug(f"Added {name} of type {glsl_type} to hoisted vars in {scope}")
+        self.analysis.hoisted_vars[scope].add(name)
+        self.analysis.var_types[scope][name] = glsl_type
+        logger.debug(f"Added {name} of type {glsl_type} to hoisted vars in {scope}")
 
     def _analyze_shader(self, tree: ast.Module) -> None:
         """Main analysis phase."""

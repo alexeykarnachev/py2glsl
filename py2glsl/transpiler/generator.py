@@ -167,15 +167,13 @@ class GLSLGenerator:
                         target.id
                     )
                     if target.id not in self.declared_vars[self.current_scope]:
-                        # Check if we should combine declaration and initialization
-                        should_combine = isinstance(
-                            node.value, (ast.Call, ast.BinOp)
-                        ) or isinstance(node.value, ast.Constant)
-                        if should_combine:
-                            # Combined declaration and initialization
+                        # Always combine declaration and initialization for type conversions
+                        if isinstance(node.value, ast.Call) and isinstance(
+                            node.value.func, ast.Name
+                        ):
                             self.add_line(f"{str(var_type)} {target.id} = {value};")
                         else:
-                            # Separate declaration and initialization
+                            # Separate declaration and initialization for other cases
                             self.add_line(f"{str(var_type)} {target.id};")
                             self.add_line(f"{target.id} = {value};")
                         self.declared_vars[self.current_scope].add(target.id)

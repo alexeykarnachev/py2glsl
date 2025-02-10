@@ -1,0 +1,369 @@
+```
+(py2glsl) akarnachev@computer:~/proj/py2glsl$ pytest .
+================================================================================ test session starts ================================================================================
+platform linux -- Python 3.13.1, pytest-8.3.4, pluggy-1.5.0
+rootdir: /home/akarnachev/proj/py2glsl
+configfile: pyproject.toml
+plugins: asyncio-0.25.3, cov-6.0.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=function
+collected 123 items                                                                                                                                                                 
+
+tests/test_shader_basic.py ...........                                                                                                                                        [  8%]
+tests/test_shader_complex.py ......                                                                                                                                           [ 13%]
+tests/test_shader_control_flow.py ..........                                                                                                                                  [ 21%]
+tests/test_shader_errors.py ..F....F.                                                                                                                                         [ 29%]
+tests/test_shader_function.py .......                                                                                                                                         [ 34%]
+tests/test_shader_glsl.py F.........                                                                                                                                          [ 43%]
+tests/test_shader_hoisting.py .............                                                                                                                                   [ 53%]
+tests/test_shader_rendering.py ............                                                                                                                                   [ 63%]
+tests/test_shader_types.py .......                                                                                                                                            [ 69%]
+tests/test_shader_uniforms.py ........                                                                                                                                        [ 75%]
+tests/test_shader_variables.py ..........                                                                                                                                     [ 83%]
+tests/test_shader_vectors.py ........                                                                                                                                         [ 90%]
+tests/test_shader_vertex.py ............                                                                                                                                      [100%]
+
+===================================================================================== FAILURES ======================================================================================
+_______________________________________________________________________________ test_bool_conversion ________________________________________________________________________________
+
+    def test_bool_conversion():
+        """Test basic boolean literal conversion"""
+    
+        def shader(vs_uv: vec2) -> vec4:
+            x = True
+            y = False
+            return vec4(1.0)
+    
+        result = py2glsl(shader)
+>       assert "bool x;" in result.fragment_source
+E       AssertionError: assert 'bool x;' in '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    int x;\n    int y;\n\n    x = true;\n    y = false;\n    return vec4(1.0);\n}\n\nvoid main()\n{\n    fs_color = shader(vs_uv);\n}'
+E        +  where '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    int x;\n    int y;\n\n    x = true;\n    y = false;\n    return vec4(1.0);\n}\n\nvoid main()\n{\n    fs_color = shader(vs_uv);\n}' = ShaderResult(fragment_source='#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    in... in vec2 in_uv;\nout vec2 vs_uv;\n\nvoid main() {\n    gl_Position = vec4(in_pos, 0.0, 1.0);\n    vs_uv = in_uv;\n}\n').fragment_source
+
+tests/test_shader_errors.py:64: AssertionError
+------------------------------------------------------------------------------- Captured stderr call --------------------------------------------------------------------------------
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler:py2glsl:31 - Original source:
+    def shader(vs_uv: vec2) -> vec4:
+        x = True
+        y = False
+        return vec4(1.0)
+
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler:py2glsl:35 - After dedent:
+def shader(vs_uv: vec2) -> vec4:
+    x = True
+    y = False
+    return vec4(1.0)
+
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler:py2glsl:40 - Successfully parsed AST
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler:py2glsl:55 - Extracted function AST:
+Module(
+  body=[
+    FunctionDef(
+      name='shader',
+      args=arguments(
+        args=[
+          arg(
+            arg='vs_uv',
+            annotation=Name(id='vec2', ctx=Load()))]),
+      body=[
+        Assign(
+          targets=[
+            Name(id='x', ctx=Store())],
+          value=Constant(value=True)),
+        Assign(
+          targets=[
+            Name(id='y', ctx=Store())],
+          value=Constant(value=False)),
+        Return(
+          value=Call(
+            func=Name(id='vec4', ctx=Load()),
+            args=[
+              Constant(value=1.0)]))],
+      returns=Name(id='vec4', ctx=Load()))])
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.analyzer:register_variable:420 - Added vs_uv of type vec2 to hoisted vars in shader
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.analyzer:register_variable:420 - Added x of type int to hoisted vars in shader
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.analyzer:register_variable:420 - Added y of type int to hoisted vars in shader
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:316 - Starting GLSL code generation
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:321 - Generating input/output declarations
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:327 - Generating uniform declarations
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:334 - Generating functions
+2025-02-10 22:18:19.750 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:340 - Generating main shader function
+2025-02-10 22:18:19.751 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:346 - Generating main function
+2025-02-10 22:18:19.751 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:353 - Generated GLSL code:
+#version 460
+
+in vec2 vs_uv;
+out vec4 fs_color;
+
+vec4 shader(vec2 vs_uv)
+{
+    int x;
+    int y;
+
+    x = true;
+    y = false;
+    return vec4(1.0);
+}
+
+void main()
+{
+    fs_color = shader(vs_uv);
+}
+2025-02-10 22:18:19.751 | DEBUG    | py2glsl.transpiler:py2glsl:83 - Generated GLSL:
+#version 460
+
+in vec2 vs_uv;
+out vec4 fs_color;
+
+vec4 shader(vec2 vs_uv)
+{
+    int x;
+    int y;
+
+    x = true;
+    y = false;
+    return vec4(1.0);
+}
+
+void main()
+{
+    fs_color = shader(vs_uv);
+}
+2025-02-10 22:18:19.751 | DEBUG    | py2glsl.transpiler:py2glsl:93 - Extracted uniforms: {}
+___________________________________________________________________________ test_integer_type_conversion ____________________________________________________________________________
+
+    def test_integer_type_conversion():
+        """Test integer to float conversion"""
+    
+        def shader(vs_uv: vec2, *, frame: int) -> vec4:
+            f = float(frame)  # Explicit conversion
+            return vec4(f / 10.0)
+    
+        result = py2glsl(shader)
+>       assert "float f = float(frame);" in result.fragment_source
+E       AssertionError: assert 'float f = float(frame);' in '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nuniform int frame;\n\nvec4 shader(vec2 vs_uv)\n{\n    float f;\n\n    f = float(frame);\n    return vec4(f / 10.0);\n}\n\nvoid main()\n{\n    fs_color = shader(vs_uv);\n}'
+E        +  where '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nuniform int frame;\n\nvec4 shader(vec2 vs_uv)\n{\n    float f;\n\n    f = float(frame);\n    return vec4(f / 10.0);\n}\n\nvoid main()\n{\n    fs_color = shader(vs_uv);\n}' = ShaderResult(fragment_source='#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nuniform int frame;\n\nvec4 shader(... in vec2 in_uv;\nout vec2 vs_uv;\n\nvoid main() {\n    gl_Position = vec4(in_pos, 0.0, 1.0);\n    vs_uv = in_uv;\n}\n').fragment_source
+
+tests/test_shader_errors.py:134: AssertionError
+------------------------------------------------------------------------------- Captured stderr call --------------------------------------------------------------------------------
+2025-02-10 22:18:19.767 | DEBUG    | py2glsl.transpiler:py2glsl:31 - Original source:
+    def shader(vs_uv: vec2, *, frame: int) -> vec4:
+        f = float(frame)  # Explicit conversion
+        return vec4(f / 10.0)
+
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler:py2glsl:35 - After dedent:
+def shader(vs_uv: vec2, *, frame: int) -> vec4:
+    f = float(frame)  # Explicit conversion
+    return vec4(f / 10.0)
+
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler:py2glsl:40 - Successfully parsed AST
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler:py2glsl:55 - Extracted function AST:
+Module(
+  body=[
+    FunctionDef(
+      name='shader',
+      args=arguments(
+        args=[
+          arg(
+            arg='vs_uv',
+            annotation=Name(id='vec2', ctx=Load()))],
+        kwonlyargs=[
+          arg(
+            arg='frame',
+            annotation=Name(id='int', ctx=Load()))],
+        kw_defaults=[
+          None]),
+      body=[
+        Assign(
+          targets=[
+            Name(id='f', ctx=Store())],
+          value=Call(
+            func=Name(id='float', ctx=Load()),
+            args=[
+              Name(id='frame', ctx=Load())])),
+        Return(
+          value=Call(
+            func=Name(id='vec4', ctx=Load()),
+            args=[
+              BinOp(
+                left=Name(id='f', ctx=Load()),
+                op=Div(),
+                right=Constant(value=10.0))]))],
+      returns=Name(id='vec4', ctx=Load()))])
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.analyzer:register_variable:420 - Added vs_uv of type vec2 to hoisted vars in shader
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.analyzer:register_variable:420 - Added f of type float to hoisted vars in shader
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:316 - Starting GLSL code generation
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:321 - Generating input/output declarations
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:327 - Generating uniform declarations
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:334 - Generating functions
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:340 - Generating main shader function
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:346 - Generating main function
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:353 - Generated GLSL code:
+#version 460
+
+in vec2 vs_uv;
+out vec4 fs_color;
+
+uniform int frame;
+
+vec4 shader(vec2 vs_uv)
+{
+    float f;
+
+    f = float(frame);
+    return vec4(f / 10.0);
+}
+
+void main()
+{
+    fs_color = shader(vs_uv);
+}
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler:py2glsl:83 - Generated GLSL:
+#version 460
+
+in vec2 vs_uv;
+out vec4 fs_color;
+
+uniform int frame;
+
+vec4 shader(vec2 vs_uv)
+{
+    float f;
+
+    f = float(frame);
+    return vec4(f / 10.0);
+}
+
+void main()
+{
+    fs_color = shader(vs_uv);
+}
+2025-02-10 22:18:19.768 | DEBUG    | py2glsl.transpiler:py2glsl:93 - Extracted uniforms: {'frame': 'int'}
+____________________________________________________________________________ test_glsl_syntax_validation ____________________________________________________________________________
+
+    def test_glsl_syntax_validation():
+        """Test GLSL syntax validation"""
+    
+        def shader(vs_uv: vec2) -> vec4:
+            render_called = True  # This should be converted to float/bool
+            return vec4(1.0)
+    
+        result = py2glsl(shader)
+>       assert "bool render_called;" in result.fragment_source
+E       AssertionError: assert 'bool render_called;' in '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    int render_called;\n\n    render_called = true;\n    return vec4(1.0);\n}\n\nvoid main()\n{\n    fs_color = shader(vs_uv);\n}'
+E        +  where '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    int render_called;\n\n    render_called = true;\n    return vec4(1.0);\n}\n\nvoid main()\n{\n    fs_color = shader(vs_uv);\n}' = ShaderResult(fragment_source='#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    in... in vec2 in_uv;\nout vec2 vs_uv;\n\nvoid main() {\n    gl_Position = vec4(in_pos, 0.0, 1.0);\n    vs_uv = in_uv;\n}\n').fragment_source
+
+tests/test_shader_glsl.py:31: AssertionError
+------------------------------------------------------------------------------- Captured stderr call --------------------------------------------------------------------------------
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler:py2glsl:31 - Original source:
+    def shader(vs_uv: vec2) -> vec4:
+        render_called = True  # This should be converted to float/bool
+        return vec4(1.0)
+
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler:py2glsl:35 - After dedent:
+def shader(vs_uv: vec2) -> vec4:
+    render_called = True  # This should be converted to float/bool
+    return vec4(1.0)
+
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler:py2glsl:40 - Successfully parsed AST
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler:py2glsl:55 - Extracted function AST:
+Module(
+  body=[
+    FunctionDef(
+      name='shader',
+      args=arguments(
+        args=[
+          arg(
+            arg='vs_uv',
+            annotation=Name(id='vec2', ctx=Load()))]),
+      body=[
+        Assign(
+          targets=[
+            Name(id='render_called', ctx=Store())],
+          value=Constant(value=True)),
+        Return(
+          value=Call(
+            func=Name(id='vec4', ctx=Load()),
+            args=[
+              Constant(value=1.0)]))],
+      returns=Name(id='vec4', ctx=Load()))])
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.analyzer:register_variable:420 - Added vs_uv of type vec2 to hoisted vars in shader
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.analyzer:register_variable:420 - Added render_called of type int to hoisted vars in shader
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:316 - Starting GLSL code generation
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:321 - Generating input/output declarations
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:327 - Generating uniform declarations
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:334 - Generating functions
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:340 - Generating main shader function
+2025-02-10 22:18:19.780 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:346 - Generating main function
+2025-02-10 22:18:19.781 | DEBUG    | py2glsl.transpiler.generator:_generate_raw:353 - Generated GLSL code:
+#version 460
+
+in vec2 vs_uv;
+out vec4 fs_color;
+
+vec4 shader(vec2 vs_uv)
+{
+    int render_called;
+
+    render_called = true;
+    return vec4(1.0);
+}
+
+void main()
+{
+    fs_color = shader(vs_uv);
+}
+2025-02-10 22:18:19.781 | DEBUG    | py2glsl.transpiler:py2glsl:83 - Generated GLSL:
+#version 460
+
+in vec2 vs_uv;
+out vec4 fs_color;
+
+vec4 shader(vec2 vs_uv)
+{
+    int render_called;
+
+    render_called = true;
+    return vec4(1.0);
+}
+
+void main()
+{
+    fs_color = shader(vs_uv);
+}
+2025-02-10 22:18:19.781 | DEBUG    | py2glsl.transpiler:py2glsl:93 - Extracted uniforms: {}
+================================================================================= warnings summary ==================================================================================
+tests/test_shader_basic.py: 24 warnings
+tests/test_shader_complex.py: 298 warnings
+tests/test_shader_control_flow.py: 26 warnings
+tests/test_shader_errors.py: 9 warnings
+tests/test_shader_function.py: 16 warnings
+tests/test_shader_glsl.py: 26 warnings
+tests/test_shader_hoisting.py: 59 warnings
+tests/test_shader_types.py: 40 warnings
+tests/test_shader_uniforms.py: 25 warnings
+tests/test_shader_variables.py: 39 warnings
+tests/test_shader_vectors.py: 26 warnings
+tests/test_shader_vertex.py: 44 warnings
+  /home/akarnachev/proj/py2glsl/py2glsl/transpiler/analyzer.py:118: DeprecationWarning: ast.Num is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    elif isinstance(node, ast.Num):
+
+tests/test_shader_complex.py: 2 warnings
+tests/test_shader_control_flow.py: 7 warnings
+tests/test_shader_hoisting.py: 2 warnings
+tests/test_shader_variables.py: 3 warnings
+  /home/akarnachev/proj/py2glsl/py2glsl/transpiler/analyzer.py:287: DeprecationWarning: Attribute n is deprecated and will be removed in Python 3.14; use value instead
+    value = getattr(arg, "value", getattr(arg, "n", None))
+
+tests/test_shader_complex.py: 2 warnings
+tests/test_shader_control_flow.py: 6 warnings
+tests/test_shader_variables.py: 3 warnings
+  /home/akarnachev/proj/py2glsl/py2glsl/transpiler/analyzer.py:120: DeprecationWarning: Attribute n is deprecated and will be removed in Python 3.14; use value instead
+    if self.current_context == GLSLContext.LOOP and isinstance(node.n, int):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================================================================== short test summary info ==============================================================================
+FAILED tests/test_shader_errors.py::test_bool_conversion - AssertionError: assert 'bool x;' in '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    int x;\n    int y;\n\n    x = true;\n    y = false;\n...
+FAILED tests/test_shader_errors.py::test_integer_type_conversion - AssertionError: assert 'float f = float(frame);' in '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nuniform int frame;\n\nvec4 shader(vec2 vs_uv)\n{\n    float f;\n\n   ...
+FAILED tests/test_shader_glsl.py::test_glsl_syntax_validation - AssertionError: assert 'bool render_called;' in '#version 460\n\nin vec2 vs_uv;\nout vec4 fs_color;\n\nvec4 shader(vec2 vs_uv)\n{\n    int render_called;\n\n    render_called =...
+==================================================================== 3 failed, 120 passed, 657 warnings in 2.13s ====================================================================
+```
+
