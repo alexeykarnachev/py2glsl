@@ -167,8 +167,17 @@ class GLSLGenerator:
                         target.id
                     )
                     if target.id not in self.declared_vars[self.current_scope]:
-                        # First declaration with initialization
-                        self.add_line(f"{str(var_type)} {target.id} = {value};")
+                        # Check if we should combine declaration and initialization
+                        should_combine = isinstance(
+                            node.value, (ast.Call, ast.BinOp)
+                        ) or isinstance(node.value, ast.Constant)
+                        if should_combine:
+                            # Combined declaration and initialization
+                            self.add_line(f"{str(var_type)} {target.id} = {value};")
+                        else:
+                            # Separate declaration and initialization
+                            self.add_line(f"{str(var_type)} {target.id};")
+                            self.add_line(f"{target.id} = {value};")
                         self.declared_vars[self.current_scope].add(target.id)
                     else:
                         # Just assignment
@@ -274,7 +283,7 @@ class GLSLGenerator:
         self.add_line(f"{str(return_type)} {node.name}({', '.join(args)})")
         self.begin_block()
 
-        # Only declare variables that aren't parameters
+        # Declare all variables at the start
         hoisted = sorted(
             var
             for var in self.analysis.hoisted_vars[node.name]
@@ -282,10 +291,9 @@ class GLSLGenerator:
         )
         if hoisted:
             for var_name in hoisted:
-                if var_name not in self.declared_vars[self.current_scope]:
-                    var_type = self.analysis.var_types[node.name][var_name]
-                    self.add_line(f"{str(var_type)} {var_name};")
-                    self.declared_vars[self.current_scope].add(var_name)
+                var_type = self.analysis.var_types[node.name][var_name]
+                self.add_line(f"{str(var_type)} {var_name};")
+                self.declared_vars[self.current_scope].add(var_name)
             self.add_line("")
 
         # Generate function body
@@ -305,34 +313,42 @@ class GLSLGenerator:
 
     def _generate_raw(self) -> str:
         """Generate complete GLSL shader code."""
+        logger.debug("Starting GLSL code generation")
         self.add_line("#version 460")
         self.add_line()
 
         # Input/output declarations
+        logger.debug("Generating input/output declarations")
         self.add_line("in vec2 vs_uv;")
         self.add_line("out vec4 fs_color;")
         self.add_line()
 
         # Uniform declarations
+        logger.debug("Generating uniform declarations")
         for name, glsl_type in sorted(self.analysis.uniforms.items()):
             self.add_line(f"uniform {glsl_type.name} {name};")
         if self.analysis.uniforms:
             self.add_line()
 
         # Generate all functions at top level
+        logger.debug("Generating functions")
         for func in self.analysis.functions:
             self.generate_function(func)
             self.add_line()
 
         # Generate main shader function
+        logger.debug("Generating main shader function")
         main_func = self.analysis.main_function
         self.generate_function(main_func)
         self.add_line()
 
         # Generate main function
+        logger.debug("Generating main function")
         self.add_line("void main()")
         self.begin_block()
         self.add_line(f"fs_color = {main_func.name}(vs_uv);")
         self.end_block()
 
-        return "\n".join(self.lines)
+        final_code = "\n".join(self.lines)
+        logger.debug(f"Generated GLSL code:\n{final_code}")
+        return final_code

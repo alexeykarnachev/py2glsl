@@ -33,10 +33,11 @@ def test_complex_shader_0() -> None:
 
     result = py2glsl(shader)
     assert "float sdf_circle(vec2 p, float r)" in result.fragment_source
-    assert "vec2 p = (vs_uv * 2.0) - 1.0;" in result.fragment_source
-    assert (
-        "vec3 color = vec3(1.0 - smoothstep(0.0, 0.01, d));" in result.fragment_source
-    )
+    # Check declarations and assignments separately
+    assert "vec2 p;" in result.fragment_source
+    assert "p = (vs_uv * 2.0) - 1.0;" in result.fragment_source
+    assert "vec3 color;" in result.fragment_source
+    assert "color = vec3(1.0 - smoothstep(0.0, 0.01, d));" in result.fragment_source
 
 
 def test_complex_shader_1():
@@ -97,7 +98,10 @@ def test_sdf_operations() -> None:
     assert "float sdf_circle(vec2 p, float r)" in result.fragment_source
     assert "float sdf_box(vec2 p, vec2 b)" in result.fragment_source
     assert "float smooth_min(float a, float b, float k)" in result.fragment_source
-    assert "vec2 d = abs(p) - b;" in result.fragment_source
+
+    # Check declarations and assignments separately in sdf_box function
+    assert "vec2 d;" in result.fragment_source
+    assert "d = abs(p) - b;" in result.fragment_source
 
 
 def test_ray_marching() -> None:
@@ -195,11 +199,12 @@ def test_complex_expressions():
         return vec4(x, 0.0, 0.0, 1.0)
 
     result = py2glsl(shader)
-    # Accept both forms of parentheses
+    # Check declaration and assignment separately
+    assert "float x;" in result.fragment_source
     assert any(
         expr in result.fragment_source
         for expr in [
-            "(1.0 + 2.0) * (3.0 - 4.0) / 2.0",
-            "((1.0 + 2.0) * (3.0 - 4.0)) / 2.0",
+            "x = (1.0 + 2.0) * (3.0 - 4.0) / 2.0;",
+            "x = ((1.0 + 2.0) * (3.0 - 4.0)) / 2.0;",
         ]
     )

@@ -80,9 +80,13 @@ class ShaderAnalyzer:
     def register_variable(self, name: str, glsl_type: GLSLType) -> None:
         """Register variable in current scope."""
         scope = self.analysis.current_scope
+        logger.debug(
+            f"Registering variable {name} of type {glsl_type} in scope {scope}"
+        )
         if name not in self.analysis.hoisted_vars[scope]:
             self.analysis.hoisted_vars[scope].add(name)
             self.analysis.var_types[scope][name] = glsl_type
+            logger.debug(f"Added {name} to hoisted vars in {scope}")
 
     def get_variable_type(self, name: str) -> Optional[GLSLType]:
         """Get type of variable from current or parent scope."""
