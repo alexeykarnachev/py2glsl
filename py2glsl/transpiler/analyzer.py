@@ -205,8 +205,15 @@ class ShaderAnalyzer:
         """Analyze function definition."""
         self.enter_scope(node.name)
 
-        # Only check vs_uv requirement for top-level functions
-        if len(self.analysis.scope_stack) == 1:  # We're at top level
+        # For nested functions, analyze arguments normally
+        if len(self.analysis.scope_stack) > 1:
+            for arg in node.args.args:
+                if arg.annotation:
+                    arg_type = self.get_type_from_annotation(arg.annotation)
+                    self.register_variable(arg.arg, arg_type)
+            self.analysis.functions.append(node)
+        else:
+            # Only check vs_uv requirement for top-level functions
             # Validate return type
             if not isinstance(node.returns, ast.Name) or node.returns.id != "vec4":
                 raise TypeError("Shader must return vec4")
@@ -236,13 +243,6 @@ class ShaderAnalyzer:
 
             # Store as main function
             self.analysis.main_function = node
-        else:
-            # For nested functions, just analyze arguments normally
-            for arg in node.args.args:
-                if arg.annotation:
-                    arg_type = self.get_type_from_annotation(arg.annotation)
-                    self.register_variable(arg.arg, arg_type)
-            self.analysis.functions.append(node)
 
         # Analyze body
         for stmt in node.body:
@@ -311,14 +311,12 @@ class ShaderAnalyzer:
         """Analyze shader AST."""
         self.analysis = ShaderAnalysis()
 
-        # Find and analyze shader function
+        # First pass: analyze main shader function
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
-                logger.debug(f"Found function definition: {node.name}")
+                # Store as main function before analysis
+                self.analysis.main_function = node
+                # Now analyze it
                 self.analyze_function_def(node)
-
-        # Check that we found a main function
-        if not self.analysis.main_function:
-            raise ValueError("No shader function found")
 
         return self.analysis

@@ -166,15 +166,13 @@ class GLSLGenerator:
                     var_type = self.analysis.var_types[self.current_scope].get(
                         target.id
                     )
-
-                    # Check if variable was already declared
-                    if target.id in self.declared_vars[self.current_scope]:
-                        # Just assignment
-                        self.add_line(f"{target.id} = {value};")
-                    else:
+                    if target.id not in self.declared_vars[self.current_scope]:
                         # First declaration with initialization
                         self.add_line(f"{str(var_type)} {target.id} = {value};")
                         self.declared_vars[self.current_scope].add(target.id)
+                    else:
+                        # Just assignment
+                        self.add_line(f"{target.id} = {value};")
         elif isinstance(node, ast.AugAssign):
             target = self.generate_expression(node.target)
             value = self.generate_expression(node.value)
@@ -206,14 +204,6 @@ class GLSLGenerator:
                     and isinstance(node.iter.func, ast.Name)
                     and node.iter.func.id == "range"
                 ):
-
-                    # Validate range arguments are integers
-                    if len(node.iter.args) > 0:
-                        for arg in node.iter.args:
-                            if isinstance(arg, (ast.Constant, ast.Num)):
-                                if isinstance(arg.value, float):
-                                    raise ValueError("Loop bounds must be integers")
-
                     # Handle range arguments
                     if len(node.iter.args) == 1:
                         # range(end)
@@ -269,15 +259,15 @@ class GLSLGenerator:
         self.enter_scope(node.name)
         return_type = self.analysis.type_registry.get_type(node.returns.id)
         args = []
-        param_names = set()  # Track parameter names
+        param_names = set()
 
-        # Generate argument list
+        # Track parameters first
         for arg in node.args.args:
             arg_type = self.analysis.var_types[node.name].get(arg.arg)
             if arg_type:
                 args.append(f"{str(arg_type)} {arg.arg}")
-                param_names.add(arg.arg)  # Remember parameter names
-                # Add parameters to declared vars to prevent redeclaration
+                param_names.add(arg.arg)
+                # Add to declared vars to prevent redeclaration
                 self.declared_vars[self.current_scope].add(arg.arg)
 
         # Generate function declaration
@@ -292,30 +282,29 @@ class GLSLGenerator:
         )
         if hoisted:
             for var_name in hoisted:
-                var_type = self.analysis.var_types[node.name][var_name]
-                self.add_line(f"{str(var_type)} {var_name};")
-                # Add to declared vars to prevent redeclaration
-                self.declared_vars[self.current_scope].add(var_name)
+                if var_name not in self.declared_vars[self.current_scope]:
+                    var_type = self.analysis.var_types[node.name][var_name]
+                    self.add_line(f"{str(var_type)} {var_name};")
+                    self.declared_vars[self.current_scope].add(var_name)
             self.add_line("")
 
         # Generate function body
         for stmt in node.body:
-            self.generate_statement(stmt)
+            if not isinstance(stmt, ast.FunctionDef):  # Skip nested functions
+                self.generate_statement(stmt)
 
         self.end_block()
         self.exit_scope()
 
     def generate(self) -> str:
         """Generate complete GLSL shader code."""
-        # Reset declared variables for each generation
-        self.declared_vars = {"global": set()}  # Reset with global scope
+        self.declared_vars = {"global": set()}
         raw_code = self._generate_raw()
         formatter = GLSLFormatter()
         return formatter.format_code(raw_code)
 
     def _generate_raw(self) -> str:
         """Generate complete GLSL shader code."""
-        # Version declaration
         self.add_line("#version 460")
         self.add_line()
 
@@ -330,25 +319,20 @@ class GLSLGenerator:
         if self.analysis.uniforms:
             self.add_line()
 
-        # Generate functions
+        # Generate all functions at top level
         for func in self.analysis.functions:
             self.generate_function(func)
             self.add_line()
 
         # Generate main shader function
         main_func = self.analysis.main_function
-        # Keep original function name instead of using "shader"
         self.generate_function(main_func)
         self.add_line()
 
-        # Generate main function with correct indentation
+        # Generate main function
         self.add_line("void main()")
-        self.add_line("{")
-        self.indent_level += 1
-        self.add_line(
-            f"    fs_color = {main_func.name}(vs_uv);"
-        )  # Use explicit 4-space indent
-        self.indent_level -= 1
-        self.add_line("}")
+        self.begin_block()
+        self.add_line(f"fs_color = {main_func.name}(vs_uv);")
+        self.end_block()
 
         return "\n".join(self.lines)
