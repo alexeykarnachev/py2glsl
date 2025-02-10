@@ -49,6 +49,8 @@ class ShaderAnalyzer:
         self.analysis = ShaderAnalysis()
         self.current_context = GLSLContext.DEFAULT
         self.context_stack: List[GLSLContext] = []
+        self.loop_vars: Set[str] = set()
+        self.type_constraints: Dict[str, GLSLType] = {}
 
     def push_context(self, ctx: GLSLContext) -> None:
         """Push new analysis context."""
@@ -256,7 +258,40 @@ class ShaderAnalyzer:
 
     def analyze_statement(self, node: ast.AST) -> None:
         """Analyze statement node."""
-        if isinstance(node, ast.Assign):
+        if isinstance(node, ast.For):
+            self.push_context(GLSLContext.LOOP)
+
+            # Pre-analyze range arguments to ensure integer types
+            if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name):
+                if node.iter.func.id == "range":
+                    # First, analyze all variables used in range expressions
+                    for arg in node.iter.args:
+                        if isinstance(arg, ast.Name):
+                            # Force integer type for variables used in range
+                            self.register_variable(arg.id, INT)
+                        elif isinstance(arg, ast.BinOp):
+                            # Handle binary operations in range bounds
+                            if isinstance(arg.left, ast.Name):
+                                self.register_variable(arg.left.id, INT)
+                            if isinstance(arg.right, ast.Name):
+                                self.register_variable(arg.right.id, INT)
+                        elif isinstance(arg, (ast.Constant, ast.Num)):
+                            # Validate numeric literals
+                            value = getattr(arg, "value", getattr(arg, "n", None))
+                            if isinstance(value, float):
+                                raise ValueError("Loop bounds must be integers")
+
+            # Register loop variable as integer
+            if isinstance(node.target, ast.Name):
+                self.register_variable(node.target.id, INT)
+
+            # Process loop body
+            for stmt in node.body:
+                self.analyze_statement(stmt)
+
+            self.pop_context()
+
+        elif isinstance(node, ast.Assign):
             value_type = self.infer_type(node.value)
             for target in node.targets:
                 if isinstance(target, ast.Name):
@@ -270,20 +305,13 @@ class ShaderAnalyzer:
                                         func.returns
                                     )
                                     break
+                    # Register the variable with inferred type
                     self.register_variable(target.id, value_type)
 
         elif isinstance(node, ast.AugAssign):
             if isinstance(node.target, ast.Name):
                 value_type = self.infer_type(node.value)
                 self.register_variable(node.target.id, value_type)
-
-        elif isinstance(node, ast.For):
-            self.push_context(GLSLContext.LOOP)
-            if isinstance(node.target, ast.Name):
-                self.register_variable(node.target.id, INT)
-            for stmt in node.body:
-                self.analyze_statement(stmt)
-            self.pop_context()
 
         elif isinstance(node, ast.If):
             for stmt in node.body:
@@ -312,15 +340,81 @@ class ShaderAnalyzer:
         raise TypeError(f"Unsupported type annotation: {annotation}")
 
     def analyze(self, tree: ast.Module) -> ShaderAnalysis:
-        """Analyze shader AST."""
+        """Two-phase analysis of shader AST."""
         self.analysis = ShaderAnalysis()
+        self.type_constraints = {}
 
-        # First pass: analyze main shader function
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef):
-                # Store as main function before analysis
-                self.analysis.main_function = node
-                # Now analyze it
-                self.analyze_function_def(node)
+        # Phase 1: Collect type constraints
+        self._collect_type_constraints(tree)
+
+        # Phase 2: Apply type constraints to analysis
+        self._apply_type_constraints()
+
+        # Phase 3: Main analysis
+        self._analyze_shader(tree)
 
         return self.analysis
+
+    def _collect_type_constraints(self, tree: ast.Module) -> None:
+        """Collect type constraints from AST."""
+        for node in ast.walk(tree):
+            # Handle loop-related constraints
+            if isinstance(node, ast.For):
+                if isinstance(node.iter, ast.Call) and isinstance(
+                    node.iter.func, ast.Name
+                ):
+                    if node.iter.func.id == "range":
+                        # Register loop variable
+                        if isinstance(node.target, ast.Name):
+                            self.type_constraints[node.target.id] = INT
+
+                        # Register variables used in range bounds
+                        for arg in node.iter.args:
+                            if isinstance(arg, ast.Name):
+                                self.type_constraints[arg.id] = INT
+                            elif isinstance(arg, ast.BinOp):
+                                if isinstance(arg.left, ast.Name):
+                                    self.type_constraints[arg.left.id] = INT
+                                if isinstance(arg.right, ast.Name):
+                                    self.type_constraints[arg.right.id] = INT
+
+            # Handle assignments that affect loop variables
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id in self.type_constraints:
+                            continue  # Skip if already constrained
+
+                        # Infer type from value
+                        if isinstance(node.value, ast.Constant):
+                            if isinstance(node.value.value, int):
+                                self.type_constraints[target.id] = INT
+
+    def _apply_type_constraints(self) -> None:
+        """Apply collected type constraints to all scopes."""
+        # Apply constraints to global scope first
+        for var_name, var_type in self.type_constraints.items():
+            if var_name not in self.analysis.var_types["global"]:
+                self.analysis.var_types["global"][var_name] = var_type
+                self.analysis.hoisted_vars["global"].add(var_name)
+
+    def register_variable(self, name: str, glsl_type: GLSLType) -> None:
+        """Register variable with type constraint awareness."""
+        scope = self.analysis.current_scope
+
+        # Check if there's a type constraint
+        if name in self.type_constraints:
+            glsl_type = self.type_constraints[name]
+
+        # Register in current scope
+        if name not in self.analysis.hoisted_vars[scope]:
+            self.analysis.hoisted_vars[scope].add(name)
+            self.analysis.var_types[scope][name] = glsl_type
+            logger.debug(f"Added {name} of type {glsl_type} to hoisted vars in {scope}")
+
+    def _analyze_shader(self, tree: ast.Module) -> None:
+        """Main analysis phase."""
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                self.analysis.main_function = node
+                self.analyze_function_def(node)

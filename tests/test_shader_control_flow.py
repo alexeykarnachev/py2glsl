@@ -49,6 +49,10 @@ def test_nested_control_flow() -> None:
         return result
 
     result = py2glsl(shader)
+    # Check variable declarations
+    assert "vec4 result;" in result.fragment_source
+    assert "vec2 p;" in result.fragment_source
+    # Check control flow
     assert "if (length(p) < u_params.x)" in result.fragment_source
     assert "if (p.x > 0.0)" in result.fragment_source
     assert "if (p.y > 0.0)" in result.fragment_source
@@ -85,6 +89,10 @@ def test_simple_for_loop():
         return vec4(x)
 
     result = py2glsl(shader)
+    # Check declarations
+    assert "float x;" in result.fragment_source
+    assert "int i;" in result.fragment_source
+    # Check loop
     assert "for (int i = 0; i < 5; i++)" in result.fragment_source
 
 
@@ -99,6 +107,11 @@ def test_nested_for_loops():
         return vec4(x)
 
     result = py2glsl(shader)
+    # Check declarations
+    assert "float x;" in result.fragment_source
+    assert "int i;" in result.fragment_source
+    assert "int j;" in result.fragment_source
+    # Check loops
     assert "for (int i = 0; i < 3; i++)" in result.fragment_source
     assert "for (int j = 0; j < 2; j++)" in result.fragment_source
 
@@ -113,6 +126,10 @@ def test_for_loop_with_range_start():
         return vec4(x)
 
     result = py2glsl(shader)
+    # Check declarations
+    assert "float x;" in result.fragment_source
+    assert "int i;" in result.fragment_source
+    # Check loop
     assert "for (int i = 1; i < 4; i++)" in result.fragment_source
 
 
@@ -126,6 +143,10 @@ def test_loop_bounds_integer():
         return vec4(x)
 
     result = py2glsl(shader)
+    # Check declarations
+    assert "float x;" in result.fragment_source
+    assert "int i;" in result.fragment_source
+    # Check loop
     assert "for (int i = 0; i < 5; i++)" in result.fragment_source
 
 
@@ -138,7 +159,9 @@ def test_loop_bounds_float_error():
             x += 1.0
         return vec4(x)
 
-    with pytest.raises(ValueError, match="Loop bounds must be integers"):
+    with pytest.raises(
+        TypeError, match="Invalid shader function: Loop bounds must be integers"
+    ):
         py2glsl(shader)
 
 
@@ -153,6 +176,11 @@ def test_loop_bounds_expression():
         return vec4(x)
 
     result = py2glsl(shader)
+    # Check declarations
+    assert "float x;" in result.fragment_source
+    assert "int count;" in result.fragment_source
+    assert "int i;" in result.fragment_source
+    # Check loop
     assert "for (int i = 0; i < count + 2; i++)" in result.fragment_source
 
 
@@ -166,4 +194,8 @@ def test_integer_loop_counter():
         return vec4(x)
 
     result = py2glsl(shader)
+    # Check declarations
+    assert "float x;" in result.fragment_source
+    assert "int i;" in result.fragment_source
+    # Check loop
     assert "for (int i = 0; i < count; i++)" in result.fragment_source

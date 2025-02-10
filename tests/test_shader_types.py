@@ -28,9 +28,14 @@ def test_type_inference() -> None:
         return c
 
     result = py2glsl(type_shader)
-    assert "float a = 1.0;" in result.fragment_source
-    assert "vec2 b = vs_uv;" in result.fragment_source
-    assert "vec4 c = vec4(1.0, 2.0, 3.0, 4.0);" in result.fragment_source
+    # Check hoisted declarations
+    assert "float a;" in result.fragment_source
+    assert "vec2 b;" in result.fragment_source
+    assert "vec4 c;" in result.fragment_source
+    # Check assignments
+    assert "a = 1.0;" in result.fragment_source
+    assert "b = vs_uv;" in result.fragment_source
+    assert "c = vec4(1.0, 2.0, 3.0, 4.0);" in result.fragment_source
 
 
 def test_vector_operations_types():
@@ -45,8 +50,12 @@ def test_vector_operations_types():
         return v4
 
     result = py2glsl(shader)
-    assert "vec2 scaled = v2 * 2.0;" in result.fragment_source
-    assert "vec2 added = v2 + v2;" in result.fragment_source
+    # Check hoisted declarations
+    assert "vec2 scaled;" in result.fragment_source
+    assert "vec2 added;" in result.fragment_source
+    # Check assignments
+    assert "scaled = v2 * 2.0;" in result.fragment_source
+    assert "added = v2 + v2;" in result.fragment_source
 
 
 def test_math_function_types():
@@ -59,9 +68,14 @@ def test_math_function_types():
         return vec4(s, c, 0.0, 1.0)
 
     result = py2glsl(shader)
-    assert "float angle = atan(vs_uv.y, vs_uv.x);" in result.fragment_source
-    assert "float s = sin(angle);" in result.fragment_source
-    assert "float c = cos(angle);" in result.fragment_source
+    # Check hoisted declarations
+    assert "float angle;" in result.fragment_source
+    assert "float s;" in result.fragment_source
+    assert "float c;" in result.fragment_source
+    # Check assignments
+    assert "angle = atan(vs_uv.y, vs_uv.x);" in result.fragment_source
+    assert "s = sin(angle);" in result.fragment_source
+    assert "c = cos(angle);" in result.fragment_source
 
 
 def test_nested_function_types():
@@ -82,14 +96,15 @@ def test_nested_function_types():
     result = py2glsl(shader)
     assert "float circle_sdf(vec2 p, float r)" in result.fragment_source
     assert "float smooth_min(float a, float b, float k)" in result.fragment_source
-    assert "float d = circle_sdf(vs_uv, 0.5);" in result.fragment_source
+    # Check hoisted declarations and assignments
+    assert "float d;" in result.fragment_source
+    assert "d = circle_sdf(vs_uv, 0.5);" in result.fragment_source
 
 
 def test_type_inference_complex():
     """Test complex type inference scenarios"""
 
     def shader(vs_uv: vec2, *, scale: float) -> vec4:
-        # Type should be inferred from operations
         a = vs_uv * scale  # vec2
         b = vs_uv.x * scale  # float
         c = normalize(a)  # vec2
@@ -97,10 +112,16 @@ def test_type_inference_complex():
         return vec4(c, b, d)
 
     result = py2glsl(shader)
-    assert "vec2 a = vs_uv * scale;" in result.fragment_source
-    assert "float b = vs_uv.x * scale;" in result.fragment_source
-    assert "vec2 c = normalize(a);" in result.fragment_source
-    assert "float d = length(a);" in result.fragment_source
+    # Check hoisted declarations
+    assert "vec2 a;" in result.fragment_source
+    assert "float b;" in result.fragment_source
+    assert "vec2 c;" in result.fragment_source
+    assert "float d;" in result.fragment_source
+    # Check assignments
+    assert "a = vs_uv * scale;" in result.fragment_source
+    assert "b = vs_uv.x * scale;" in result.fragment_source
+    assert "c = normalize(a);" in result.fragment_source
+    assert "d = length(a);" in result.fragment_source
 
 
 def test_type_inference_consistency():
@@ -112,9 +133,12 @@ def test_type_inference_consistency():
         return vec4(d)
 
     result = py2glsl(shader)
-
-    assert "vec2 n = normalize(u_dir)" in result.fragment_source
-    assert "float d = dot(n, vs_uv)" in result.fragment_source
+    # Check hoisted declarations
+    assert "vec2 n;" in result.fragment_source
+    assert "float d;" in result.fragment_source
+    # Check assignments
+    assert "n = normalize(u_dir);" in result.fragment_source
+    assert "d = dot(n, vs_uv);" in result.fragment_source
 
 
 def test_builtin_function_types():
@@ -127,6 +151,11 @@ def test_builtin_function_types():
         return vec4(d, n, 1.0)
 
     result = py2glsl(shader)
-    assert "float d = length(vs_uv);" in result.fragment_source
-    assert "vec2 n = normalize(vs_uv);" in result.fragment_source
-    assert "vec3 m = mix(vec3(1.0), vec3(0.0), 0.5);" in result.fragment_source
+    # Check hoisted declarations
+    assert "float d;" in result.fragment_source
+    assert "vec2 n;" in result.fragment_source
+    assert "vec3 m;" in result.fragment_source
+    # Check assignments
+    assert "d = length(vs_uv);" in result.fragment_source
+    assert "n = normalize(vs_uv);" in result.fragment_source
+    assert "m = mix(vec3(1.0), vec3(0.0), 0.5);" in result.fragment_source

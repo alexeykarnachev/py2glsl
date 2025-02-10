@@ -26,7 +26,8 @@ def test_vector_operations() -> None:
         return vec4(v, 0.0, 1.0)
 
     result = py2glsl(vec_shader)
-    assert "vec2 v = vs_uv * 2.0;" in result.fragment_source
+    assert "vec2 v;" in result.fragment_source
+    assert "v = vs_uv * 2.0;" in result.fragment_source
 
 
 def test_vector_constructors():
@@ -42,12 +43,20 @@ def test_vector_constructors():
         return v4a + v4b
 
     result = py2glsl(shader)
-    assert "vec2 v2a = vec2(1.0, 2.0);" in result.fragment_source
-    assert "vec2 v2b = vec2(v2a.x);" in result.fragment_source
-    assert "vec3 v3a = vec3(v2a, 3.0);" in result.fragment_source
-    assert "vec3 v3b = vec3(1.0);" in result.fragment_source
-    assert "vec4 v4a = vec4(v3a, 1.0);" in result.fragment_source
-    assert "vec4 v4b = vec4(v2a, v2b);" in result.fragment_source
+    # Check declarations
+    assert "vec2 v2a;" in result.fragment_source
+    assert "vec2 v2b;" in result.fragment_source
+    assert "vec3 v3a;" in result.fragment_source
+    assert "vec3 v3b;" in result.fragment_source
+    assert "vec4 v4a;" in result.fragment_source
+    assert "vec4 v4b;" in result.fragment_source
+    # Check assignments
+    assert "v2a = vec2(1.0, 2.0);" in result.fragment_source
+    assert "v2b = vec2(v2a.x);" in result.fragment_source
+    assert "v3a = vec3(v2a, 3.0);" in result.fragment_source
+    assert "v3b = vec3(1.0);" in result.fragment_source
+    assert "v4a = vec4(v3a, 1.0);" in result.fragment_source
+    assert "v4b = vec4(v2a, v2b);" in result.fragment_source
 
 
 def test_complex_swizzling():
@@ -60,9 +69,14 @@ def test_complex_swizzling():
         return vec4(xyz.xy, zyx.xy)
 
     result = py2glsl(shader)
-    assert "vec4 v4 = vec4(vs_uv, 0.0, 1.0);" in result.fragment_source
-    assert "vec3 xyz = v4.xyz;" in result.fragment_source
-    assert "vec3 zyx = v4.zyx;" in result.fragment_source
+    # Check declarations
+    assert "vec4 v4;" in result.fragment_source
+    assert "vec3 xyz;" in result.fragment_source
+    assert "vec3 zyx;" in result.fragment_source
+    # Check assignments
+    assert "v4 = vec4(vs_uv, 0.0, 1.0);" in result.fragment_source
+    assert "xyz = v4.xyz;" in result.fragment_source
+    assert "zyx = v4.zyx;" in result.fragment_source
 
 
 def test_swizzling() -> None:
@@ -72,8 +86,12 @@ def test_swizzling() -> None:
         return vec4(xy.x, xy.y, yx.x, yx.y)
 
     result = py2glsl(swizzle_shader)
-    assert "vec2 xy = vs_uv.xy;" in result.fragment_source
-    assert "vec2 yx = vs_uv.yx;" in result.fragment_source
+    # Check declarations
+    assert "vec2 xy;" in result.fragment_source
+    assert "vec2 yx;" in result.fragment_source
+    # Check assignments
+    assert "xy = vs_uv.xy;" in result.fragment_source
+    assert "yx = vs_uv.yx;" in result.fragment_source
 
 
 def test_complex_vector_operations() -> None:
@@ -105,7 +123,9 @@ def test_vector_swizzle_formatting():
         return v.rgba
 
     result = py2glsl(shader)
-
+    # Check declarations
+    assert "vec4 v;" in result.fragment_source
+    # Check usage
     assert "vs_uv.xy" in result.fragment_source
     assert "v.rgba" in result.fragment_source
 
@@ -121,9 +141,16 @@ def test_vector_swizzle_type():
         return vec4(x, xy, 1.0)
 
     result = py2glsl(shader)
-    assert "vec3 rgb = v4.rgb;" in result.fragment_source
-    assert "vec2 xy = v4.xy;" in result.fragment_source
-    assert "float x = v4.x;" in result.fragment_source
+    # Check declarations
+    assert "vec4 v4;" in result.fragment_source
+    assert "vec3 rgb;" in result.fragment_source
+    assert "vec2 xy;" in result.fragment_source
+    assert "float x;" in result.fragment_source
+    # Check assignments
+    assert "v4 = vec4(1.0, 2.0, 3.0, 4.0);" in result.fragment_source
+    assert "rgb = v4.rgb;" in result.fragment_source
+    assert "xy = v4.xy;" in result.fragment_source
+    assert "x = v4.x;" in result.fragment_source
 
 
 def test_vector_type_hoisting():
