@@ -323,15 +323,17 @@ class GLSLType:
                 return BOOL if self == other else None
             if op in ("&&", "||"):
                 return self if self == other else None
+            if op in ("<", ">", "<=", ">="):
+                return None  # Boolean vectors don't support comparison ops
             return None
 
         # Matrix operations
         if self.is_matrix or other.is_matrix:
-            if op in ("%", "&&", "||", "<", ">", "<=", ">=", "+", "-"):  # Added +, -
+            if op in ("%", "&&", "||", "<", ">", "<=", ">="):
                 return None
             if op in ("==", "!="):
                 return BOOL if self == other else None
-            if op == "*":  # Only allow multiplication
+            if op == "*":
                 if self.is_matrix and other.is_matrix:
                     return self if self.matrix_size() == other.matrix_size() else None
                 if self.is_matrix and other.kind in (TypeKind.FLOAT, TypeKind.INT):
@@ -346,14 +348,6 @@ class GLSLType:
 
         # Vector operations
         if self.is_vector or other.is_vector:
-            # Boolean vectors only support logical and comparison operations
-            if self.is_bool_vector or other.is_bool_vector:
-                if op in ("&&", "||"):
-                    return self if self == other else None
-                if op in ("==", "!="):
-                    return BOOL if self == other else None
-                return None
-
             # Vector-scalar operations
             if self.is_vector and other.kind in (TypeKind.FLOAT, TypeKind.INT):
                 if op in ("+", "-", "*", "/"):
@@ -365,24 +359,28 @@ class GLSLType:
             # Vector-vector operations
             if self.is_vector and other.is_vector:
                 if op in ("==", "!="):
-                    return BOOL if self.is_compatible_with(other) else None
+                    return BOOL if self.vector_size() == other.vector_size() else None
                 if op in ("<", ">", "<=", ">="):
-                    return None if self.is_bool_vector else BOOL
-                if self.is_bool_vector:
-                    return None  # Boolean vectors don't support arithmetic
-                return self if self.is_compatible_with(other) else None
+                    return BOOL if self.vector_size() == other.vector_size() else None
+                if self.vector_size() == other.vector_size():
+                    if op in ("+", "-", "*", "/"):
+                        return self
+                return None
 
         # Comparison operations
-        if op in ("==", "!="):
+        if op in ("==", "!=", "<", ">", "<=", ">="):
+            # Boolean vectors only support equality
             if self.is_bool_vector or other.is_bool_vector:
-                return BOOL if self == other else None
-            return BOOL if self.is_compatible_with(other) else None
-
-        if op in ("<", ">", "<=", ">="):
-            if self.is_bool_vector or other.is_bool_vector:
+                if op in ("==", "!=") and self == other:
+                    return BOOL
                 return None
+
+            # Different vector types don't support comparisons
             if self.is_vector and other.is_vector:
-                return BOOL if self.is_compatible_with(other) else None
+                if self.kind != other.kind:
+                    return None
+                return BOOL if self.vector_size() == other.vector_size() else None
+
             if self.is_numeric and other.is_numeric:
                 return BOOL
             return None
@@ -414,15 +412,15 @@ class GLSLType:
         if self.array_size is not None or other.array_size is not None:
             return self.array_size == other.array_size and self.kind == other.kind
 
+        # Boolean vectors are only compatible with themselves
+        if self.is_bool_vector or other.is_bool_vector:
+            return self == other
+
         # Vector types should only be compatible with same type
         if self.is_vector and other.is_vector:
-            return (
-                self.vector_size() == other.vector_size()
-                and not (self.is_bool_vector or other.is_bool_vector)
-                and not (
-                    (self.is_int_vector and not other.is_int_vector)
-                    or (other.is_int_vector and not self.is_int_vector)
-                )
+            return self.vector_size() == other.vector_size() and not (
+                (self.is_int_vector and not other.is_int_vector)
+                or (other.is_int_vector and not self.is_int_vector)
             )
 
         # Matrix-vector compatibility
@@ -526,7 +524,9 @@ def vec2(*args) -> Vec2:
         return np.array([val, val], dtype=np.float32)
     if len(args) == 2:
         return np.array([float(args[0]), float(args[1])], dtype=np.float32)
-    raise TypeError("vec2 requires 1 or 2 arguments")  # Changed to TypeError
+    raise TypeError(
+        "vec2 requires 1 or 2 arguments"
+    )  # Changed from ValueError to TypeError
 
 
 def vec3(*args) -> Vec3:
@@ -542,9 +542,7 @@ def vec3(*args) -> Vec3:
         return np.array(
             [float(args[0]), float(args[1]), float(args[2])], dtype=np.float32
         )
-    raise TypeError(
-        "vec3 requires 1 or 3 arguments, or vec2 and a scalar"
-    )  # Changed to TypeError
+    raise ValueError("vec3 requires 1 or 3 arguments, or vec2 and a scalar")
 
 
 def vec4(*args) -> Vec4:
@@ -555,8 +553,6 @@ def vec4(*args) -> Vec4:
         val = float(args[0])
         return np.array([val, val, val, val], dtype=np.float32)
     if len(args) == 2 and isinstance(args[0], Vec3):
-        if len(args) > 2:  # Added validation
-            raise ValueError("Too many components for vec4")
         return np.array(
             [args[0][0], args[0][1], args[0][2], float(args[1])], dtype=np.float32
         )
@@ -578,12 +574,12 @@ def ivec2(*args) -> IVec2:
     """Create a 2D integer vector."""
     if len(args) == 0:
         raise ValueError("ivec2 requires at least 1 argument")
+    if len(args) > 2:
+        raise ValueError("ivec2 accepts maximum 2 arguments")
     if len(args) == 1:
         val = int(args[0])
         return np.array([val, val], dtype=np.int32)
-    if len(args) == 2:
-        return np.array([int(args[0]), int(args[1])], dtype=np.int32)
-    raise TypeError("ivec2 requires 1 or 2 arguments")  # Changed to TypeError
+    return np.array([int(args[0]), int(args[1])], dtype=np.int32)
 
 
 def ivec3(*args) -> IVec3:
@@ -597,9 +593,7 @@ def ivec3(*args) -> IVec3:
         return np.array([args[0][0], args[0][1], int(args[1])], dtype=np.int32)
     if len(args) == 3:
         return np.array([int(args[0]), int(args[1]), int(args[2])], dtype=np.int32)
-    raise TypeError(
-        "ivec3 requires 1 or 3 arguments, or ivec2 and a scalar"
-    )  # Changed to TypeError
+    raise ValueError("ivec3 requires 1 or 3 arguments, or ivec2 and a scalar")
 
 
 def ivec4(*args) -> IVec4:
@@ -621,21 +615,21 @@ def ivec4(*args) -> IVec4:
         return np.array(
             [int(args[0]), int(args[1]), int(args[2]), int(args[3])], dtype=np.int32
         )
-    raise TypeError(
+    raise ValueError(
         "ivec4 requires 1 or 4 arguments, or ivec3 and a scalar, or ivec2 and two scalars"
-    )  # Changed to TypeError
+    )
 
 
 def bvec2(*args) -> BVec2:
     """Create a 2D boolean vector."""
     if len(args) == 0:
         raise ValueError("bvec2 requires at least 1 argument")
+    if len(args) > 2:
+        raise ValueError("bvec2 accepts maximum 2 arguments")
     if len(args) == 1:
         val = bool(args[0])
         return np.array([val, val], dtype=bool)
-    if len(args) == 2:
-        return np.array([bool(args[0]), bool(args[1])], dtype=bool)
-    raise TypeError("bvec2 requires 1 or 2 arguments")  # Changed to TypeError
+    return np.array([bool(args[0]), bool(args[1])], dtype=bool)
 
 
 def bvec3(*args) -> BVec3:
@@ -649,9 +643,7 @@ def bvec3(*args) -> BVec3:
         return np.array([args[0][0], args[0][1], bool(args[1])], dtype=bool)
     if len(args) == 3:
         return np.array([bool(args[0]), bool(args[1]), bool(args[2])], dtype=bool)
-    raise TypeError(
-        "bvec3 requires 1 or 3 arguments, or bvec2 and a scalar"
-    )  # Changed to TypeError
+    raise ValueError("bvec3 requires 1 or 3 arguments, or bvec2 and a scalar")
 
 
 def bvec4(*args) -> BVec4:
@@ -671,6 +663,6 @@ def bvec4(*args) -> BVec4:
         return np.array(
             [bool(args[0]), bool(args[1]), bool(args[2]), bool(args[3])], dtype=bool
         )
-    raise TypeError(
+    raise ValueError(
         "bvec4 requires 1 or 4 arguments, or bvec3 and a scalar, or bvec2 and two scalars"
-    )  # Changed to TypeError
+    )
