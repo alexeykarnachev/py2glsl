@@ -94,44 +94,51 @@ class GLSLGenerator:
         return FLOAT
 
     def generate_expression(self, node: ast.AST, parenthesize: bool = False) -> str:
-        """Generate GLSL expression."""
-        if isinstance(node, ast.Name):
-            return node.id  # Simply return the identifier name
+        """Generate GLSL expression with improved pattern matching."""
+        match node:
+            case ast.Name():
+                return node.id
 
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, bool):
+            case ast.Constant():
+                return self._generate_constant(node, self.current_context)
+
+            case ast.Call() if isinstance(node.func, ast.Name):
+                return self._generate_call(node)
+
+            case ast.BinOp():
+                return self._generate_binary_op(node, parenthesize)
+
+            case ast.Compare():
+                return self._generate_compare(node, parenthesize)
+
+            case ast.Attribute():
+                return self._generate_attribute(node)
+
+            case ast.UnaryOp():
+                return self._generate_unary_op(node, parenthesize)
+
+            case _:
+                raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+
+    def _generate_constant(self, node: ast.Constant, context: GLSLContext) -> str:
+        """Generate GLSL code for constants."""
+        match node.value:
+            case bool():
                 return str(node.value).lower()
-            elif isinstance(node.value, int):
-                # Don't add .0 to integers in loop contexts
-                if self.current_context == GLSLContext.LOOP:
-                    return str(node.value)
-                return f"{float(node.value)}"
-            elif isinstance(node.value, float):
+            case int():
+                return (
+                    str(node.value)
+                    if context == GLSLContext.LOOP
+                    else f"{float(node.value)}"
+                )
+            case float():
                 return f"{node.value}"
-            return "0.0"
+            case _:
+                return "0.0"
 
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                args = [self.generate_expression(arg) for arg in node.args]
-                # Vector constructors
-                if node.func.id in ("vec2", "Vec2", "vec3", "Vec3", "vec4", "Vec4"):
-                    return f"{node.func.id.lower()}({', '.join(args)})"
-                # Regular function call
-                return f"{node.func.id}({', '.join(args)})"
-
-        elif isinstance(node, ast.BinOp):
-            left = self.generate_expression(node.left, True)
-            right = self.generate_expression(node.right, True)
-            op = {
-                ast.Add: "+",
-                ast.Sub: "-",
-                ast.Mult: "*",
-                ast.Div: "/",
-            }[type(node.op)]
-            expr = f"{left} {op} {right}"
-            return f"({expr})" if parenthesize else expr
-
-        elif isinstance(node, ast.Compare):
+    def _generate_expression_legacy(self, node: ast.AST, parenthesize: bool) -> str:
+        """Legacy expression generation for non-refactored cases."""
+        if isinstance(node, ast.Compare):
             left = self.generate_expression(node.left, True)
             right = self.generate_expression(node.comparators[0], True)
             op = {
@@ -157,99 +164,240 @@ class GLSLGenerator:
 
         raise ValueError(f"Unsupported expression: {ast.dump(node)}")
 
+    def _generate_call(self, node: ast.Call) -> str:
+        """Generate GLSL code for function calls."""
+        args = [self.generate_expression(arg) for arg in node.args]
+
+        # Handle vector constructors
+        if node.func.id.lower() in {"vec2", "vec3", "vec4"}:
+            return f"{node.func.id.lower()}({', '.join(args)})"
+
+        return f"{node.func.id}({', '.join(args)})"
+
+    def _generate_compare(self, node: ast.Compare, parenthesize: bool) -> str:
+        """Generate GLSL code for comparison operations."""
+        if len(node.ops) != 1 or len(node.comparators) != 1:
+            raise ValueError("Only simple comparisons are supported")
+
+        operators = {
+            ast.Lt: "<",
+            ast.LtE: "<=",
+            ast.Gt: ">",
+            ast.GtE: ">=",
+            ast.Eq: "==",
+            ast.NotEq: "!=",
+        }
+
+        left = self.generate_expression(node.left, True)
+        right = self.generate_expression(node.comparators[0], True)
+        op = operators[type(node.ops[0])]
+
+        expr = f"{left} {op} {right}"
+        return f"({expr})" if parenthesize else expr
+
+    def _generate_attribute(self, node: ast.Attribute) -> str:
+        """Generate GLSL code for attribute access (e.g., swizzling)."""
+        value = self.generate_expression(node.value)
+        value_type = self.get_type(node.value)
+
+        if value_type.is_vector():
+            valid_components = {
+                "x",
+                "y",
+                "z",
+                "w",
+                "r",
+                "g",
+                "b",
+                "a",
+                "s",
+                "t",
+                "p",
+                "q",
+            }
+            if not all(c in valid_components for c in node.attr):
+                raise ValueError(f"Invalid vector component access: {node.attr}")
+
+        return f"{value}.{node.attr}"
+
+    def _generate_unary_op(self, node: ast.UnaryOp, parenthesize: bool) -> str:
+        """Generate GLSL code for unary operations."""
+        operators = {
+            ast.USub: "-",
+            ast.UAdd: "+",
+            ast.Not: "!",
+        }
+
+        if type(node.op) not in operators:
+            raise ValueError(f"Unsupported unary operator: {type(node.op)}")
+
+        op = operators[type(node.op)]
+        operand = self.generate_expression(node.operand, True)
+        expr = f"{op}{operand}"
+
+        return f"({expr})" if parenthesize else expr
+
+    def _validate_type_compatibility(
+        self, expected: GLSLType, actual: GLSLType, context: str
+    ) -> None:
+        """Validate type compatibility for operations."""
+        if not actual.can_convert_to(expected):
+            raise TypeError(
+                f"Type mismatch in {context}: "
+                f"expected {expected.name}, got {actual.name}"
+            )
+
+    def _generate_binary_op(self, node: ast.BinOp, parenthesize: bool) -> str:
+        """Generate GLSL code for binary operations."""
+        operators = {
+            ast.Add: "+",
+            ast.Sub: "-",
+            ast.Mult: "*",
+            ast.Div: "/",
+        }
+        left = self.generate_expression(node.left, True)
+        right = self.generate_expression(node.right, True)
+        op = operators[type(node.op)]
+        expr = f"{left} {op} {right}"
+        return f"({expr})" if parenthesize else expr
+
     def generate_statement(self, node: ast.AST) -> None:
-        """Generate GLSL statement."""
-        if isinstance(node, ast.Assign):
-            value = self.generate_expression(node.value)
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    var_type = self.analysis.var_types[self.current_scope].get(
-                        target.id
-                    )
-                    if target.id not in self.declared_vars[self.current_scope]:
-                        # Always combine declaration and initialization for type conversions
-                        if isinstance(node.value, ast.Call) and isinstance(
-                            node.value.func, ast.Name
-                        ):
-                            self.add_line(f"{str(var_type)} {target.id} = {value};")
-                        else:
-                            # Separate declaration and initialization for other cases
-                            self.add_line(f"{str(var_type)} {target.id};")
-                            self.add_line(f"{target.id} = {value};")
-                        self.declared_vars[self.current_scope].add(target.id)
-                    else:
-                        # Just assignment
-                        self.add_line(f"{target.id} = {value};")
-        elif isinstance(node, ast.AugAssign):
-            target = self.generate_expression(node.target)
-            value = self.generate_expression(node.value)
-            op = {
-                ast.Add: "+=",
-                ast.Sub: "-=",
-                ast.Mult: "*=",
-                ast.Div: "/=",
-            }[type(node.op)]
-            self.add_line(f"{target} {op} {value};")
-        elif isinstance(node, ast.If):
-            cond = self.generate_expression(node.test)
-            self.add_line(f"if ({cond})")
+        """Generate GLSL statement with improved pattern matching."""
+        match node:
+            case ast.Assign():
+                self._generate_assignment(node)
+
+            case ast.AugAssign():
+                self._generate_aug_assignment(node)
+
+            case ast.If():
+                self._generate_if_statement(node)
+
+            case ast.For():
+                self._generate_for_loop(node)
+
+            case ast.Return():
+                value = self.generate_expression(node.value)
+                self.add_line(f"return {value};")
+
+            case ast.Break():
+                self.add_line("break;")
+
+            case ast.Continue():
+                self.add_line("continue;")
+
+            case ast.Expr():
+                value = self.generate_expression(node.value)
+                self.add_line(f"{value};")
+
+            case ast.FunctionDef():
+                self.generate_function(node)
+
+            case _:
+                raise ValueError(f"Unsupported statement: {type(node)}")
+
+    def _generate_assignment(self, node: ast.Assign) -> None:
+        """Generate GLSL assignment statement."""
+        value = self.generate_expression(node.value)
+
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                raise ValueError("Only simple assignments are supported")
+
+            var_type = self.analysis.var_types[self.current_scope].get(target.id)
+
+            if target.id not in self.declared_vars[self.current_scope]:
+                # Declaration with initialization
+                if isinstance(node.value, ast.Call) and isinstance(
+                    node.value.func, ast.Name
+                ):
+                    self.add_line(f"{str(var_type)} {target.id} = {value};")
+                else:
+                    # Separate declaration and initialization
+                    self.add_line(f"{str(var_type)} {target.id};")
+                    self.add_line(f"{target.id} = {value};")
+                self.declared_vars[self.current_scope].add(target.id)
+            else:
+                # Simple assignment
+                self.add_line(f"{target.id} = {value};")
+
+    def _generate_aug_assignment(self, node: ast.AugAssign) -> None:
+        """Generate GLSL augmented assignment statement."""
+        operators = {
+            ast.Add: "+=",
+            ast.Sub: "-=",
+            ast.Mult: "*=",
+            ast.Div: "/=",
+        }
+
+        # Generate target and value expressions
+        target = self.generate_expression(node.target)
+        value = self.generate_expression(node.value)
+
+        # Get operator
+        if type(node.op) not in operators:
+            raise ValueError(
+                f"Unsupported augmented assignment operator: {type(node.op)}"
+            )
+        op = operators[type(node.op)]
+
+        # Generate the augmented assignment
+        self.add_line(f"{target} {op} {value};")
+
+    def _generate_if_statement(self, node: ast.If) -> None:
+        """Generate GLSL if statement."""
+        cond = self.generate_expression(node.test)
+        self.add_line(f"if ({cond})")
+
+        self.begin_block()
+        for stmt in node.body:
+            self.generate_statement(stmt)
+        self.end_block()
+
+        if node.orelse:
+            self.add_line("else")
+            self.begin_block()
+            for stmt in node.orelse:
+                self.generate_statement(stmt)
+            self.end_block()
+
+    def _generate_for_loop(self, node: ast.For) -> None:
+        """Generate GLSL for loop."""
+        self.push_context(GLSLContext.LOOP)
+
+        try:
+            if not (
+                isinstance(node.iter, ast.Call)
+                and isinstance(node.iter.func, ast.Name)
+                and node.iter.func.id == "range"
+            ):
+                raise ValueError("Only range-based for loops are supported")
+
+            if not isinstance(node.target, ast.Name):
+                raise ValueError("Only simple loop variables are supported")
+
+            # Handle range arguments
+            if len(node.iter.args) == 1:
+                end = self.generate_expression(node.iter.args[0])
+                init = f"int {node.target.id} = 0"
+                cond = f"{node.target.id} < {end}"
+            elif len(node.iter.args) == 2:
+                start = self.generate_expression(node.iter.args[0])
+                end = self.generate_expression(node.iter.args[1])
+                init = f"int {node.target.id} = {start}"
+                cond = f"{node.target.id} < {end}"
+            else:
+                raise ValueError("Range with step not supported in GLSL")
+
+            self.add_line(f"for ({init}; {cond}; {node.target.id}++)")
+
             self.begin_block()
             for stmt in node.body:
                 self.generate_statement(stmt)
             self.end_block()
-            if node.orelse:
-                self.add_line("else")
-                self.begin_block()
-                for stmt in node.orelse:
-                    self.generate_statement(stmt)
-                self.end_block()
-        elif isinstance(node, ast.For):
-            self.push_context(GLSLContext.LOOP)
-            try:
-                if (
-                    isinstance(node.iter, ast.Call)
-                    and isinstance(node.iter.func, ast.Name)
-                    and node.iter.func.id == "range"
-                ):
-                    # Handle range arguments
-                    if len(node.iter.args) == 1:
-                        # range(end)
-                        end = self.generate_expression(node.iter.args[0])
-                        init = f"int {node.target.id} = 0"
-                        cond = f"{node.target.id} < {end}"
-                    elif len(node.iter.args) == 2:
-                        # range(start, end)
-                        start = self.generate_expression(node.iter.args[0])
-                        end = self.generate_expression(node.iter.args[1])
-                        init = f"int {node.target.id} = {start}"
-                        cond = f"{node.target.id} < {end}"
-                    else:
-                        raise ValueError("Range with step not supported in GLSL")
 
-                    # Generate for loop
-                    self.add_line(f"for ({init}; {cond}; {node.target.id}++)")
-                    self.begin_block()
-                    for stmt in node.body:
-                        self.generate_statement(stmt)
-                    self.end_block()
-                else:
-                    raise ValueError("Only range-based for loops are supported in GLSL")
-            finally:
-                self.pop_context()
-        elif isinstance(node, ast.Break):
-            self.add_line("break;")
-        elif isinstance(node, ast.Continue):
-            self.add_line("continue;")
-        elif isinstance(node, ast.Return):
-            value = self.generate_expression(node.value)
-            self.add_line(f"return {value};")
-        elif isinstance(node, ast.Expr):
-            value = self.generate_expression(node.value)
-            self.add_line(f"{value};")
-        elif isinstance(node, ast.FunctionDef):
-            self.generate_function(node)
-        else:
-            raise ValueError(f"Unsupported statement type: {type(node)}")
+        finally:
+            self.pop_context()
 
     def begin_block(self) -> None:
         """Begin a new block with increased indentation."""

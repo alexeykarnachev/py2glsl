@@ -105,21 +105,15 @@ class ShaderAnalyzer:
             if node.id in self.analysis.uniforms:
                 return self.analysis.uniforms[node.id]
 
-        elif isinstance(node, ast.Num):
-            # Integer literals in loop context stay int
-            if self.current_context == GLSLContext.LOOP and isinstance(node.n, int):
-                return INT
-            # Otherwise default to float
-            return FLOAT
-
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return BOOL  # Fixed: Return BOOL type for boolean literals
-            elif isinstance(node.value, int):
-                if self.current_context == GLSLContext.LOOP:
+            elif isinstance(node.value, (int, float)):
+                # Integer literals in loop context stay int
+                if self.current_context == GLSLContext.LOOP and isinstance(
+                    node.value, int
+                ):
                     return INT
-                return FLOAT
-            elif isinstance(node.value, float):
                 return FLOAT
 
         elif isinstance(node, ast.Call):
@@ -165,6 +159,100 @@ class ShaderAnalyzer:
                     return VEC4
 
         return FLOAT  # Default to float for unknown expressions
+
+    def analyze_statement(self, node: ast.AST) -> None:
+        """Analyze statement node."""
+        if isinstance(node, ast.For):
+            self.push_context(GLSLContext.LOOP)
+
+            # Pre-analyze range arguments to ensure integer types
+            if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name):
+                if node.iter.func.id == "range":
+                    # Register loop variable as integer
+                    if isinstance(node.target, ast.Name):
+                        logger.debug(
+                            f"Registering loop variable {node.target.id} as INT"
+                        )
+                        self.register_variable(node.target.id, INT)
+
+                    # Analyze range arguments
+                    for arg in node.iter.args:
+                        if isinstance(arg, ast.Name):
+                            self.register_variable(arg.id, INT)
+                        elif isinstance(arg, ast.BinOp):
+                            if isinstance(arg.left, ast.Name):
+                                self.register_variable(arg.left.id, INT)
+                            if isinstance(arg.right, ast.Name):
+                                self.register_variable(arg.right.id, INT)
+                        elif isinstance(arg, ast.Constant):
+                            value = arg.value if isinstance(arg, ast.Constant) else None
+                            if isinstance(value, float):
+                                raise ValueError("Loop bounds must be integers")
+
+                # Process loop body
+                for stmt in node.body:
+                    # For assignments in loop body, ensure variables are hoisted
+                    if isinstance(stmt, ast.Assign):
+                        for target in stmt.targets:
+                            if isinstance(target, ast.Name):
+                                value_type = self.infer_type(stmt.value)
+                                logger.debug(
+                                    f"Hoisting loop variable {target.id} as {value_type}"
+                                )
+                                self.register_variable(target.id, value_type)
+                    self.analyze_statement(stmt)
+
+            self.pop_context()
+
+        elif isinstance(node, ast.Assign):
+            value_type = self.infer_type(node.value)
+            logger.debug(f"Analyzing assignment with inferred type: {value_type}")
+
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    # Handle boolean literals
+                    if isinstance(node.value, ast.Constant) and isinstance(
+                        node.value.value, bool
+                    ):
+                        logger.debug(f"Registering boolean variable {target.id}")
+                        self.register_variable(target.id, BOOL)
+                        continue
+
+                    # Handle type conversion functions
+                    if isinstance(node.value, ast.Call) and isinstance(
+                        node.value.func, ast.Name
+                    ):
+                        func_name = node.value.func.id
+                        if func_name == "float":
+                            logger.debug(f"Registering float conversion {target.id}")
+                            self.register_variable(target.id, FLOAT)
+                            continue
+                        elif func_name == "bool":
+                            logger.debug(f"Registering bool conversion {target.id}")
+                            self.register_variable(target.id, BOOL)
+                            continue
+                        elif func_name == "int":
+                            logger.debug(f"Registering int conversion {target.id}")
+                            self.register_variable(target.id, INT)
+                            continue
+
+                    # Default case
+                    logger.debug(f"Registering variable {target.id} as {value_type}")
+                    self.register_variable(target.id, value_type)
+
+        elif isinstance(node, ast.AugAssign):
+            if isinstance(node.target, ast.Name):
+                value_type = self.infer_type(node.value)
+                self.register_variable(node.target.id, value_type)
+
+        elif isinstance(node, ast.If):
+            for stmt in node.body:
+                self.analyze_statement(stmt)
+            for stmt in node.orelse:
+                self.analyze_statement(stmt)
+
+        elif isinstance(node, ast.FunctionDef):
+            self.analyze_function_def(node)
 
     def infer_builtin_return_type(
         self, func_name: str, args: List[ast.AST]
@@ -257,100 +345,6 @@ class ShaderAnalyzer:
             self.analyze_statement(stmt)
 
         self.exit_scope()
-
-    def analyze_statement(self, node: ast.AST) -> None:
-        """Analyze statement node."""
-        if isinstance(node, ast.For):
-            self.push_context(GLSLContext.LOOP)
-
-            # Pre-analyze range arguments to ensure integer types
-            if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name):
-                if node.iter.func.id == "range":
-                    # Register loop variable as integer
-                    if isinstance(node.target, ast.Name):
-                        logger.debug(
-                            f"Registering loop variable {node.target.id} as INT"
-                        )
-                        self.register_variable(node.target.id, INT)
-
-                    # Analyze range arguments
-                    for arg in node.iter.args:
-                        if isinstance(arg, ast.Name):
-                            self.register_variable(arg.id, INT)
-                        elif isinstance(arg, ast.BinOp):
-                            if isinstance(arg.left, ast.Name):
-                                self.register_variable(arg.left.id, INT)
-                            if isinstance(arg.right, ast.Name):
-                                self.register_variable(arg.right.id, INT)
-                        elif isinstance(arg, (ast.Constant, ast.Num)):
-                            value = getattr(arg, "value", getattr(arg, "n", None))
-                            if isinstance(value, float):
-                                raise ValueError("Loop bounds must be integers")
-
-            # Process loop body
-            for stmt in node.body:
-                # For assignments in loop body, ensure variables are hoisted
-                if isinstance(stmt, ast.Assign):
-                    for target in stmt.targets:
-                        if isinstance(target, ast.Name):
-                            value_type = self.infer_type(stmt.value)
-                            logger.debug(
-                                f"Hoisting loop variable {target.id} as {value_type}"
-                            )
-                            self.register_variable(target.id, value_type)
-                self.analyze_statement(stmt)
-
-            self.pop_context()
-
-        elif isinstance(node, ast.Assign):
-            value_type = self.infer_type(node.value)
-            logger.debug(f"Analyzing assignment with inferred type: {value_type}")
-
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    # Handle boolean literals
-                    if isinstance(node.value, ast.Constant) and isinstance(
-                        node.value.value, bool
-                    ):
-                        logger.debug(f"Registering boolean variable {target.id}")
-                        self.register_variable(target.id, BOOL)
-                        continue
-
-                    # Handle type conversion functions
-                    if isinstance(node.value, ast.Call) and isinstance(
-                        node.value.func, ast.Name
-                    ):
-                        func_name = node.value.func.id
-                        if func_name == "float":
-                            logger.debug(f"Registering float conversion {target.id}")
-                            self.register_variable(target.id, FLOAT)
-                            continue
-                        elif func_name == "bool":
-                            logger.debug(f"Registering bool conversion {target.id}")
-                            self.register_variable(target.id, BOOL)
-                            continue
-                        elif func_name == "int":
-                            logger.debug(f"Registering int conversion {target.id}")
-                            self.register_variable(target.id, INT)
-                            continue
-
-                    # Default case
-                    logger.debug(f"Registering variable {target.id} as {value_type}")
-                    self.register_variable(target.id, value_type)
-
-        elif isinstance(node, ast.AugAssign):
-            if isinstance(node.target, ast.Name):
-                value_type = self.infer_type(node.value)
-                self.register_variable(node.target.id, value_type)
-
-        elif isinstance(node, ast.If):
-            for stmt in node.body:
-                self.analyze_statement(stmt)
-            for stmt in node.orelse:
-                self.analyze_statement(stmt)
-
-        elif isinstance(node, ast.FunctionDef):
-            self.analyze_function_def(node)
 
     def get_type_from_annotation(self, annotation: ast.AST) -> GLSLType:
         """Convert Python type annotation to GLSL type."""
