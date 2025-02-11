@@ -2,10 +2,9 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Dict, List, Literal, Optional, Set, TypeAlias, Union, overload
+from typing import Any, Literal, Optional, TypeAlias
 
 import numpy as np
-from loguru import logger
 
 # Runtime type aliases
 Vec2: TypeAlias = np.ndarray  # shape (2,)
@@ -113,7 +112,7 @@ class TypeKind(Enum):
         return self in {TypeKind.MAT2, TypeKind.MAT3, TypeKind.MAT4}
 
     @property
-    def vector_size(self) -> Optional[int]:
+    def vector_size(self) -> int | None:
         """Get vector size if applicable."""
         return {
             TypeKind.VEC2: 2,
@@ -128,7 +127,7 @@ class TypeKind(Enum):
         }.get(self)
 
     @property
-    def matrix_size(self) -> Optional[int]:
+    def matrix_size(self) -> int | None:
         """Get matrix size if applicable."""
         return {
             TypeKind.MAT2: 2,
@@ -145,7 +144,7 @@ class GLSLType:
     is_uniform: bool = False
     is_const: bool = False
     is_attribute: bool = False
-    array_size: Optional[int] = None
+    array_size: int | None = None
 
     def __post_init__(self) -> None:
         """Validate type configuration."""
@@ -165,7 +164,9 @@ class GLSLType:
             raise GLSLTypeError("Arrays of arrays are not allowed in GLSL")
         if isinstance(size, (float, bool, str)):
             raise GLSLTypeError("Array size must be an integer")
-        if hasattr(size, "__array_interface__") or hasattr(size, "array_size"):
+        if hasattr(size, "__array_interface__"):
+            raise GLSLTypeError("Array size cannot be a numpy array")
+        if hasattr(size, "array_size"):
             raise GLSLTypeError("Arrays of arrays are not allowed in GLSL")
         if not isinstance(size, int):
             raise GLSLTypeError("Array size must be an integer")
@@ -235,11 +236,11 @@ class GLSLType:
         """Check if type is an integer vector."""
         return self.kind in {TypeKind.IVEC2, TypeKind.IVEC3, TypeKind.IVEC4}
 
-    def vector_size(self) -> Optional[int]:
+    def vector_size(self) -> int | None:
         """Get vector size if vector type."""
         return self.kind.vector_size
 
-    def matrix_size(self) -> Optional[int]:
+    def matrix_size(self) -> int | None:
         """Get matrix size if matrix type."""
         return self.kind.matrix_size
 
@@ -295,13 +296,17 @@ class GLSLType:
             return None
 
         # Arrays support component-wise operations if sizes match
-        if self.array_size is not None or other.array_size is not None:
-            if self.array_size != other.array_size:
-                return None
-            if op in ("==", "!="):
-                return BOOL
-            if op in ("+", "-", "*", "/", "%"):
-                return self if self.array_size == other.array_size else None
+        if self.array_size is not None:
+            if other.array_size is not None:
+                if self.array_size != other.array_size:
+                    return None
+                if op in ("==", "!="):
+                    return BOOL
+                if op in ("+", "-", "*", "/", "%"):
+                    return self
+            elif other.kind in (TypeKind.FLOAT, TypeKind.INT):
+                if op in ("*", "/"):  # Allow scalar operations
+                    return self
             return None
 
         # Boolean operations
@@ -312,13 +317,21 @@ class GLSLType:
                 return self
             return None
 
+        # Boolean vector operations
+        if self.is_bool_vector:
+            if op in ("==", "!="):
+                return BOOL if self == other else None
+            if op in ("&&", "||"):
+                return self if self == other else None
+            return None
+
         # Matrix operations
         if self.is_matrix or other.is_matrix:
-            if op in ("%", "&&", "||", "<", ">", "<=", ">="):
+            if op in ("%", "&&", "||", "<", ">", "<=", ">=", "+", "-"):  # Added +, -
                 return None
             if op in ("==", "!="):
                 return BOOL if self == other else None
-            if op in ("+", "-", "*", "/"):  # Added "/" here
+            if op == "*":  # Only allow multiplication
                 if self.is_matrix and other.is_matrix:
                     return self if self.matrix_size() == other.matrix_size() else None
                 if self.is_matrix and other.kind in (TypeKind.FLOAT, TypeKind.INT):
@@ -542,6 +555,8 @@ def vec4(*args) -> Vec4:
         val = float(args[0])
         return np.array([val, val, val, val], dtype=np.float32)
     if len(args) == 2 and isinstance(args[0], Vec3):
+        if len(args) > 2:  # Added validation
+            raise ValueError("Too many components for vec4")
         return np.array(
             [args[0][0], args[0][1], args[0][2], float(args[1])], dtype=np.float32
         )
@@ -554,9 +569,9 @@ def vec4(*args) -> Vec4:
             [float(args[0]), float(args[1]), float(args[2]), float(args[3])],
             dtype=np.float32,
         )
-    raise TypeError(
+    raise ValueError(
         "vec4 requires 1 or 4 arguments, or vec3 and a scalar, or vec2 and two scalars"
-    )  # Changed to TypeError
+    )
 
 
 def ivec2(*args) -> IVec2:

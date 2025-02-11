@@ -20,7 +20,6 @@ from py2glsl.transpiler.types import (
     VEC3,
     VEC4,
     VOID,
-    GLSLError,
     GLSLSwizzleError,
     GLSLType,
     GLSLTypeError,
@@ -1269,9 +1268,7 @@ def test_type_compatibility_matrix():
             if t1 == t2:
                 assert is_compatible
             # Boolean vectors should only be compatible with themselves
-            elif t1.is_bool_vector:
-                assert not is_compatible
-            elif t2.is_bool_vector:
+            elif t1.is_bool_vector or t2.is_bool_vector:
                 assert not is_compatible
 
 
