@@ -1,13 +1,12 @@
 """GLSL code generator."""
 
 import ast
-from typing import Dict, List, Optional, Set
 
 from loguru import logger
 
 from py2glsl.transpiler.analyzer import GLSLContext, ShaderAnalysis
 from py2glsl.transpiler.formatter import GLSLFormatter
-from py2glsl.transpiler.types import BOOL, FLOAT, INT, VEC2, VEC3, VEC4, GLSLType
+from py2glsl.transpiler.types import BOOL, FLOAT, INT, VEC2, GLSLType
 
 
 class GLSLGenerator:
@@ -17,12 +16,12 @@ class GLSLGenerator:
         """Initialize generator with analysis results."""
         self.analysis = analysis
         self.indent_level = 0
-        self.lines: List[str] = []
+        self.lines: list[str] = []
         self.current_scope = "global"
-        self.scope_stack: List[str] = []
+        self.scope_stack: list[str] = []
         self.current_context = GLSLContext.DEFAULT
-        self.context_stack: List[GLSLContext] = []
-        self.declared_vars: Dict[str, Set[str]] = {
+        self.context_stack: list[GLSLContext] = []
+        self.declared_vars: dict[str, set[str]] = {
             "global": set()
         }  # Initialize with global scope
 
@@ -311,10 +310,10 @@ class GLSLGenerator:
                 if isinstance(node.value, ast.Call) and isinstance(
                     node.value.func, ast.Name
                 ):
-                    self.add_line(f"{str(var_type)} {target.id} = {value};")
+                    self.add_line(f"{var_type!s} {target.id} = {value};")
                 else:
                     # Separate declaration and initialization
-                    self.add_line(f"{str(var_type)} {target.id};")
+                    self.add_line(f"{var_type!s} {target.id};")
                     self.add_line(f"{target.id} = {value};")
                 self.declared_vars[self.current_scope].add(target.id)
             else:
@@ -420,13 +419,13 @@ class GLSLGenerator:
         for arg in node.args.args:
             arg_type = self.analysis.var_types[node.name].get(arg.arg)
             if arg_type:
-                args.append(f"{str(arg_type)} {arg.arg}")
+                args.append(f"{arg_type!s} {arg.arg}")
                 param_names.add(arg.arg)
                 # Add to declared vars to prevent redeclaration
                 self.declared_vars[self.current_scope].add(arg.arg)
 
         # Generate function declaration
-        self.add_line(f"{str(return_type)} {node.name}({', '.join(args)})")
+        self.add_line(f"{return_type!s} {node.name}({', '.join(args)})")
         self.begin_block()
 
         # Declare all variables at the start
@@ -438,7 +437,7 @@ class GLSLGenerator:
         if hoisted:
             for var_name in hoisted:
                 var_type = self.analysis.var_types[node.name][var_name]
-                self.add_line(f"{str(var_type)} {var_name};")
+                self.add_line(f"{var_type!s} {var_name};")
                 self.declared_vars[self.current_scope].add(var_name)
             self.add_line("")
 

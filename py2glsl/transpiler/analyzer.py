@@ -2,7 +2,6 @@
 
 import ast
 from enum import Enum, auto
-from typing import Dict, List, Optional, Set, Union, cast
 
 from loguru import logger
 
@@ -33,14 +32,14 @@ class ShaderAnalysis:
     """Result of shader analysis."""
 
     def __init__(self):
-        self.uniforms: Dict[str, GLSLType] = {}
-        self.functions: List[ast.FunctionDef] = []
-        self.main_function: Optional[ast.FunctionDef] = None
+        self.uniforms: dict[str, GLSLType] = {}
+        self.functions: list[ast.FunctionDef] = []
+        self.main_function: ast.FunctionDef | None = None
         self.type_registry = TypeRegistry()
-        self.hoisted_vars: Dict[str, Set[str]] = {"global": set()}
-        self.var_types: Dict[str, Dict[str, GLSLType]] = {"global": {}}
+        self.hoisted_vars: dict[str, set[str]] = {"global": set()}
+        self.var_types: dict[str, dict[str, GLSLType]] = {"global": {}}
         self.current_scope = "global"
-        self.scope_stack: List[str] = []
+        self.scope_stack: list[str] = []
 
 
 class ShaderAnalyzer:
@@ -49,9 +48,9 @@ class ShaderAnalyzer:
     def __init__(self):
         self.analysis = ShaderAnalysis()
         self.current_context = GLSLContext.DEFAULT
-        self.context_stack: List[GLSLContext] = []
-        self.loop_vars: Set[str] = set()
-        self.type_constraints: Dict[str, GLSLType] = {}
+        self.context_stack: list[GLSLContext] = []
+        self.loop_vars: set[str] = set()
+        self.type_constraints: dict[str, GLSLType] = {}
 
     def push_context(self, ctx: GLSLContext) -> None:
         """Push new analysis context."""
@@ -80,7 +79,7 @@ class ShaderAnalyzer:
         else:
             self.analysis.current_scope = "global"
 
-    def get_variable_type(self, name: str) -> Optional[GLSLType]:
+    def get_variable_type(self, name: str) -> GLSLType | None:
         """Get type of variable from current or parent scope."""
         scope = self.analysis.current_scope
         while True:
@@ -255,7 +254,7 @@ class ShaderAnalyzer:
             self.analyze_function_def(node)
 
     def infer_builtin_return_type(
-        self, func_name: str, args: List[ast.AST]
+        self, func_name: str, args: list[ast.AST]
     ) -> GLSLType:
         """Infer return type of built-in function."""
         arg_types = [self.infer_type(arg) for arg in args]
@@ -442,9 +441,11 @@ class ShaderAnalyzer:
             constrained_type = self.type_constraints[name]
             logger.debug(f"Found type constraint for {name}: {constrained_type}")
             # Only apply constraint if it doesn't conflict with special types
-            if not (
-                glsl_type.kind
-                in (TypeKind.BOOL, TypeKind.VEC2, TypeKind.VEC3, TypeKind.VEC4)
+            if glsl_type.kind not in (
+                TypeKind.BOOL,
+                TypeKind.VEC2,
+                TypeKind.VEC3,
+                TypeKind.VEC4,
             ):
                 glsl_type = constrained_type
 
