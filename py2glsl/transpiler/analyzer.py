@@ -5,7 +5,7 @@ from enum import Enum, auto
 
 from loguru import logger
 
-from py2glsl.transpiler.types import GLSLType, TypeKind
+from py2glsl.transpiler.type_system import GLSLType, TypeKind
 
 
 class GLSLContext(Enum):
