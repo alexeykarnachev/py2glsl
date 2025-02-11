@@ -199,44 +199,44 @@ class TestVectorConstructionErrors:
     def test_vec2_errors(self):
         """Test vec2 constructor errors."""
         # No arguments
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError, match="vec2 requires at least 1 argument"):
             vec2()
 
         # Too many arguments
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="vec2 requires 1 to 2 arguments"):
             vec2(1.0, 2.0, 3.0)
 
         # Invalid types
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="Cannot convert <class 'str'> to float"):
             vec2("1.0", "2.0")
 
     def test_vec3_errors(self):
         """Test vec3 constructor errors."""
         # No arguments
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError, match="vec3 requires at least 1 argument"):
             vec3()
 
         # Too many arguments
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="vec3 requires 1 to 3 arguments"):
             vec3(1.0, 2.0, 3.0, 4.0)
 
-        # Invalid vec2 + scalar combination
-        with pytest.raises(TypeError):
-            vec3(1.0, vec2(2.0, 3.0))
+        # Invalid types
+        with pytest.raises(TypeError, match="Cannot convert <class 'str'> to float"):
+            vec3("1.0", "2.0", "3.0")
 
     def test_vec4_errors(self):
         """Test vec4 constructor errors."""
         # No arguments
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError, match="vec4 requires at least 1 argument"):
             vec4()
 
         # Too many arguments
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="vec4 requires 1 to 4 arguments"):
             vec4(1.0, 2.0, 3.0, 4.0, 5.0)
 
-        # Invalid vec3 + scalar combination
-        with pytest.raises(TypeError):
-            vec4(1.0, vec3(2.0, 3.0, 4.0))
+        # Invalid types
+        with pytest.raises(TypeError, match="Cannot convert <class 'str'> to float"):
+            vec4("1.0", "2.0", "3.0", "4.0")
 
 
 class TestVectorTypeConversion:

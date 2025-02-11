@@ -6,10 +6,12 @@ from py2glsl.transpiler.type_system import (
     BOOL,
     BVEC2,
     BVEC3,
+    BVEC4,
     FLOAT,
     INT,
     IVEC2,
     IVEC3,
+    IVEC4,
     MAT2,
     MAT3,
     MAT4,
@@ -346,4 +348,3 @@ class TestValidationEdgeCases:
         assert validate_operation(BVEC2, "+", BVEC2) is None
         assert validate_operation(BVEC3, "*", FLOAT) is None
         assert validate_operation(BVEC4, "<", BVEC4) is None
-

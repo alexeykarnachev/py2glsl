@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Optional
+from typing import Any, Optional
+
+from loguru import logger
 
 
 class GLSLError(Exception):
@@ -115,22 +117,32 @@ class GLSLType:
 
     def __post_init__(self) -> None:
         """Validate type configuration."""
+        logger.debug(f"Validating GLSLType: {self}")
+
         if self.array_size is not None:
             self._validate_array_size(self.array_size)
 
         if self.is_uniform and self.is_attribute:
-            raise GLSLTypeError("Type cannot be both uniform and attribute")
+            msg = "Type cannot be both uniform and attribute"
+            logger.error(msg)
+            raise GLSLTypeError(msg)
 
         if self.kind == TypeKind.VOID:
-            if self.is_uniform or self.is_attribute:
-                raise GLSLTypeError("Void type cannot have storage qualifiers")
+            if self.is_uniform or self.is_attribute or self.array_size is not None:
+                msg = "Void type cannot have storage qualifiers or be an array"
+                logger.error(msg)
+                raise GLSLTypeError(msg)
 
-    def _validate_array_size(self, size: int) -> None:
+    def _validate_array_size(self, size: Any) -> None:
         """Validate array size."""
-        if not isinstance(size, int):
-            raise GLSLTypeError("Array size must be an integer")
+        if not isinstance(size, int) or isinstance(size, bool):
+            msg = f"Array size must be an integer, got {type(size)}"
+            logger.error(msg)
+            raise GLSLTypeError(msg)
         if size <= 0:
-            raise GLSLTypeError("Array size must be positive")
+            msg = f"Array size must be positive, got {size}"
+            logger.error(msg)
+            raise GLSLTypeError(msg)
 
     @property
     def name(self) -> str:
