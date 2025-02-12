@@ -1,0 +1,198 @@
+"""Transform Python functions into GLSL shaders with zero boilerplate."""
+
+# Built-in GLSL functions
+from .builtins import (  # Angle/Trig; Exponential; Common; Geometric; Matrix; Vector
+    abs,
+    acos,
+    all,
+    any,
+    asin,
+    atan,
+    ceil,
+    clamp,
+    cos,
+    cross,
+    degrees,
+    determinant,
+    distance,
+    dot,
+    equal,
+    exp,
+    exp2,
+    faceforward,
+    floor,
+    fract,
+    greaterThan,
+    greaterThanEqual,
+    inverse,
+    inversesqrt,
+    length,
+    lessThan,
+    lessThanEqual,
+    log,
+    log2,
+    max,
+    min,
+    mix,
+    mod,
+    normalize,
+    notEqual,
+    pow,
+    radians,
+    reflect,
+    refract,
+    sign,
+    sin,
+    smoothstep,
+    sqrt,
+    step,
+    tan,
+    transpose,
+)
+from .render import animate, render_array, render_gif, render_image, render_video
+from .transpiler import py2glsl
+from .transpiler.constants import VERTEX_SHADER
+from .types.base import GLSLType, TypeKind
+from .types.constructors import bvec4  # Vectors; Matrices
+from .types.constructors import (
+    bvec2,
+    bvec3,
+    ivec2,
+    ivec3,
+    ivec4,
+    mat2,
+    mat3,
+    mat4,
+    vec2,
+    vec3,
+    vec4,
+)
+from .types.errors import GLSLError, GLSLOperationError, GLSLSwizzleError, GLSLTypeError
+from .types.singletons import BOOL  # Basic types; Vector types; Matrix types
+from .types.singletons import (
+    BVEC2,
+    BVEC3,
+    BVEC4,
+    FLOAT,
+    INT,
+    IVEC2,
+    IVEC3,
+    IVEC4,
+    MAT2,
+    MAT3,
+    MAT4,
+    VEC2,
+    VEC3,
+    VEC4,
+    VOID,
+)
+
+# Single source of truth for version
+__version__ = "0.1.0"
+
+__all__ = [
+    # Version
+    "__version__",
+    # Main functionality
+    "py2glsl",
+    "VERTEX_SHADER",
+    # Rendering functions
+    "render_array",
+    "render_image",
+    "render_gif",
+    "render_video",
+    "animate",
+    # Type system
+    "GLSLType",
+    "TypeKind",
+    # Basic types
+    "VOID",
+    "BOOL",
+    "INT",
+    "FLOAT",
+    # Vector constructors
+    "vec2",
+    "vec3",
+    "vec4",
+    "ivec2",
+    "ivec3",
+    "ivec4",
+    "bvec2",
+    "bvec3",
+    "bvec4",
+    # Vector types
+    "VEC2",
+    "VEC3",
+    "VEC4",
+    "IVEC2",
+    "IVEC3",
+    "IVEC4",
+    "BVEC2",
+    "BVEC3",
+    "BVEC4",
+    # Matrix constructors
+    "mat2",
+    "mat3",
+    "mat4",
+    # Matrix types
+    "MAT2",
+    "MAT3",
+    "MAT4",
+    # Built-in functions - Angle/Trig
+    "radians",
+    "degrees",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    # Built-in functions - Exponential
+    "pow",
+    "exp",
+    "log",
+    "exp2",
+    "log2",
+    "sqrt",
+    "inversesqrt",
+    # Built-in functions - Common
+    "abs",
+    "sign",
+    "floor",
+    "ceil",
+    "fract",
+    "mod",
+    "min",
+    "max",
+    "clamp",
+    "mix",
+    "step",
+    "smoothstep",
+    # Built-in functions - Geometric
+    "length",
+    "distance",
+    "dot",
+    "cross",
+    "normalize",
+    "faceforward",
+    "reflect",
+    "refract",
+    # Built-in functions - Matrix
+    "transpose",
+    "inverse",
+    "determinant",
+    # Built-in functions - Vector
+    "lessThan",
+    "greaterThan",
+    "lessThanEqual",
+    "greaterThanEqual",
+    "equal",
+    "notEqual",
+    "any",
+    "all",
+    # Errors
+    "GLSLError",
+    "GLSLTypeError",
+    "GLSLOperationError",
+    "GLSLSwizzleError",
+]

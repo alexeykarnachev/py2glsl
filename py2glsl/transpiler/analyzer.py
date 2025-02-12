@@ -1,12 +1,16 @@
 """Shader analysis for GLSL code generation."""
 
 import ast
+import inspect
 from enum import Enum, auto
+from textwrap import dedent
 from typing import Optional
 
 from loguru import logger
 
-from py2glsl.types import (
+from py2glsl.types.base import TypeKind
+
+from ..types import (
     BOOL,
     BVEC2,
     BVEC3,
@@ -30,7 +34,7 @@ from py2glsl.types import (
     is_compatible_with,
     validate_operation,
 )
-from py2glsl.types.base import TypeKind
+from .constants import BUILTIN_UNIFORMS
 
 
 class GLSLContext(Enum):
@@ -48,7 +52,7 @@ class ShaderAnalysis:
 
     def __init__(self):
         """Initialize analysis results."""
-        self.uniforms: dict[str, GLSLType] = {}
+        self.uniforms = BUILTIN_UNIFORMS.copy()
         self.functions: list[ast.FunctionDef] = []
         self.main_function: Optional[ast.FunctionDef] = None
         self.hoisted_vars: dict[str, set[str]] = {"global": set()}
@@ -181,8 +185,38 @@ class ShaderAnalyzer:
                     return FLOAT
                 raise GLSLTypeError(f"Unsupported constant type: {type(node.value)}")
 
-            case ast.Call() if isinstance(node.func, ast.Name):
-                return self._infer_call_type(node)
+            case ast.Call():
+                # Handle math module functions
+                if isinstance(node.func, ast.Attribute) and isinstance(
+                    node.func.value, ast.Name
+                ):
+                    if node.func.value.id == "math":
+                        # Map Python math functions to GLSL functions
+                        math_funcs = {
+                            "sqrt": FLOAT,
+                            "sin": FLOAT,
+                            "cos": FLOAT,
+                            "tan": FLOAT,
+                            "asin": FLOAT,
+                            "acos": FLOAT,
+                            "atan": FLOAT,
+                            "abs": None,  # Returns same type as input
+                        }
+                        if node.func.attr in math_funcs:
+                            return_type = math_funcs[node.func.attr]
+                            if return_type is None:
+                                # Function returns same type as input
+                                return self.infer_type(node.args[0])
+                            return return_type
+                        raise GLSLTypeError(
+                            f"Unsupported math function: {node.func.attr}"
+                        )
+
+                # Handle regular function calls
+                if isinstance(node.func, ast.Name):
+                    return self._infer_call_type(node)
+
+                raise GLSLTypeError(f"Invalid function call: {ast.dump(node)}")
 
             case ast.BinOp():
                 return self._infer_binary_operation(node)
@@ -284,11 +318,33 @@ class ShaderAnalyzer:
 
     def _infer_binary_operation(self, node: ast.BinOp) -> GLSLType:
         """Infer type of binary operation."""
+        logger.debug(f"Inferring binary operation: {ast.dump(node)}")
+
         left_type = self.infer_type(node.left)
         right_type = self.infer_type(node.right)
 
-        # Handle vector operations with stricter validation
+        # Map AST operators to GLSL operators
+        op_map = {
+            ast.Add: "+",
+            ast.Sub: "-",
+            ast.Mult: "*",
+            ast.Div: "/",
+            ast.Mod: "%",
+            ast.BitAnd: "&",
+            ast.BitOr: "|",
+            ast.BitXor: "^",
+            ast.LShift: "<<",
+            ast.RShift: ">>",
+        }
+
+        if type(node.op) not in op_map:
+            raise GLSLTypeError(f"Unsupported binary operator: {type(node.op)}")
+
+        op = op_map[type(node.op)]
+
+        # Handle vector operations
         if left_type.is_vector or right_type.is_vector:
+            # Vector-vector operations
             if left_type.is_vector and right_type.is_vector:
                 if left_type.vector_size() != right_type.vector_size():
                     raise GLSLTypeError(
@@ -299,41 +355,75 @@ class ShaderAnalyzer:
                         f"Cannot operate on vectors of different types: {left_type} and {right_type}"
                     )
                 return left_type
-            elif isinstance(node.op, (ast.Mult, ast.Div)):
-                # Allow scalar-vector operations for * and /
-                if not (
-                    left_type.kind in (TypeKind.FLOAT, TypeKind.INT)
-                    or right_type.kind in (TypeKind.FLOAT, TypeKind.INT)
-                ):
-                    raise GLSLTypeError(
-                        f"Invalid scalar-vector operation between {left_type} and {right_type}"
-                    )
-                return left_type if left_type.is_vector else right_type
-            else:
+
+            # Vector-scalar operations
+            if isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
+                vector_type = left_type if left_type.is_vector else right_type
+                scalar_type = right_type if left_type.is_vector else left_type
+
+                # Allow float and int scalars with vectors
+                if scalar_type.kind in (TypeKind.FLOAT, TypeKind.INT):
+                    return vector_type
+
                 raise GLSLTypeError(
-                    f"Invalid operation between {left_type} and {right_type}"
+                    f"Invalid scalar type {scalar_type} for vector operation"
                 )
 
+            raise GLSLTypeError(
+                f"Operator {op} not supported between {left_type} and {right_type}"
+            )
+
+        # Handle matrix operations
+        if left_type.is_matrix or right_type.is_matrix:
+            # Matrix-matrix operations
+            if left_type.is_matrix and right_type.is_matrix:
+                if left_type.matrix_size() != right_type.matrix_size():
+                    raise GLSLTypeError(
+                        f"Cannot operate on matrices of different sizes: {left_type} and {right_type}"
+                    )
+                # Only multiplication and division are allowed
+                if isinstance(node.op, (ast.Mult, ast.Div)):
+                    return left_type
+                raise GLSLTypeError(f"Operator {op} not supported between matrices")
+
+            # Matrix-scalar operations
+            if isinstance(node.op, (ast.Mult, ast.Div)):
+                matrix_type = left_type if left_type.is_matrix else right_type
+                scalar_type = right_type if left_type.is_matrix else left_type
+
+                if scalar_type.kind in (TypeKind.FLOAT, TypeKind.INT):
+                    return matrix_type
+
+                raise GLSLTypeError(
+                    f"Invalid scalar type {scalar_type} for matrix operation"
+                )
+
+            raise GLSLTypeError(
+                f"Operator {op} not supported between {left_type} and {right_type}"
+            )
+
         # Handle scalar operations
-        op_map = {
-            ast.Add: "+",
-            ast.Sub: "-",
-            ast.Mult: "*",
-            ast.Div: "/",
-            ast.Mod: "%",
-            ast.BitAnd: "&",
-            ast.BitOr: "|",
-            ast.BitXor: "^",
-        }
+        if left_type.kind == TypeKind.BOOL or right_type.kind == TypeKind.BOOL:
+            # Boolean operations are only allowed with certain operators
+            if isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
+                if left_type.kind == TypeKind.BOOL and right_type.kind == TypeKind.BOOL:
+                    return BOOL
+            raise GLSLTypeError(f"Invalid operation {op} with boolean type")
 
-        if type(node.op) not in op_map:
-            raise GLSLTypeError(f"Unsupported operator: {type(node.op)}")
+        # Numeric scalar operations
+        if not (left_type.is_numeric and right_type.is_numeric):
+            raise GLSLTypeError(
+                f"Non-numeric operation between {left_type} and {right_type}"
+            )
 
-        result_type = validate_operation(left_type, op_map[type(node.op)], right_type)
+        # Use type validation system for final result type
+        result_type = validate_operation(left_type, op, right_type)
         if result_type is None:
             raise GLSLTypeError(
-                f"Invalid operation between {left_type} and {right_type}"
+                f"Invalid operation {op} between {left_type} and {right_type}"
             )
+
+        logger.debug(f"Binary operation result type: {result_type}")
         return result_type
 
     def _infer_comparison(self, node: ast.Compare) -> GLSLType:
@@ -460,7 +550,7 @@ class ShaderAnalyzer:
 
         raise GLSLTypeError(f"Unknown or unsupported built-in function: {func_name}")
 
-    def analyze(self, tree: ast.Module) -> ShaderAnalysis:
+    def analyze(self, shader_func) -> ShaderAnalysis:
         """Analyze shader AST."""
         self.analysis = ShaderAnalysis()
         self.type_constraints = {}
@@ -468,6 +558,10 @@ class ShaderAnalyzer:
         self.scope_stack = []
 
         logger.debug("Starting shader analysis")
+
+        # Get function source code and create AST
+        source = dedent(inspect.getsource(shader_func))
+        tree = ast.parse(source)
 
         # Phase 1: Collect type constraints
         self._collect_type_constraints(tree)
@@ -689,8 +783,7 @@ class ShaderAnalyzer:
                         f"Missing type annotation for uniform {arg.arg}"
                     )
                 base_type = self.get_type_from_annotation(arg.annotation)
-                uniform_type = GLSLType(base_type.kind, is_uniform=True)
-                self.analysis.uniforms[arg.arg] = uniform_type
+                self.analysis.uniforms[arg.arg] = base_type
 
             # Register function type in global scope
             self.analysis.var_types["global"][node.name] = self.current_return_type

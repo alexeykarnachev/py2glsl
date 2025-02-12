@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from py2glsl.transpiler.analyzer import ShaderAnalysis
 from py2glsl.types import (
     BOOL,
     BVEC2,
@@ -26,17 +25,8 @@ from py2glsl.types import (
     validate_operation,
 )
 
-# Vertex shader template
-VERTEX_SHADER = """#version 460
-layout(location = 0) in vec2 in_pos;
-layout(location = 1) in vec2 in_uv;
-out vec2 vs_uv;
-
-void main() {
-    gl_Position = vec4(in_pos, 0.0, 1.0);
-    vs_uv = in_uv;
-}
-"""
+from .analyzer import ShaderAnalysis
+from .constants import GLSL_VERSION, VERTEX_SHADER
 
 
 @dataclass
@@ -45,6 +35,7 @@ class GeneratedShader:
 
     vertex_source: str
     fragment_source: str
+    uniforms: dict[str, GLSLType]
 
 
 class GLSLGenerator:
@@ -58,6 +49,7 @@ class GLSLGenerator:
         self.current_scope = "global"
         self.scope_stack: list[str] = []
         self.declared_vars: dict[str, set[str]] = {"global": set()}
+        self.vertex_source = VERTEX_SHADER
 
     def indent(self) -> str:
         """Get current indentation."""
@@ -175,6 +167,15 @@ class GLSLGenerator:
             if node.id == "vs_uv":
                 return VEC2
             raise GLSLTypeError(f"Undefined variable: {node.id}")
+
+        elif isinstance(node, ast.Attribute):
+            value_type = self.get_type(node.value)
+            if value_type.is_vector:
+                try:
+                    return value_type.validate_swizzle(node.attr)
+                except GLSLSwizzleError as e:
+                    raise GLSLTypeError(f"Invalid swizzle operation: {e}")
+            raise GLSLTypeError(f"Cannot access attribute of type {value_type}")
 
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
@@ -729,7 +730,7 @@ class GLSLGenerator:
         logger.debug("Starting GLSL code generation")
 
         # Version declaration
-        self.add_line("#version 460")
+        self.add_line(f"#version {GLSL_VERSION}")
         self.add_line()
 
         # Input/output declarations
@@ -739,7 +740,7 @@ class GLSLGenerator:
 
         # Uniform declarations
         for name, glsl_type in sorted(self.analysis.uniforms.items()):
-            self.add_line(f"uniform {glsl_type!s} {name};")
+            self.add_line(f"uniform {glsl_type.name} {name};")
         if self.analysis.uniforms:
             self.add_line()
 
@@ -760,5 +761,7 @@ class GLSLGenerator:
             self.end_block()
 
         return GeneratedShader(
-            vertex_source=VERTEX_SHADER, fragment_source="\n".join(self.lines)
+            vertex_source=self.vertex_source,
+            fragment_source="\n".join(self.lines),
+            uniforms=self.analysis.uniforms,
         )

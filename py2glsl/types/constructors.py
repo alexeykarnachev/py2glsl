@@ -1,27 +1,16 @@
-"""GLSL type constructors and runtime type implementations."""
+"""GLSL type constructors using NumPy."""
 
 from enum import Enum, auto
-from typing import Any, Callable, TypeAlias, Union
+from typing import Any, Callable, Union
 
 import numpy as np
 from loguru import logger
 
-# Runtime type aliases
-Vec2: TypeAlias = np.ndarray  # shape (2,)
-Vec3: TypeAlias = np.ndarray  # shape (3,)
-Vec4: TypeAlias = np.ndarray  # shape (4,)
-IVec2: TypeAlias = np.ndarray  # shape (2,) dtype=int32
-IVec3: TypeAlias = np.ndarray  # shape (3,) dtype=int32
-IVec4: TypeAlias = np.ndarray  # shape (4,) dtype=int32
-BVec2: TypeAlias = np.ndarray  # shape (2,) dtype=bool
-BVec3: TypeAlias = np.ndarray  # shape (3,) dtype=bool
-BVec4: TypeAlias = np.ndarray  # shape (4,) dtype=bool
-
-VectorType = Union[Vec2, Vec3, Vec4, IVec2, IVec3, IVec4, BVec2, BVec3, BVec4]
+from .errors import GLSLTypeError
 
 
-class VectorKind(Enum):
-    """Vector type kinds."""
+class TypeKind(Enum):
+    """Vector and matrix type kinds."""
 
     FLOAT = auto()
     INT = auto()
@@ -33,7 +22,7 @@ class VectorConfig:
 
     def __init__(
         self,
-        kind: VectorKind,
+        kind: TypeKind,
         size: int,
         dtype: np.dtype,
         converter: Callable[[Any], Union[float, int, bool]],
@@ -50,7 +39,26 @@ class VectorConfig:
         self.size = size
         self.dtype = dtype
         self.converter = converter
-        self.name = f"{'vec' if kind == VectorKind.FLOAT else 'ivec' if kind == VectorKind.INT else 'bvec'}{size}"
+        self.name = f"{'vec' if kind == TypeKind.FLOAT else 'ivec' if kind == TypeKind.INT else 'bvec'}{size}"
+
+    def __str__(self) -> str:
+        """Get string representation."""
+        return self.name
+
+
+class MatrixConfig:
+    """Configuration for matrix construction."""
+
+    def __init__(self, size: int):
+        """Initialize matrix configuration.
+
+        Args:
+            size: Matrix size (2, 3, or 4)
+        """
+        self.size = size
+        self.name = f"mat{size}"
+        self.components = size * size
+        self.dtype = np.float32
 
     def __str__(self) -> str:
         """Get string representation."""
@@ -61,12 +69,12 @@ def _convert_to_float(value: Any) -> float:
     """Convert value to float with validation."""
     try:
         if isinstance(value, str):
-            raise TypeError(f"Cannot convert <class 'str'> to float")
+            raise TypeError("Cannot convert <class 'str'> to float")
         return float(value)
     except (TypeError, ValueError) as e:
         logger.error(f"Failed to convert {value} to float: {e}")
         if isinstance(value, str):
-            raise TypeError(f"Cannot convert <class 'str'> to float")
+            raise TypeError("Cannot convert <class 'str'> to float")
         raise TypeError(f"Cannot convert {type(value)} to float") from e
 
 
@@ -148,58 +156,134 @@ def create_vector(config: VectorConfig, *args) -> np.ndarray:
         raise TypeError(str(e)) from e
 
 
+def create_matrix(config: MatrixConfig, *args) -> np.ndarray:
+    """Generic matrix constructor.
+
+    Supports:
+    - No args: identity matrix
+    - Single scalar: scaled identity matrix
+    - Single array/matrix: converted to matrix
+    - N*N components: matrix from components
+    """
+    logger.debug(f"Creating {config} from args: {args}")
+
+    try:
+        if len(args) == 0:
+            # Identity matrix
+            return np.eye(config.size, dtype=config.dtype)
+
+        if len(args) == 1:
+            arg = args[0]
+            if isinstance(arg, (int, float)):
+                # Scaled identity matrix
+                return np.eye(config.size, dtype=config.dtype) * float(arg)
+            if isinstance(arg, np.ndarray):
+                # Convert existing array
+                result = np.array(arg, dtype=config.dtype)
+                if result.shape != (config.size, config.size):
+                    if result.size == config.components:
+                        # Reshape flat array to matrix
+                        result = result.reshape(config.size, config.size)
+                    else:
+                        raise GLSLTypeError(
+                            f"Cannot convert array of shape {result.shape} to {config}"
+                        )
+                return result
+            if isinstance(arg, (list, tuple)):
+                # Convert sequence
+                result = np.array(arg, dtype=config.dtype)
+                if result.size == config.components:
+                    return result.reshape(config.size, config.size)
+                raise GLSLTypeError(
+                    f"Expected {config.components} components, got {result.size}"
+                )
+            raise GLSLTypeError(f"Cannot convert {type(arg)} to {config}")
+
+        if len(args) == config.components:
+            # Individual components
+            return np.array(args, dtype=config.dtype).reshape(config.size, config.size)
+
+        raise GLSLTypeError(
+            f"{config} requires 0, 1 or {config.components} arguments, got {len(args)}"
+        )
+
+    except (ValueError, TypeError) as e:
+        logger.error(f"Failed to create {config}: {e}")
+        raise GLSLTypeError(f"Cannot create {config} from arguments: {args}") from e
+
+
 # Vector configurations
-_VEC2_CONFIG = VectorConfig(VectorKind.FLOAT, 2, np.float32, _convert_to_float)
-_VEC3_CONFIG = VectorConfig(VectorKind.FLOAT, 3, np.float32, _convert_to_float)
-_VEC4_CONFIG = VectorConfig(VectorKind.FLOAT, 4, np.float32, _convert_to_float)
-_IVEC2_CONFIG = VectorConfig(VectorKind.INT, 2, np.int32, _convert_to_int)
-_IVEC3_CONFIG = VectorConfig(VectorKind.INT, 3, np.int32, _convert_to_int)
-_IVEC4_CONFIG = VectorConfig(VectorKind.INT, 4, np.int32, _convert_to_int)
-_BVEC2_CONFIG = VectorConfig(VectorKind.BOOL, 2, bool, _convert_to_bool)
-_BVEC3_CONFIG = VectorConfig(VectorKind.BOOL, 3, bool, _convert_to_bool)
-_BVEC4_CONFIG = VectorConfig(VectorKind.BOOL, 4, bool, _convert_to_bool)
+_VEC2_CONFIG = VectorConfig(TypeKind.FLOAT, 2, np.float32, _convert_to_float)
+_VEC3_CONFIG = VectorConfig(TypeKind.FLOAT, 3, np.float32, _convert_to_float)
+_VEC4_CONFIG = VectorConfig(TypeKind.FLOAT, 4, np.float32, _convert_to_float)
+_IVEC2_CONFIG = VectorConfig(TypeKind.INT, 2, np.int32, _convert_to_int)
+_IVEC3_CONFIG = VectorConfig(TypeKind.INT, 3, np.int32, _convert_to_int)
+_IVEC4_CONFIG = VectorConfig(TypeKind.INT, 4, np.int32, _convert_to_int)
+_BVEC2_CONFIG = VectorConfig(TypeKind.BOOL, 2, bool, _convert_to_bool)
+_BVEC3_CONFIG = VectorConfig(TypeKind.BOOL, 3, bool, _convert_to_bool)
+_BVEC4_CONFIG = VectorConfig(TypeKind.BOOL, 4, bool, _convert_to_bool)
+
+# Matrix configurations
+_MAT2_CONFIG = MatrixConfig(2)
+_MAT3_CONFIG = MatrixConfig(3)
+_MAT4_CONFIG = MatrixConfig(4)
 
 
-def vec2(*args) -> Vec2:
+def vec2(*args) -> np.ndarray:
     """Create a 2D float vector."""
     return create_vector(_VEC2_CONFIG, *args)
 
 
-def vec3(*args) -> Vec3:
+def vec3(*args) -> np.ndarray:
     """Create a 3D float vector."""
     return create_vector(_VEC3_CONFIG, *args)
 
 
-def vec4(*args) -> Vec4:
+def vec4(*args) -> np.ndarray:
     """Create a 4D float vector."""
     return create_vector(_VEC4_CONFIG, *args)
 
 
-def ivec2(*args) -> IVec2:
+def ivec2(*args) -> np.ndarray:
     """Create a 2D integer vector."""
     return create_vector(_IVEC2_CONFIG, *args)
 
 
-def ivec3(*args) -> IVec3:
+def ivec3(*args) -> np.ndarray:
     """Create a 3D integer vector."""
     return create_vector(_IVEC3_CONFIG, *args)
 
 
-def ivec4(*args) -> IVec4:
+def ivec4(*args) -> np.ndarray:
     """Create a 4D integer vector."""
     return create_vector(_IVEC4_CONFIG, *args)
 
 
-def bvec2(*args) -> BVec2:
+def bvec2(*args) -> np.ndarray:
     """Create a 2D boolean vector."""
     return create_vector(_BVEC2_CONFIG, *args)
 
 
-def bvec3(*args) -> BVec3:
+def bvec3(*args) -> np.ndarray:
     """Create a 3D boolean vector."""
     return create_vector(_BVEC3_CONFIG, *args)
 
 
-def bvec4(*args) -> BVec4:
+def bvec4(*args) -> np.ndarray:
     """Create a 4D boolean vector."""
     return create_vector(_BVEC4_CONFIG, *args)
+
+
+def mat2(*args) -> np.ndarray:
+    """Create a 2x2 float matrix."""
+    return create_matrix(_MAT2_CONFIG, *args)
+
+
+def mat3(*args) -> np.ndarray:
+    """Create a 3x3 float matrix."""
+    return create_matrix(_MAT3_CONFIG, *args)
+
+
+def mat4(*args) -> np.ndarray:
+    """Create a 4x4 float matrix."""
+    return create_matrix(_MAT4_CONFIG, *args)
