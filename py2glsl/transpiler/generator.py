@@ -102,7 +102,72 @@ class GLSLGenerator:
 
     def get_type(self, node: ast.AST) -> GLSLType:
         """Get GLSL type for node with validation."""
-        if isinstance(node, ast.Name):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id.lower()
+
+                # Vector constructors
+                vector_types = {
+                    "vec2": (VEC2, 2),
+                    "vec3": (VEC3, 3),
+                    "vec4": (VEC4, 4),
+                    "ivec2": (IVEC2, 2),
+                    "ivec3": (IVEC3, 3),
+                    "ivec4": (IVEC4, 4),
+                    "bvec2": (BVEC2, 2),
+                    "bvec3": (BVEC3, 3),
+                    "bvec4": (BVEC4, 4),
+                }
+
+                if func_name in vector_types:
+                    target_type, size = vector_types[func_name]
+                    return target_type  # Just return type, validation in _generate_call
+
+                # Built-in functions
+                builtin_types = {
+                    "length": FLOAT,
+                    "distance": FLOAT,
+                    "dot": FLOAT,
+                    "cross": VEC3,
+                    "normalize": None,  # Returns same as input
+                    "faceforward": None,  # Returns same as input
+                    "reflect": None,  # Returns same as input
+                    "refract": None,  # Returns same as input
+                    "pow": FLOAT,
+                    "exp": FLOAT,
+                    "log": FLOAT,
+                    "exp2": FLOAT,
+                    "log2": FLOAT,
+                    "sqrt": FLOAT,
+                    "inversesqrt": FLOAT,
+                    "abs": None,  # Returns same as input
+                    "sign": None,  # Returns same as input
+                    "floor": None,  # Returns same as input
+                    "ceil": None,  # Returns same as input
+                    "fract": None,  # Returns same as input
+                    "mod": None,  # Returns same as input
+                    "min": None,  # Returns same as input
+                    "max": None,  # Returns same as input
+                    "clamp": None,  # Returns same as input
+                    "mix": None,  # Returns same as input
+                    "step": None,  # Returns same as input
+                    "smoothstep": None,  # Returns same as input
+                    "sin": FLOAT,
+                    "cos": FLOAT,
+                    "tan": FLOAT,
+                    "asin": FLOAT,
+                    "acos": FLOAT,
+                    "atan": FLOAT,
+                }
+
+                if func_name in builtin_types:
+                    return_type = builtin_types[func_name]
+                    if return_type is None:
+                        # Function returns same type as input
+                        return self.get_type(node.args[0])
+                    return return_type
+
+        elif isinstance(node, ast.Name):
             if node.id in self.analysis.var_types[self.current_scope]:
                 return self.analysis.var_types[self.current_scope][node.id]
             if node.id in self.analysis.uniforms:
@@ -111,7 +176,7 @@ class GLSLGenerator:
                 return VEC2
             raise GLSLTypeError(f"Undefined variable: {node.id}")
 
-        if isinstance(node, ast.Constant):
+        elif isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return BOOL
             elif isinstance(node.value, int):
@@ -119,6 +184,27 @@ class GLSLGenerator:
             elif isinstance(node.value, float):
                 return FLOAT
             raise GLSLTypeError(f"Unsupported constant type: {type(node.value)}")
+
+        elif isinstance(node, ast.BinOp):
+            left_type = self.get_type(node.left)
+            right_type = self.get_type(node.right)
+            operators = {
+                ast.Add: "+",
+                ast.Sub: "-",
+                ast.Mult: "*",
+                ast.Div: "/",
+                ast.Mod: "%",
+            }
+            if type(node.op) not in operators:
+                raise GLSLTypeError(f"Unsupported binary operator: {type(node.op)}")
+
+            op = operators[type(node.op)]
+            result_type = validate_operation(left_type, op, right_type)
+            if result_type is None:
+                raise GLSLTypeError(
+                    f"Invalid operation {op} between types {left_type} and {right_type}"
+                )
+            return result_type
 
         raise GLSLTypeError(f"Cannot determine type for: {ast.dump(node)}")
 
@@ -164,9 +250,8 @@ class GLSLGenerator:
 
     def _generate_call(self, node: ast.Call) -> str:
         """Generate formatted function call with type validation."""
-        func_name = node.func.id
-        arg_types = [self.get_type(arg) for arg in node.args]
-        args = [self.generate_expression(arg) for arg in node.args]
+        func_name = node.func.id.lower()
+        logger.debug(f"Generating call for function: {func_name}")
 
         # Vector constructor validation
         vector_types = {
@@ -181,25 +266,104 @@ class GLSLGenerator:
             "bvec4": (BVEC4, 4),
         }
 
-        if func_name.lower() in vector_types:
-            target_type, size = vector_types[func_name.lower()]
+        if func_name in vector_types:
+            target_type, expected_components = vector_types[func_name]
+            total_components = 0
 
-            # Validate vector construction
-            total_components = sum(
-                arg_type.vector_size() if arg_type.is_vector else 1
-                for arg_type in arg_types
-            )
-            if total_components != size:
+            # First, validate the constructor pattern
+            if expected_components == 4:
+                # Special validation for vec4 constructors
+                if len(node.args) == 1:
+                    # Single argument: must be scalar or vec4
+                    arg_type = self.get_type(node.args[0])
+                    if arg_type.is_vector and arg_type.vector_size() != 4:
+                        raise GLSLTypeError(
+                            f"Invalid number of components for {func_name} constructor: "
+                            f"expected {expected_components}, got {arg_type.vector_size()}"
+                        )
+                elif len(node.args) == 2:
+                    # Two arguments: must be vec3 + scalar
+                    arg_type = self.get_type(node.args[0])
+                    if not (arg_type.is_vector and arg_type.vector_size() == 3):
+                        raise GLSLTypeError(
+                            f"Invalid number of components for {func_name} constructor"
+                        )
+                elif len(node.args) == 3:
+                    # Three arguments: must be vec2 + scalar + scalar
+                    arg_type = self.get_type(node.args[0])
+                    if not (arg_type.is_vector and arg_type.vector_size() == 2):
+                        raise GLSLTypeError(
+                            f"Invalid number of components for {func_name} constructor"
+                        )
+                elif len(node.args) == 4:
+                    # Four arguments: all must be scalars
+                    for arg in node.args:
+                        arg_type = self.get_type(arg)
+                        if arg_type.is_vector:
+                            raise GLSLTypeError(
+                                f"Invalid number of components for {func_name} constructor"
+                            )
+                else:
+                    raise GLSLTypeError(
+                        f"Invalid number of components for {func_name} constructor"
+                    )
+
+            # Count total components
+            for arg in node.args:
+                arg_type = self.get_type(arg)
+                if arg_type.is_vector:
+                    size = arg_type.vector_size()
+                    if size is None:
+                        raise GLSLTypeError(f"Invalid vector type: {arg_type}")
+                    total_components += size
+                else:
+                    total_components += 1
+
+            if total_components != expected_components:
                 raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} construction"
+                    f"Invalid number of components for {func_name} constructor: "
+                    f"expected {expected_components}, got {total_components}"
                 )
 
-            return f"{func_name.lower()}({', '.join(args)})"
+        # Generate expressions after validation
+        args = [self.generate_expression(arg) for arg in node.args]
+
+        if func_name in vector_types:
+            return f"{func_name}({', '.join(args)})"
 
         # Built-in function validation
-        if func_name in self.analysis.var_types["global"]:
-            expected_type = self.analysis.var_types["global"][func_name]
-            # Validate argument types here if needed
+        builtin_functions = {
+            "length",
+            "distance",
+            "dot",
+            "cross",
+            "normalize",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "pow",
+            "exp",
+            "log",
+            "sqrt",
+            "abs",
+            "sign",
+            "floor",
+            "ceil",
+            "fract",
+            "min",
+            "max",
+            "clamp",
+            "mix",
+            "step",
+            "smoothstep",
+        }
+
+        if func_name in builtin_functions:
+            # This will validate the function call and raise if invalid
+            _ = self.get_type(node)
             return f"{func_name}({', '.join(args)})"
 
         raise GLSLTypeError(f"Unknown function: {func_name}")
@@ -330,6 +494,34 @@ class GLSLGenerator:
             else:
                 self.add_line(f"{target.id} = {value};")
 
+    def _generate_annotated_assignment(self, node: ast.AnnAssign) -> None:
+        """Generate annotated assignment with type validation."""
+        if not isinstance(node.target, ast.Name):
+            raise GLSLTypeError("Only simple assignments are supported")
+
+        target_type = self.analysis.var_types[self.current_scope].get(node.target.id)
+        if not target_type:
+            raise GLSLTypeError(f"Unknown variable: {node.target.id}")
+
+        if node.value:
+            value_type = self.get_type(node.value)
+            value = self.generate_expression(node.value)
+
+            # Validate assignment compatibility
+            if not can_convert_to(value_type, target_type):
+                raise GLSLTypeError(
+                    f"Cannot assign value of type {value_type} to variable of type {target_type}"
+                )
+
+            if node.target.id not in self.declared_vars[self.current_scope]:
+                self.add_line(f"{target_type!s} {node.target.id} = {value};")
+                self.declared_vars[self.current_scope].add(node.target.id)
+            else:
+                self.add_line(f"{node.target.id} = {value};")
+        else:
+            self.add_line(f"{target_type!s} {node.target.id};")
+            self.declared_vars[self.current_scope].add(node.target.id)
+
     def generate_function(self, node: ast.FunctionDef) -> None:
         """Generate formatted function with type validation."""
         self.enter_scope(node.name)
@@ -385,6 +577,9 @@ class GLSLGenerator:
         match node:
             case ast.Assign():
                 self._generate_assignment(node)
+
+            case ast.AnnAssign():
+                self._generate_annotated_assignment(node)
 
             case ast.AugAssign():
                 self._generate_aug_assignment(node)
@@ -553,16 +748,16 @@ class GLSLGenerator:
             self.generate_function(func)
             self.add_line()
 
-        # Generate main shader function
-        main_func = self.analysis.main_function
-        self.generate_function(main_func)
-        self.add_line()
+        # Generate main shader function if exists
+        if self.analysis.main_function:
+            self.generate_function(self.analysis.main_function)
+            self.add_line()
 
-        # Generate main function
-        self.add_line("void main()")
-        self.begin_block()
-        self.add_line(f"fs_color = {main_func.name}(vs_uv);")
-        self.end_block()
+            # Generate main function
+            self.add_line("void main()")
+            self.begin_block()
+            self.add_line(f"fs_color = {self.analysis.main_function.name}(vs_uv);")
+            self.end_block()
 
         return GeneratedShader(
             vertex_source=VERTEX_SHADER, fragment_source="\n".join(self.lines)
