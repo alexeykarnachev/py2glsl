@@ -4,7 +4,6 @@ import ast
 import inspect
 from enum import Enum, auto
 from textwrap import dedent
-from typing import Optional
 
 from loguru import logger
 
@@ -54,7 +53,7 @@ class ShaderAnalysis:
         """Initialize analysis results."""
         self.uniforms = BUILTIN_UNIFORMS.copy()
         self.functions: list[ast.FunctionDef] = []
-        self.main_function: Optional[ast.FunctionDef] = None
+        self.main_function: ast.FunctionDef | None = None
         self.hoisted_vars: dict[str, set[str]] = {"global": set()}
         self.var_types: dict[str, dict[str, GLSLType]] = {"global": {}}
         self.current_scope = "global"
@@ -72,7 +71,7 @@ class ShaderAnalyzer:
         self.current_scope = "global"
         self.scope_stack: list[str] = []
         self.type_constraints: dict[str, GLSLType] = {}
-        self.current_return_type: Optional[GLSLType] = None
+        self.current_return_type: GLSLType | None = None
 
     def push_context(self, ctx: GLSLContext) -> None:
         """Push new analysis context."""
@@ -147,7 +146,7 @@ class ShaderAnalyzer:
                 return type_map[annotation.id]
         raise GLSLTypeError(f"Unsupported type annotation: {annotation}")
 
-    def get_variable_type(self, name: str) -> Optional[GLSLType]:
+    def get_variable_type(self, name: str) -> GLSLType | None:
         """Get type of variable from current or parent scope."""
         scope = self.current_scope
         while True:

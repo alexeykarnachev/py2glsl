@@ -1,11 +1,11 @@
 """GLSL built-in function implementations using NumPy."""
 
-from typing import TypeAlias, Union
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 
-Number: TypeAlias = Union[float, NDArray[np.float32]]
+Number: TypeAlias = float | NDArray[np.float32]
 Vector: TypeAlias = NDArray[np.float32]
 
 

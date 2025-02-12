@@ -8,7 +8,6 @@ import numpy as np
 
 from ..transpiler import py2glsl
 from ..transpiler.constants import VERTEX_SHADER
-from ..types import vec4
 from .buffers import create_quad_buffer, create_vertex_array
 from .context import setup_context
 

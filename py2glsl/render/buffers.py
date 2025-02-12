@@ -1,9 +1,7 @@
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import moderngl
 import numpy as np
-from loguru import logger
 
 from .context import Size
 
@@ -63,7 +61,7 @@ def create_vertex_array(
     ctx: moderngl.Context,
     program: moderngl.Program,
     buffer: moderngl.Buffer,
-    layout: List[BufferLayout] | None = None,
+    layout: list[BufferLayout] | None = None,
 ) -> moderngl.VertexArray:
     """Create a vertex array with specified layout."""
     if layout is None:

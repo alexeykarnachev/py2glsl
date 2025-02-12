@@ -53,10 +53,10 @@ from .render import animate, render_array, render_gif, render_image, render_vide
 from .transpiler import py2glsl
 from .transpiler.constants import VERTEX_SHADER
 from .types.base import GLSLType, TypeKind
-from .types.constructors import bvec4  # Vectors; Matrices
 from .types.constructors import (
     bvec2,
     bvec3,
+    bvec4,  # Vectors; Matrices
     ivec2,
     ivec3,
     ivec4,
@@ -68,8 +68,8 @@ from .types.constructors import (
     vec4,
 )
 from .types.errors import GLSLError, GLSLOperationError, GLSLSwizzleError, GLSLTypeError
-from .types.singletons import BOOL  # Basic types; Vector types; Matrix types
 from .types.singletons import (
+    BOOL,  # Basic types; Vector types; Matrix types
     BVEC2,
     BVEC3,
     BVEC4,

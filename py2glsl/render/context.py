@@ -1,11 +1,11 @@
 """OpenGL context management."""
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator, Tuple
 
 import moderngl
 
-Size = Tuple[int, int]
+Size = tuple[int, int]
 
 
 class GLContextError(Exception):

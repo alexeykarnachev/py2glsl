@@ -1,7 +1,4 @@
 import math
-from pathlib import Path
-
-import pytest
 
 from py2glsl import vec2, vec4
 

@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 import numpy as np
 import pytest
@@ -23,7 +24,7 @@ def verify_shader_output(
     shader_func: Callable,
     test_name: str,
     tmp_path: Path,
-    uniforms: Optional[Dict[str, Any]] = None,
+    uniforms: dict[str, Any] | None = None,
     size: tuple[int, int] = (512, 512),
 ) -> None:
     """Verify shader output against gold image."""

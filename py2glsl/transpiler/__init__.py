@@ -11,8 +11,8 @@ class ShaderResult:
     """Result of shader transpilation."""
 
     fragment_source: str
-    vertex_source: Optional[str]
-    uniforms: Dict[str, str]
+    vertex_source: str | None
+    uniforms: dict[str, str]
 
 
 def py2glsl(shader_func) -> GeneratedShader:

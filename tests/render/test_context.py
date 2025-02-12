@@ -1,6 +1,5 @@
 """Tests for OpenGL context management."""
 
-import moderngl
 import pytest
 
 from py2glsl.render.context import (

@@ -1,7 +1,8 @@
 """GLSL type constructors using NumPy."""
 
+from collections.abc import Callable
 from enum import Enum, auto
-from typing import Any, Callable, Union
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -25,7 +26,7 @@ class VectorConfig:
         kind: TypeKind,
         size: int,
         dtype: np.dtype,
-        converter: Callable[[Any], Union[float, int, bool]],
+        converter: Callable[[Any], float | int | bool],
     ):
         """Initialize vector configuration.
 
