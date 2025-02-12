@@ -6,21 +6,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-
-class GLSLError(Exception):
-    """Base error for GLSL type system."""
-
-
-class GLSLTypeError(GLSLError):
-    """Error related to type compatibility."""
-
-
-class GLSLOperationError(GLSLError):
-    """Error in GLSL operations."""
-
-
-class GLSLSwizzleError(GLSLError):
-    """Error in vector swizzling."""
+from py2glsl.types.errors import GLSLSwizzleError, GLSLTypeError
 
 
 class TypeKind(Enum):
@@ -227,13 +213,6 @@ class GLSLType:
 
     def validate_swizzle(self, components: str) -> Optional["GLSLType"]:
         """Validate swizzle operation and return resulting type."""
-        from .singleton_types import (  # Import here to avoid circular dependency
-            FLOAT,
-            VEC2,
-            VEC3,
-            VEC4,
-        )
-
         logger.debug(f"Validating swizzle: {self}.{components}")
 
         if not self.is_vector:
@@ -284,4 +263,9 @@ class GLSLType:
             logger.error(msg)
             raise GLSLSwizzleError(msg)
 
-        return {1: FLOAT, 2: VEC2, 3: VEC3, 4: VEC4}[size]
+        # Return appropriate type based on swizzle size
+        return GLSLType(
+            {1: TypeKind.FLOAT, 2: TypeKind.VEC2, 3: TypeKind.VEC3, 4: TypeKind.VEC4}[
+                size
+            ]
+        )
