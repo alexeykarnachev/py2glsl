@@ -7,7 +7,7 @@ import pytest
 
 from py2glsl.transpiler.analyzer import ShaderAnalysis
 from py2glsl.transpiler.generator import GeneratedShader, GLSLGenerator
-from py2glsl.types import BOOL, FLOAT, INT, VEC2, VEC3, VEC4, GLSLTypeError
+from py2glsl.types import FLOAT, VEC2, VEC4, GLSLTypeError
 
 
 @pytest.fixture

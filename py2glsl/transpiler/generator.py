@@ -2,11 +2,10 @@
 
 import ast
 from dataclasses import dataclass
-from typing import Optional
 
 from loguru import logger
 
-from py2glsl.transpiler.analyzer import GLSLContext, ShaderAnalysis
+from py2glsl.transpiler.analyzer import ShaderAnalysis
 from py2glsl.types import (
     BOOL,
     BVEC2,
@@ -20,7 +19,6 @@ from py2glsl.types import (
     VEC2,
     VEC3,
     VEC4,
-    VOID,
     GLSLSwizzleError,
     GLSLType,
     GLSLTypeError,
