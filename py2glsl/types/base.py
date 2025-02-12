@@ -1,4 +1,4 @@
-"""Core GLSL type system definitions."""
+"""Base GLSL type definitions."""
 
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -125,60 +125,6 @@ class GLSLType:
             cls._instances[key] = super().__new__(cls)
         return cls._instances[key]
 
-    def validate_swizzle(self, components: str) -> Optional["GLSLType"]:
-        """Validate swizzle operation and return resulting type."""
-        logger.debug(f"Validating swizzle: {self}.{components}")
-
-        if not self.is_vector:
-            msg = f"Cannot swizzle non-vector type {self.name}"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        if not components:
-            msg = "Empty swizzle mask"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        # Split valid components into sets
-        position_components = {"x", "y", "z", "w"}
-        color_components = {"r", "g", "b", "a"}
-        texture_components = {"s", "t", "p", "q"}
-
-        component_set = set(components)
-        logger.debug(f"Component set: {component_set}")
-
-        # Check if components are from a single valid set
-        if not (
-            component_set.issubset(position_components)
-            or component_set.issubset(color_components)
-            or component_set.issubset(texture_components)
-        ):
-            msg = f"Invalid swizzle components: {components}"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        size = len(components)
-        if size > 4:
-            msg = "Swizzle mask too long"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        # Check if components are valid for this vector's size
-        max_component_idx = max(
-            (
-                "xyzw".index(c)
-                if c in "xyzw"
-                else "rgba".index(c) if c in "rgba" else "stpq".index(c)
-            )
-            for c in components
-        )
-        if max_component_idx >= self.vector_size():
-            msg = f"Component index {max_component_idx} out of range for {self.name}"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        return {1: FLOAT, 2: VEC2, 3: VEC3, 4: VEC4}[size]
-
     def __post_init__(self) -> None:
         """Validate type configuration."""
         logger.debug(f"Validating GLSLType: {self}")
@@ -279,21 +225,63 @@ class GLSLType:
         """Get matrix size if matrix type."""
         return self.kind.matrix_size
 
+    def validate_swizzle(self, components: str) -> Optional["GLSLType"]:
+        """Validate swizzle operation and return resulting type."""
+        from .singleton_types import (  # Import here to avoid circular dependency
+            FLOAT,
+            VEC2,
+            VEC3,
+            VEC4,
+        )
 
-# Singleton types
-VOID = GLSLType(TypeKind.VOID)
-BOOL = GLSLType(TypeKind.BOOL)
-INT = GLSLType(TypeKind.INT)
-FLOAT = GLSLType(TypeKind.FLOAT)
-VEC2 = GLSLType(TypeKind.VEC2)
-VEC3 = GLSLType(TypeKind.VEC3)
-VEC4 = GLSLType(TypeKind.VEC4)
-IVEC2 = GLSLType(TypeKind.IVEC2)
-IVEC3 = GLSLType(TypeKind.IVEC3)
-IVEC4 = GLSLType(TypeKind.IVEC4)
-BVEC2 = GLSLType(TypeKind.BVEC2)
-BVEC3 = GLSLType(TypeKind.BVEC3)
-BVEC4 = GLSLType(TypeKind.BVEC4)
-MAT2 = GLSLType(TypeKind.MAT2)
-MAT3 = GLSLType(TypeKind.MAT3)
-MAT4 = GLSLType(TypeKind.MAT4)
+        logger.debug(f"Validating swizzle: {self}.{components}")
+
+        if not self.is_vector:
+            msg = f"Cannot swizzle non-vector type {self.name}"
+            logger.error(msg)
+            raise GLSLSwizzleError(msg)
+
+        if not components:
+            msg = "Empty swizzle mask"
+            logger.error(msg)
+            raise GLSLSwizzleError(msg)
+
+        # Split valid components into sets
+        position_components = {"x", "y", "z", "w"}
+        color_components = {"r", "g", "b", "a"}
+        texture_components = {"s", "t", "p", "q"}
+
+        component_set = set(components)
+        logger.debug(f"Component set: {component_set}")
+
+        # Check if components are from a single valid set
+        if not (
+            component_set.issubset(position_components)
+            or component_set.issubset(color_components)
+            or component_set.issubset(texture_components)
+        ):
+            msg = f"Invalid swizzle components: {components}"
+            logger.error(msg)
+            raise GLSLSwizzleError(msg)
+
+        size = len(components)
+        if size > 4:
+            msg = "Swizzle mask too long"
+            logger.error(msg)
+            raise GLSLSwizzleError(msg)
+
+        # Check if components are valid for this vector's size
+        max_component_idx = max(
+            (
+                "xyzw".index(c)
+                if c in "xyzw"
+                else "rgba".index(c) if c in "rgba" else "stpq".index(c)
+            )
+            for c in components
+        )
+        if max_component_idx >= self.vector_size():
+            msg = f"Component index {max_component_idx} out of range for {self.name}"
+            logger.error(msg)
+            raise GLSLSwizzleError(msg)
+
+        return {1: FLOAT, 2: VEC2, 3: VEC3, 4: VEC4}[size]

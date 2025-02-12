@@ -4,16 +4,7 @@ from typing import Literal, Optional
 
 from loguru import logger
 
-from py2glsl.types import (
-    BOOL,
-    FLOAT,
-    VEC2,
-    VEC3,
-    VEC4,
-    GLSLSwizzleError,
-    GLSLType,
-    TypeKind,
-)
+from py2glsl.types import BOOL, FLOAT, GLSLType, TypeKind
 
 # Operation types
 GLSLOperator = Literal[
@@ -31,63 +22,6 @@ GLSLOperator = Literal[
     "<=",
     ">=",  # Comparison
 ]
-
-
-def validate_swizzle(type_: GLSLType, components: str) -> Optional[GLSLType]:
-    """Validate swizzle operation and return resulting type."""
-    logger.debug(f"Validating swizzle: {type_}.{components}")
-
-    if not type_.is_vector:
-        msg = f"Cannot swizzle non-vector type {type_.name}"
-        logger.error(msg)
-        raise GLSLSwizzleError(msg)
-
-    if not components:
-        msg = "Empty swizzle mask"
-        logger.error(msg)
-        raise GLSLSwizzleError(msg)
-
-    # Split valid components into sets
-    position_components = {"x", "y", "z", "w"}
-    color_components = {"r", "g", "b", "a"}
-    texture_components = {"s", "t", "p", "q"}
-
-    component_set = set(components)
-    logger.debug(f"Component set: {component_set}")
-
-    # Check if components are from a single valid set
-    if not (
-        component_set.issubset(position_components)
-        or component_set.issubset(color_components)
-        or component_set.issubset(texture_components)
-    ):
-        msg = f"Invalid swizzle components: {components}"
-        logger.error(msg)
-        raise GLSLSwizzleError(msg)
-
-    size = len(components)
-    if size > 4:
-        msg = "Swizzle mask too long"
-        logger.error(msg)
-        raise GLSLSwizzleError(msg)
-
-    # Check if components are valid for this vector's size
-    max_component_idx = max(
-        (
-            "xyzw".index(c)
-            if c in "xyzw"
-            else "rgba".index(c) if c in "rgba" else "stpq".index(c)
-        )
-        for c in components
-    )
-    if max_component_idx >= type_.vector_size():
-        msg = f"Component index {max_component_idx} out of range for {type_.name}"
-        logger.error(msg)
-        raise GLSLSwizzleError(msg)
-
-    result_type = {1: FLOAT, 2: VEC2, 3: VEC3, 4: VEC4}[size]
-    logger.debug(f"Swizzle result type: {result_type}")
-    return result_type
 
 
 def validate_operation(

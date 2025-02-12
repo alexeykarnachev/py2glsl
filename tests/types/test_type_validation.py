@@ -26,7 +26,6 @@ from py2glsl.types import (
     common_type,
     is_compatible_with,
     validate_operation,
-    validate_swizzle,
 )
 
 
@@ -36,52 +35,52 @@ class TestSwizzleValidation:
     def test_valid_swizzles(self):
         """Test valid swizzle patterns."""
         # Position components
-        assert validate_swizzle(VEC4, "x") == FLOAT
-        assert validate_swizzle(VEC4, "xy") == VEC2
-        assert validate_swizzle(VEC4, "xyz") == VEC3
-        assert validate_swizzle(VEC4, "xyzw") == VEC4
+        assert VEC4.validate_swizzle("x") == FLOAT
+        assert VEC4.validate_swizzle("xy") == VEC2
+        assert VEC4.validate_swizzle("xyz") == VEC3
+        assert VEC4.validate_swizzle("xyzw") == VEC4
 
         # Color components
-        assert validate_swizzle(VEC4, "r") == FLOAT
-        assert validate_swizzle(VEC4, "rg") == VEC2
-        assert validate_swizzle(VEC4, "rgb") == VEC3
-        assert validate_swizzle(VEC4, "rgba") == VEC4
+        assert VEC4.validate_swizzle("r") == FLOAT
+        assert VEC4.validate_swizzle("rg") == VEC2
+        assert VEC4.validate_swizzle("rgb") == VEC3
+        assert VEC4.validate_swizzle("rgba") == VEC4
 
         # Texture components
-        assert validate_swizzle(VEC4, "s") == FLOAT
-        assert validate_swizzle(VEC4, "st") == VEC2
-        assert validate_swizzle(VEC4, "stp") == VEC3
-        assert validate_swizzle(VEC4, "stpq") == VEC4
+        assert VEC4.validate_swizzle("s") == FLOAT
+        assert VEC4.validate_swizzle("st") == VEC2
+        assert VEC4.validate_swizzle("stp") == VEC3
+        assert VEC4.validate_swizzle("stpq") == VEC4
 
     def test_invalid_swizzles(self):
         """Test invalid swizzle patterns."""
         # Non-vector type
         with pytest.raises(GLSLSwizzleError):
-            validate_swizzle(FLOAT, "x")
+            FLOAT.validate_swizzle("x")
 
         # Empty swizzle
         with pytest.raises(GLSLSwizzleError):
-            validate_swizzle(VEC3, "")
+            VEC3.validate_swizzle("")
 
         # Mixed component sets
         with pytest.raises(GLSLSwizzleError):
-            validate_swizzle(VEC4, "xr")
+            VEC4.validate_swizzle("xr")
 
         # Invalid components
         with pytest.raises(GLSLSwizzleError):
-            validate_swizzle(VEC3, "w")  # w not in vec3
+            VEC3.validate_swizzle("w")  # w not in vec3
 
         # Too many components
         with pytest.raises(GLSLSwizzleError):
-            validate_swizzle(VEC4, "xyzwx")
+            VEC4.validate_swizzle("xyzwx")
 
     def test_repeated_components(self):
         """Test swizzles with repeated components."""
         # All valid
-        assert validate_swizzle(VEC4, "xxx") == VEC3
-        assert validate_swizzle(VEC3, "xxy") == VEC3
-        assert validate_swizzle(VEC2, "xx") == VEC2
-        assert validate_swizzle(VEC4, "rrrr") == VEC4
+        assert VEC4.validate_swizzle("xxx") == VEC3
+        assert VEC3.validate_swizzle("xxy") == VEC3
+        assert VEC2.validate_swizzle("xx") == VEC2
+        assert VEC4.validate_swizzle("rrrr") == VEC4
 
 
 class TestOperationValidation:

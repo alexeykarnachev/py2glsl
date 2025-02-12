@@ -1,15 +1,14 @@
-from .type_constructors import (
-    bvec2,
-    bvec3,
-    bvec4,
-    ivec2,
-    ivec3,
-    ivec4,
-    vec2,
-    vec3,
-    vec4,
+"""GLSL type system."""
+
+from .base import (
+    GLSLError,
+    GLSLOperationError,
+    GLSLSwizzleError,
+    GLSLType,
+    GLSLTypeError,
+    TypeKind,
 )
-from .type_system import (
+from .singleton_types import (
     BOOL,
     BVEC2,
     BVEC3,
@@ -26,24 +25,34 @@ from .type_system import (
     VEC3,
     VEC4,
     VOID,
-    GLSLSwizzleError,
-    GLSLType,
-    GLSLTypeError,
-    TypeKind,
+)
+from .type_constructors import (
+    bvec2,
+    bvec3,
+    bvec4,
+    ivec2,
+    ivec3,
+    ivec4,
+    vec2,
+    vec3,
+    vec4,
 )
 from .type_validation import (
     can_convert_to,
     common_type,
     is_compatible_with,
     validate_operation,
-    validate_swizzle,
 )
 
 __all__ = [
+    # Base types
+    "GLSLError",
+    "GLSLTypeError",
+    "GLSLOperationError",
     "GLSLSwizzleError",
     "GLSLType",
-    "GLSLTypeError",
     "TypeKind",
+    # Singleton types
     "VOID",
     "BOOL",
     "INT",
@@ -60,6 +69,7 @@ __all__ = [
     "MAT2",
     "MAT3",
     "MAT4",
+    # Constructors
     "vec2",
     "vec3",
     "vec4",
@@ -69,8 +79,8 @@ __all__ = [
     "bvec2",
     "bvec3",
     "bvec4",
+    # Validation
     "validate_operation",
-    "validate_swizzle",
     "is_compatible_with",
     "can_convert_to",
     "common_type",
