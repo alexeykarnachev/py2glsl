@@ -5,7 +5,7 @@ from enum import Enum, auto
 
 from loguru import logger
 
-from py2glsl.transpiler.type_system import GLSLType, TypeKind
+from py2glsl.types.type_system import GLSLType, TypeKind
 
 
 class GLSLContext(Enum):
@@ -372,7 +372,7 @@ class ShaderAnalyzer:
         if name in self.type_constraints:
             constrained_type = self.type_constraints[name]
             logger.debug(f"Found type constraint for {name}: {constrained_type}")
-            if TypeConverter.can_convert(glsl_type, constrained_type):
+            if _can_convert(glsl_type, constrained_type):
                 glsl_type = constrained_type
 
         # Register in current scope

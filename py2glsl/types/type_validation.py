@@ -4,9 +4,12 @@ from typing import Literal, Optional
 
 from loguru import logger
 
-from py2glsl.transpiler.type_system import (
+from py2glsl.types import (
     BOOL,
     FLOAT,
+    VEC2,
+    VEC3,
+    VEC4,
     GLSLSwizzleError,
     GLSLType,
     TypeKind,
@@ -81,8 +84,6 @@ def validate_swizzle(type_: GLSLType, components: str) -> Optional[GLSLType]:
         msg = f"Component index {max_component_idx} out of range for {type_.name}"
         logger.error(msg)
         raise GLSLSwizzleError(msg)
-
-    from py2glsl.transpiler.type_system import FLOAT, VEC2, VEC3, VEC4
 
     result_type = {1: FLOAT, 2: VEC2, 3: VEC3, 4: VEC4}[size]
     logger.debug(f"Swizzle result type: {result_type}")

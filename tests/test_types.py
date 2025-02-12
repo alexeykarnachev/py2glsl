@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from py2glsl.transpiler.types import (
+from py2glsl.types import (
     BOOL,
     BVEC2,
     BVEC3,

@@ -3,17 +3,7 @@
 import numpy as np
 import pytest
 
-from py2glsl.transpiler.type_constructors import (
-    bvec2,
-    bvec3,
-    bvec4,
-    ivec2,
-    ivec3,
-    ivec4,
-    vec2,
-    vec3,
-    vec4,
-)
+from py2glsl.types import bvec2, bvec3, bvec4, ivec2, ivec3, ivec4, vec2, vec3, vec4
 
 
 class TestFloatVectorConstruction:

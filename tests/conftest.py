@@ -3,7 +3,7 @@ from typing import Dict
 import numpy as np
 import pytest
 
-from py2glsl.transpiler.type_system import GLSLType, TypeKind
+from py2glsl.types.type_system import GLSLType, TypeKind
 
 
 @pytest.fixture
@@ -102,7 +102,7 @@ def matrix_values() -> Dict[str, np.ndarray]:
 
 
 @pytest.fixture
-def operators() -> Dict[str, Dict[str, list[str]]]:
+def operators() -> Dict[str, list[str]]:
     """Provide operator groups."""
     return {
         "arithmetic": ["+", "-", "*", "/", "%"],

@@ -2,7 +2,7 @@
 
 import pytest
 
-from py2glsl.transpiler.type_system import (
+from py2glsl.types import (
     BOOL,
     BVEC2,
     BVEC3,
@@ -22,8 +22,6 @@ from py2glsl.transpiler.type_system import (
     GLSLSwizzleError,
     GLSLType,
     TypeKind,
-)
-from py2glsl.transpiler.type_validation import (
     can_convert_to,
     common_type,
     is_compatible_with,

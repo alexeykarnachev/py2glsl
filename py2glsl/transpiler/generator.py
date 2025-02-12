@@ -6,7 +6,7 @@ from loguru import logger
 
 from py2glsl.transpiler.analyzer import GLSLContext, ShaderAnalysis
 from py2glsl.transpiler.formatter import GLSLFormatter
-from py2glsl.transpiler.types import BOOL, FLOAT, INT, VEC2, GLSLType
+from py2glsl.types import BOOL, FLOAT, INT, VEC2, GLSLType
 
 
 class GLSLGenerator:
