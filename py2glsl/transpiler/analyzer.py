@@ -2,10 +2,35 @@
 
 import ast
 from enum import Enum, auto
+from typing import Optional
 
 from loguru import logger
 
-from py2glsl.types.type_system import GLSLType, TypeKind
+from py2glsl.types import (
+    BOOL,
+    BVEC2,
+    BVEC3,
+    BVEC4,
+    FLOAT,
+    INT,
+    IVEC2,
+    IVEC3,
+    IVEC4,
+    MAT2,
+    MAT3,
+    MAT4,
+    VEC2,
+    VEC3,
+    VEC4,
+    VOID,
+    GLSLSwizzleError,
+    GLSLType,
+    GLSLTypeError,
+    can_convert_to,
+    is_compatible_with,
+    validate_operation,
+)
+from py2glsl.types.base import TypeKind
 
 
 class GLSLContext(Enum):
@@ -22,9 +47,10 @@ class ShaderAnalysis:
     """Result of shader analysis."""
 
     def __init__(self):
+        """Initialize analysis results."""
         self.uniforms: dict[str, GLSLType] = {}
         self.functions: list[ast.FunctionDef] = []
-        self.main_function: ast.FunctionDef | None = None
+        self.main_function: Optional[ast.FunctionDef] = None
         self.hoisted_vars: dict[str, set[str]] = {"global": set()}
         self.var_types: dict[str, dict[str, GLSLType]] = {"global": {}}
         self.current_scope = "global"
@@ -42,6 +68,7 @@ class ShaderAnalyzer:
         self.current_scope = "global"
         self.scope_stack: list[str] = []
         self.type_constraints: dict[str, GLSLType] = {}
+        self.current_return_type: Optional[GLSLType] = None
 
     def push_context(self, ctx: GLSLContext) -> None:
         """Push new analysis context."""
@@ -70,12 +97,377 @@ class ShaderAnalyzer:
         else:
             self.current_scope = "global"
 
+    def get_type_from_annotation(self, annotation: ast.AST) -> GLSLType:
+        """Convert Python type annotation to GLSL type."""
+        if isinstance(annotation, ast.Name):
+            type_map = {
+                # Float vectors
+                "vec2": VEC2,
+                "Vec2": VEC2,
+                "vec3": VEC3,
+                "Vec3": VEC3,
+                "vec4": VEC4,
+                "Vec4": VEC4,
+                # Integer vectors
+                "ivec2": IVEC2,
+                "IVec2": IVEC2,
+                "ivec3": IVEC3,
+                "IVec3": IVEC3,
+                "ivec4": IVEC4,
+                "IVec4": IVEC4,
+                # Boolean vectors
+                "bvec2": BVEC2,
+                "BVec2": BVEC2,
+                "bvec3": BVEC3,
+                "BVec3": BVEC3,
+                "bvec4": BVEC4,
+                "BVec4": BVEC4,
+                # Matrices
+                "mat2": MAT2,
+                "Mat2": MAT2,
+                "mat3": MAT3,
+                "Mat3": MAT3,
+                "mat4": MAT4,
+                "Mat4": MAT4,
+                # Basic types
+                "float": FLOAT,
+                "Float": FLOAT,
+                "int": INT,
+                "Int": INT,
+                "bool": BOOL,
+                "Bool": BOOL,
+                "void": VOID,
+                "Void": VOID,
+            }
+            if annotation.id in type_map:
+                return type_map[annotation.id]
+        raise GLSLTypeError(f"Unsupported type annotation: {annotation}")
+
+    def get_variable_type(self, name: str) -> Optional[GLSLType]:
+        """Get type of variable from current or parent scope."""
+        scope = self.current_scope
+        while True:
+            if name in self.analysis.var_types[scope]:
+                return self.analysis.var_types[scope][name]
+            if scope == "global":
+                break
+            scope = self.scope_stack[-1]
+        return None
+
+    def infer_type(self, node: ast.AST) -> GLSLType:
+        """Infer GLSL type from AST node with validation."""
+        logger.debug(f"Inferring type for node: {ast.dump(node)}")
+
+        match node:
+            case ast.Name():
+                # Special case for vertex shader UV coordinates
+                if node.id == "vs_uv":
+                    return VEC2
+                # Look up variable type
+                var_type = self.get_variable_type(node.id)
+                if var_type:
+                    return var_type
+                # Check uniforms
+                if node.id in self.analysis.uniforms:
+                    return self.analysis.uniforms[node.id]
+                raise GLSLTypeError(f"Undefined variable: {node.id}")
+
+            case ast.Constant():
+                if isinstance(node.value, bool):
+                    return BOOL
+                elif isinstance(node.value, int):
+                    return INT if self.current_context == GLSLContext.LOOP else FLOAT
+                elif isinstance(node.value, float):
+                    return FLOAT
+                raise GLSLTypeError(f"Unsupported constant type: {type(node.value)}")
+
+            case ast.Call() if isinstance(node.func, ast.Name):
+                return self._infer_call_type(node)
+
+            case ast.BinOp():
+                return self._infer_binary_operation(node)
+
+            case ast.Compare():
+                return self._infer_comparison(node)
+
+            case ast.UnaryOp():
+                return self._infer_unary_operation(node)
+
+            case ast.Attribute():
+                return self._infer_attribute_type(node)
+
+            case _:
+                raise GLSLTypeError(f"Unsupported expression type: {type(node)}")
+
+    def _infer_call_type(self, node: ast.Call) -> GLSLType:
+        """Infer type of function call."""
+        if not isinstance(node.func, ast.Name):
+            raise GLSLTypeError("Invalid function call")
+
+        func_name = node.func.id
+
+        # Type conversion functions
+        type_conversions = {
+            "float": FLOAT,
+            "int": INT,
+            "bool": BOOL,
+        }
+        if func_name in type_conversions:
+            return type_conversions[func_name]
+
+        # Vector constructors
+        vector_types = {
+            "vec2": (VEC2, 2),
+            "vec3": (VEC3, 3),
+            "vec4": (VEC4, 4),
+            "ivec2": (IVEC2, 2),
+            "ivec3": (IVEC3, 3),
+            "ivec4": (IVEC4, 4),
+            "bvec2": (BVEC2, 2),
+            "bvec3": (BVEC3, 3),
+            "bvec4": (BVEC4, 4),
+        }
+        if func_name in vector_types:
+            target_type, size = vector_types[func_name]
+
+            # Special case: single scalar argument fills all components
+            if len(node.args) == 1:
+                arg_type = self.infer_type(node.args[0])
+                if not arg_type.is_vector:
+                    return target_type
+
+            # Normal case: validate components
+            arg_types = [self.infer_type(arg) for arg in node.args]
+            total_components = sum(
+                arg_type.vector_size() if arg_type.is_vector else 1
+                for arg_type in arg_types
+            )
+            if total_components != size:
+                raise GLSLTypeError(
+                    f"Invalid number of components for {func_name} construction"
+                )
+            return target_type
+
+        # Check if it's a user-defined function in global scope
+        if func_name in self.analysis.var_types["global"]:
+            return self.analysis.var_types["global"][func_name]
+
+        # Built-in functions
+        scalar_funcs = {
+            "length",
+            "dot",
+            "distance",
+            "noise",
+            "abs",
+            "sign",
+            "floor",
+            "ceil",
+            "fract",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+        }
+        if func_name in scalar_funcs:
+            return FLOAT
+
+        preserve_funcs = {"normalize", "reflect", "refract"}
+        if func_name in preserve_funcs:
+            arg_types = [self.infer_type(arg) for arg in node.args]
+            if arg_types and arg_types[0].is_vector:
+                return arg_types[0]
+            return FLOAT
+
+        raise GLSLTypeError(f"Unknown function: {func_name}")
+
+    def _infer_binary_operation(self, node: ast.BinOp) -> GLSLType:
+        """Infer type of binary operation."""
+        left_type = self.infer_type(node.left)
+        right_type = self.infer_type(node.right)
+
+        # Handle vector operations with stricter validation
+        if left_type.is_vector or right_type.is_vector:
+            if left_type.is_vector and right_type.is_vector:
+                if left_type.vector_size() != right_type.vector_size():
+                    raise GLSLTypeError(
+                        f"Cannot operate on vectors of different sizes: {left_type} and {right_type}"
+                    )
+                if left_type.kind != right_type.kind:
+                    raise GLSLTypeError(
+                        f"Cannot operate on vectors of different types: {left_type} and {right_type}"
+                    )
+                return left_type
+            elif isinstance(node.op, (ast.Mult, ast.Div)):
+                # Allow scalar-vector operations for * and /
+                if not (
+                    left_type.kind in (TypeKind.FLOAT, TypeKind.INT)
+                    or right_type.kind in (TypeKind.FLOAT, TypeKind.INT)
+                ):
+                    raise GLSLTypeError(
+                        f"Invalid scalar-vector operation between {left_type} and {right_type}"
+                    )
+                return left_type if left_type.is_vector else right_type
+            else:
+                raise GLSLTypeError(
+                    f"Invalid operation between {left_type} and {right_type}"
+                )
+
+        # Handle scalar operations
+        op_map = {
+            ast.Add: "+",
+            ast.Sub: "-",
+            ast.Mult: "*",
+            ast.Div: "/",
+            ast.Mod: "%",
+            ast.BitAnd: "&",
+            ast.BitOr: "|",
+            ast.BitXor: "^",
+        }
+
+        if type(node.op) not in op_map:
+            raise GLSLTypeError(f"Unsupported operator: {type(node.op)}")
+
+        result_type = validate_operation(left_type, op_map[type(node.op)], right_type)
+        if result_type is None:
+            raise GLSLTypeError(
+                f"Invalid operation between {left_type} and {right_type}"
+            )
+        return result_type
+
+    def _infer_comparison(self, node: ast.Compare) -> GLSLType:
+        """Infer type of comparison operation."""
+        if len(node.ops) != 1 or len(node.comparators) != 1:
+            raise GLSLTypeError("Only simple comparisons are supported")
+
+        left_type = self.infer_type(node.left)
+        right_type = self.infer_type(node.comparators[0])
+
+        op_map = {
+            ast.Eq: "==",
+            ast.NotEq: "!=",
+            ast.Lt: "<",
+            ast.LtE: "<=",
+            ast.Gt: ">",
+            ast.GtE: ">=",
+        }
+
+        if type(node.ops[0]) not in op_map:
+            raise GLSLTypeError(f"Unsupported comparison operator: {type(node.ops[0])}")
+
+        result_type = validate_operation(
+            left_type, op_map[type(node.ops[0])], right_type
+        )
+        if result_type is None:
+            raise GLSLTypeError(
+                f"Invalid comparison between {left_type} and {right_type}"
+            )
+        return result_type
+
+    def _infer_unary_operation(self, node: ast.UnaryOp) -> GLSLType:
+        """Infer type of unary operation."""
+        operand_type = self.infer_type(node.operand)
+
+        op_map = {
+            ast.UAdd: "+",
+            ast.USub: "-",
+            ast.Not: "!",
+            ast.Invert: "~",
+        }
+
+        if type(node.op) not in op_map:
+            raise GLSLTypeError(f"Unsupported unary operator: {type(node.op)}")
+
+        if isinstance(node.op, ast.Not):
+            if operand_type == BOOL or operand_type.is_bool_vector:
+                return operand_type
+            raise GLSLTypeError(f"Cannot apply logical not to type {operand_type}")
+
+        if not operand_type.is_numeric:
+            raise GLSLTypeError(
+                f"Cannot apply unary {op_map[type(node.op)]} to {operand_type}"
+            )
+
+        return operand_type
+
+    def _infer_attribute_type(self, node: ast.Attribute) -> GLSLType:
+        """Infer type of attribute access (swizzling)."""
+        value_type = self.infer_type(node.value)
+
+        # Handle vector swizzling
+        if value_type.is_vector:
+            try:
+                return value_type.validate_swizzle(node.attr)
+            except GLSLSwizzleError as e:
+                raise GLSLTypeError(f"Invalid swizzle operation: {e}")
+
+        raise GLSLTypeError(f"Cannot access attribute of type {value_type}")
+
+    def _infer_builtin_return_type(
+        self, func_name: str, args: list[ast.AST]
+    ) -> GLSLType:
+        """Infer return type of built-in function."""
+        arg_types = [self.infer_type(arg) for arg in args]
+
+        # Scalar return functions
+        scalar_funcs = {
+            "length",
+            "dot",
+            "distance",
+            "noise",
+            "abs",
+            "sign",
+            "floor",
+            "ceil",
+            "fract",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "radians",
+            "degrees",
+        }
+        if func_name in scalar_funcs:
+            return FLOAT
+
+        # Vector-preserving functions
+        preserve_funcs = {
+            "normalize",
+            "reflect",
+            "refract",
+            "abs",
+            "sign",
+            "floor",
+            "ceil",
+            "fract",
+            "sin",
+            "cos",
+            "tan",
+        }
+        if func_name in preserve_funcs and arg_types:
+            if arg_types[0].is_vector:
+                return arg_types[0]
+            return FLOAT
+
+        # Mix function
+        if func_name == "mix" and len(arg_types) == 3:
+            if not is_compatible_with(arg_types[0], arg_types[1]):
+                raise GLSLTypeError("Mix requires compatible x and y arguments")
+            return arg_types[0]
+
+        raise GLSLTypeError(f"Unknown or unsupported built-in function: {func_name}")
+
     def analyze(self, tree: ast.Module) -> ShaderAnalysis:
-        """Two-phase analysis of shader AST."""
+        """Analyze shader AST."""
         self.analysis = ShaderAnalysis()
         self.type_constraints = {}
         self.current_scope = "global"
         self.scope_stack = []
+
+        logger.debug("Starting shader analysis")
 
         # Phase 1: Collect type constraints
         self._collect_type_constraints(tree)
@@ -83,302 +475,266 @@ class ShaderAnalyzer:
         # Phase 2: Apply type constraints
         self._apply_type_constraints()
 
-        # Phase 3: Main analysis
-        self._analyze_shader(tree)
+        # Phase 3: Analyze all nodes
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                if not self.analysis.main_function:
+                    self.analysis.main_function = node
+                self.analyze_function_def(node)
 
         return self.analysis
 
-    def get_variable_type(self, name: str) -> GLSLType | None:
-        """Get type of variable from current or parent scope."""
-        scope = self.analysis.current_scope
-        while True:
-            if name in self.analysis.var_types[scope]:
-                return self.analysis.var_types[scope][name]
-            if scope == "global":
-                break
-            scope = self.analysis.scope_stack[-1]
-        return None
+    def _register_function(self, node: ast.FunctionDef) -> None:
+        """Register function for later reference."""
+        if not node.returns:
+            raise GLSLTypeError(f"Function {node.name} missing return type annotation")
 
-    def get_type_from_annotation(self, annotation: ast.AST) -> GLSLType:
-        """Convert Python type annotation to GLSL type."""
-        if isinstance(annotation, ast.Name):
-            type_map = {
-                "vec2": TypeKind.VEC2,
-                "Vec2": TypeKind.VEC2,
-                "vec3": TypeKind.VEC3,
-                "Vec3": TypeKind.VEC3,
-                "vec4": TypeKind.VEC4,
-                "Vec4": TypeKind.VEC4,
-                "float": TypeKind.FLOAT,
-                "int": TypeKind.INT,
-                "bool": TypeKind.BOOL,
-            }
-            if annotation.id in type_map:
-                return GLSLType(type_map[annotation.id])
-        raise TypeError(f"Unsupported type annotation: {annotation}")
+        return_type = self.get_type_from_annotation(node.returns)
 
-    def infer_type(self, node: ast.AST) -> GLSLType:
-        """Infer GLSL type from AST node."""
-        if isinstance(node, ast.Name):
-            # Handle vs_uv special case
-            if node.id == "vs_uv":
-                return GLSLType(TypeKind.VEC2)
-            # Look up variable type
-            var_type = self.get_variable_type(node.id)
-            if var_type:
-                return var_type
-            # Check uniforms
-            if node.id in self.analysis.uniforms:
-                return self.analysis.uniforms[node.id]
-
-        elif isinstance(node, ast.Constant):
-            if isinstance(node.value, bool):
-                return GLSLType(TypeKind.BOOL)
-            elif isinstance(node.value, int):
-                if self.current_context == GLSLContext.LOOP:
-                    return GLSLType(TypeKind.INT)
-                return GLSLType(TypeKind.FLOAT)
-            elif isinstance(node.value, float):
-                return GLSLType(TypeKind.FLOAT)
-
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                # Vector constructors
-                if node.func.id.lower() in {"vec2", "vec3", "vec4"}:
-                    return GLSLType(TypeKind[node.func.id.upper()])
-
-                # Built-in functions
-                return self.infer_builtin_return_type(node.func.id, node.args)
-
-        elif isinstance(node, ast.BinOp):
-            left_type = self.infer_type(node.left)
-            right_type = self.infer_type(node.right)
-
-            # For operations with vectors, preserve vector type
-            if left_type.kind.is_vector() and right_type.kind.is_vector():
-                # Both vectors - use highest dimension
-                return (
-                    left_type
-                    if left_type.kind.value >= right_type.kind.value
-                    else right_type
-                )
-            elif left_type.kind.is_vector():
-                return left_type
-            elif right_type.kind.is_vector():
-                return right_type
-
-            return GLSLType(TypeKind.FLOAT)
-
-        elif isinstance(node, ast.Attribute):
-            value_type = self.infer_type(node.value)
-            if value_type.kind.is_vector():
-                # Single component access returns float
-                if len(node.attr) == 1:
-                    return GLSLType(TypeKind.FLOAT)
-                # Multi-component access returns appropriate vector
-                return GLSLType(TypeKind[f"VEC{len(node.attr)}"])
-
-        return GLSLType(TypeKind.FLOAT)  # Default to float
-
-    def infer_builtin_return_type(
-        self, func_name: str, args: list[ast.AST]
-    ) -> GLSLType:
-        """Infer return type of built-in function."""
-        arg_types = [self.infer_type(arg) for arg in args]
-
-        # Vector-preserving functions (keep input type)
-        if func_name in {"abs", "normalize", "max", "min"}:
-            if arg_types:
-                return arg_types[0]
-
-        # Scalar return functions
-        if func_name in {"length", "dot"}:
-            return GLSLType(TypeKind.FLOAT)
-
-        # Component-wise operations
-        if func_name in {"sin", "cos", "floor", "ceil"}:
-            return arg_types[0] if arg_types else GLSLType(TypeKind.FLOAT)
-
-        # Mix returns same type as first argument
-        if func_name == "mix":
-            return arg_types[0] if arg_types else GLSLType(TypeKind.FLOAT)
-
-        # Vector constructors
-        if func_name.lower() in {"vec2", "vec3", "vec4"}:
-            return GLSLType(TypeKind[func_name.upper()])
-
-        return GLSLType(TypeKind.FLOAT)
+        # Register function in global scope
+        self.analysis.functions.append(node)
+        self.analysis.var_types["global"][node.name] = return_type
 
     def analyze_statement(self, node: ast.AST) -> None:
-        """Analyze statement node."""
+        """Analyze statement with type validation."""
+        logger.debug(f"Analyzing statement: {ast.dump(node)}")
+
         match node:
             case ast.Assign():
-                value_type = self.infer_type(node.value)
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        # Only mark as uniform if it's a keyword-only argument
-                        is_uniform = self.analysis.main_function and target.id in {
-                            arg.arg
-                            for arg in self.analysis.main_function.args.kwonlyargs
-                        }
-                        var_type = GLSLType(value_type.kind, is_uniform=is_uniform)
-                        self.register_variable(target.id, var_type)
+                self._analyze_assignment(node)
 
             case ast.AugAssign():
-                if isinstance(node.target, ast.Name):
-                    value_type = self.infer_type(node.value)
-                    self.register_variable(node.target.id, value_type)
-
-            case ast.For():
-                self.push_context(GLSLContext.LOOP)
-                if isinstance(node.iter, ast.Call) and isinstance(
-                    node.iter.func, ast.Name
-                ):
-                    if node.iter.func.id == "range":
-                        if isinstance(node.target, ast.Name):
-                            self.register_variable(
-                                node.target.id, GLSLType(TypeKind.INT)
-                            )
-                        for arg in node.iter.args:
-                            if isinstance(arg, ast.Name):
-                                self.register_variable(arg.id, GLSLType(TypeKind.INT))
-                            elif isinstance(arg, ast.BinOp):
-                                if isinstance(arg.left, ast.Name):
-                                    self.register_variable(
-                                        arg.left.id, GLSLType(TypeKind.INT)
-                                    )
-                                if isinstance(arg.right, ast.Name):
-                                    self.register_variable(
-                                        arg.right.id, GLSLType(TypeKind.INT)
-                                    )
-                for stmt in node.body:
-                    self.analyze_statement(stmt)
-                self.pop_context()
+                self._analyze_aug_assignment(node)
 
             case ast.If():
-                self.analyze_statement(node.test)
-                for stmt in node.body:
-                    self.analyze_statement(stmt)
-                for stmt in node.orelse:
-                    self.analyze_statement(stmt)
+                self._analyze_if_statement(node)
 
-            case ast.Compare():
-                self.analyze_statement(node.left)
-                for comparator in node.comparators:
-                    self.analyze_statement(comparator)
+            case ast.For():
+                self._analyze_for_loop(node)
 
-            case ast.BinOp():
-                self.analyze_statement(node.left)
-                self.analyze_statement(node.right)
-
-            case ast.UnaryOp():
-                self.analyze_statement(node.operand)
-
-            case ast.Call():
-                for arg in node.args:
-                    self.analyze_statement(arg)
-                if isinstance(node.func, ast.Name):
-                    # Handle built-in functions
-                    if node.func.id in {"vec2", "vec3", "vec4"}:
-                        return_type = GLSLType(TypeKind[node.func.id.upper()])
-                        self.register_variable(node.func.id, return_type)
-
-            case ast.Attribute():
-                self.analyze_statement(node.value)
+            case ast.While():
+                self._analyze_while_loop(node)
 
             case ast.Return():
-                if node.value:
-                    self.analyze_statement(node.value)
+                self._analyze_return(node)
 
             case ast.Break() | ast.Continue():
-                pass
+                if self.current_context != GLSLContext.LOOP:
+                    raise GLSLTypeError("Break/continue outside of loop")
+
+            case ast.Expr():
+                self.infer_type(node.value)  # Validate expression type
 
             case ast.FunctionDef():
                 self.analyze_function_def(node)
 
-            case ast.Name() | ast.Constant():
-                pass  # These are handled by infer_type
-
-            case ast.Expr():
-                self.analyze_statement(node.value)
-
             case _:
-                raise ValueError(f"Unsupported statement type: {type(node)}")
+                raise GLSLTypeError(f"Unsupported statement type: {type(node)}")
 
-    def analyze_function_def(self, node: ast.FunctionDef) -> None:
-        """Analyze function definition."""
-        self.enter_scope(node.name)
+    def _analyze_assignment(self, node: ast.Assign) -> None:
+        """Analyze assignment statement."""
+        value_type = self.infer_type(node.value)
+
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                raise GLSLTypeError("Only simple assignments are supported")
+
+            # Check existing variable type
+            existing_type = self.get_variable_type(target.id)
+            if existing_type:
+                if not can_convert_to(value_type, existing_type):
+                    raise GLSLTypeError(
+                        f"Cannot assign {value_type} to variable of type {existing_type}"
+                    )
+            else:
+                self.register_variable(target.id, value_type)
+
+    def _analyze_aug_assignment(self, node: ast.AugAssign) -> None:
+        """Analyze augmented assignment statement."""
+        if not isinstance(node.target, ast.Name):
+            raise GLSLTypeError("Only simple augmented assignments are supported")
+
+        target_type = self.get_variable_type(node.target.id)
+        if not target_type:
+            raise GLSLTypeError(f"Undefined variable: {node.target.id}")
+
+        value_type = self.infer_type(node.value)
+        op_map = {
+            ast.Add: "+",
+            ast.Sub: "-",
+            ast.Mult: "*",
+            ast.Div: "/",
+            ast.Mod: "%",
+            ast.BitAnd: "&",
+            ast.BitOr: "|",
+            ast.BitXor: "^",
+            ast.LShift: "<<",
+            ast.RShift: ">>",
+        }
+
+        if type(node.op) not in op_map:
+            raise GLSLTypeError(
+                f"Unsupported augmented assignment operator: {type(node.op)}"
+            )
+
+        result_type = validate_operation(target_type, op_map[type(node.op)], value_type)
+        if result_type is None or not can_convert_to(result_type, target_type):
+            raise GLSLTypeError(
+                f"Invalid augmented assignment between {target_type} and {value_type}"
+            )
+
+    def _analyze_if_statement(self, node: ast.If) -> None:
+        """Analyze if statement."""
+        condition_type = self.infer_type(node.test)
+        if condition_type != BOOL:
+            raise GLSLTypeError(f"If condition must be boolean, got {condition_type}")
+
+        for stmt in node.body:
+            self.analyze_statement(stmt)
+        for stmt in node.orelse:
+            self.analyze_statement(stmt)
+
+    def _analyze_for_loop(self, node: ast.For) -> None:
+        """Analyze for loop."""
+        self.push_context(GLSLContext.LOOP)
 
         try:
-            # Process arguments
-            for arg in node.args.args:
-                if arg.annotation:
-                    arg_type = self.get_type_from_annotation(arg.annotation)
-                    self.register_variable(arg.arg, arg_type)
+            if not (
+                isinstance(node.iter, ast.Call)
+                and isinstance(node.iter.func, ast.Name)
+                and node.iter.func.id == "range"
+            ):
+                raise GLSLTypeError("Only range-based for loops are supported")
 
-            # Process keyword-only arguments as uniforms
-            for arg in node.args.kwonlyargs:
-                if arg.annotation:
-                    base_type = self.get_type_from_annotation(arg.annotation)
-                    uniform_type = GLSLType(base_type.kind, is_uniform=True)
-                    self.analysis.uniforms[arg.arg] = uniform_type
+            if not isinstance(node.target, ast.Name):
+                raise GLSLTypeError("Only simple loop variables are supported")
 
-            # Store main function reference or add to functions list
-            if len(self.scope_stack) == 0:  # Top-level function
-                self.analysis.main_function = node
-            else:
-                # Add nested function to functions list
-                self.analysis.functions.append(node)
+            # Register loop variable as int
+            self.register_variable(node.target.id, INT)
 
-            # Extract nested functions first
-            nested_functions = []
-            body = []
-            for stmt in node.body:
-                if isinstance(stmt, ast.FunctionDef):
-                    nested_functions.append(stmt)
-                else:
-                    body.append(stmt)
+            # Analyze range arguments
+            for arg in node.iter.args:
+                arg_type = self.infer_type(arg)
+                if not can_convert_to(arg_type, INT):
+                    raise GLSLTypeError(
+                        f"Range argument must be integer, got {arg_type}"
+                    )
 
-            # Analyze nested functions
-            for func in nested_functions:
-                self.analyze_function_def(func)
-
-            # Replace body without nested functions
-            node.body = body
-
-            # Analyze remaining body
             for stmt in node.body:
                 self.analyze_statement(stmt)
 
         finally:
+            self.pop_context()
+
+    def _analyze_while_loop(self, node: ast.While) -> None:
+        """Analyze while loop."""
+        self.push_context(GLSLContext.LOOP)
+
+        try:
+            condition_type = self.infer_type(node.test)
+            if condition_type != BOOL:
+                raise GLSLTypeError(
+                    f"While condition must be boolean, got {condition_type}"
+                )
+
+            for stmt in node.body:
+                self.analyze_statement(stmt)
+
+        finally:
+            self.pop_context()
+
+    def _analyze_return(self, node: ast.Return) -> None:
+        """Analyze return statement."""
+        if self.current_return_type is None:
+            raise GLSLTypeError("Return statement outside function")
+
+        if node.value is None:
+            if self.current_return_type != VOID:
+                raise GLSLTypeError(f"Function must return {self.current_return_type}")
+            return
+
+        return_type = self.infer_type(node.value)
+        if not can_convert_to(return_type, self.current_return_type):
+            raise GLSLTypeError(
+                f"Cannot return {return_type} from function returning {self.current_return_type}"
+            )
+
+    def analyze_function_def(self, node: ast.FunctionDef) -> None:
+        """Analyze function definition."""
+        logger.debug(f"Analyzing function: {node.name}")
+
+        self.enter_scope(node.name)
+        prev_return_type = self.current_return_type
+
+        try:
+            # Get return type
+            if node.returns:
+                self.current_return_type = self.get_type_from_annotation(node.returns)
+            else:
+                self.current_return_type = VOID
+
+            # Process arguments
+            for arg in node.args.args:
+                if not arg.annotation:
+                    raise GLSLTypeError(
+                        f"Missing type annotation for argument {arg.arg}"
+                    )
+                arg_type = self.get_type_from_annotation(arg.annotation)
+                self.register_variable(arg.arg, arg_type)
+
+            # Process keyword-only arguments as uniforms
+            for arg in node.args.kwonlyargs:
+                if not arg.annotation:
+                    raise GLSLTypeError(
+                        f"Missing type annotation for uniform {arg.arg}"
+                    )
+                base_type = self.get_type_from_annotation(arg.annotation)
+                uniform_type = GLSLType(base_type.kind, is_uniform=True)
+                self.analysis.uniforms[arg.arg] = uniform_type
+
+            # Register function type in global scope
+            self.analysis.var_types["global"][node.name] = self.current_return_type
+
+            # Process body
+            for stmt in node.body:
+                if isinstance(stmt, ast.FunctionDef):
+                    # Only add nested functions to functions list
+                    if self.current_scope != "global":
+                        self.analysis.functions.append(stmt)
+                    self.analyze_function_def(stmt)
+                else:
+                    self.analyze_statement(stmt)
+
+        finally:
+            self.current_return_type = prev_return_type
             self.exit_scope()
 
     def register_variable(self, name: str, glsl_type: GLSLType) -> None:
-        """Register variable in current scope."""
-        scope = self.current_scope
-        logger.debug(
-            f"Registering variable {name} of type {glsl_type} in scope {scope}"
-        )
+        """Register variable with type validation."""
+        logger.debug(f"Registering variable {name} of type {glsl_type}")
 
-        # Don't override existing type if already registered
+        scope = self.current_scope
+
+        # Check existing type compatibility
         if name in self.analysis.var_types[scope]:
             existing_type = self.analysis.var_types[scope][name]
-            logger.debug(
-                f"Variable {name} already registered with type {existing_type}"
-            )
+            if not can_convert_to(glsl_type, existing_type):
+                raise GLSLTypeError(
+                    f"Cannot assign type {glsl_type} to variable {name} of type {existing_type}"
+                )
             return
 
-        # Check if there's a type constraint
+        # Apply type constraints
         if name in self.type_constraints:
             constrained_type = self.type_constraints[name]
-            logger.debug(f"Found type constraint for {name}: {constrained_type}")
-            if _can_convert(glsl_type, constrained_type):
-                glsl_type = constrained_type
+            if not can_convert_to(glsl_type, constrained_type):
+                raise GLSLTypeError(
+                    f"Type {glsl_type} does not satisfy constraint {constrained_type} for {name}"
+                )
+            glsl_type = constrained_type
 
-        # Register in current scope
         self.analysis.hoisted_vars[scope].add(name)
         self.analysis.var_types[scope][name] = glsl_type
-        logger.debug(f"Added {name} of type {glsl_type} to hoisted vars in {scope}")
 
     def _collect_type_constraints(self, tree: ast.Module) -> None:
         """Collect type constraints from AST."""
@@ -388,28 +744,14 @@ class ShaderAnalyzer:
                     node.iter.func, ast.Name
                 ):
                     if node.iter.func.id == "range":
-                        # Register loop variable
                         if isinstance(node.target, ast.Name):
-                            self.type_constraints[node.target.id] = GLSLType(
-                                TypeKind.INT
-                            )
-
-                        # Register variables used in range bounds
+                            self.type_constraints[node.target.id] = INT
                         for arg in node.iter.args:
                             if isinstance(arg, ast.Name):
-                                self.type_constraints[arg.id] = GLSLType(TypeKind.INT)
-                            elif isinstance(arg, ast.BinOp):
-                                if isinstance(arg.left, ast.Name):
-                                    self.type_constraints[arg.left.id] = GLSLType(
-                                        TypeKind.INT
-                                    )
-                                if isinstance(arg.right, ast.Name):
-                                    self.type_constraints[arg.right.id] = GLSLType(
-                                        TypeKind.INT
-                                    )
+                                self.type_constraints[arg.id] = INT
 
     def _apply_type_constraints(self) -> None:
-        """Apply collected type constraints to all scopes."""
+        """Apply collected type constraints."""
         for var_name, var_type in self.type_constraints.items():
             if var_name not in self.analysis.var_types["global"]:
                 self.analysis.var_types["global"][var_name] = var_type
@@ -417,7 +759,14 @@ class ShaderAnalyzer:
 
     def _analyze_shader(self, tree: ast.Module) -> None:
         """Main analysis phase."""
+        # Reset state
+        self.analysis.functions = []
+        self.analysis.main_function = None
+
+        # Process all top-level functions
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
+                # Set as main function
                 self.analysis.main_function = node
+                # Analyze function (this will collect nested functions)
                 self.analyze_function_def(node)
