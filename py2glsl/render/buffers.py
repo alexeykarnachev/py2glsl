@@ -22,14 +22,31 @@ class BufferError(Exception):
     """Buffer creation or management error."""
 
 
-def create_quad_buffer(ctx: moderngl.Context, size: Size) -> moderngl.Buffer:
-    """Create a fullscreen quad buffer."""
+def create_quad_buffer(
+    ctx: moderngl.Context,
+    size: Size,
+    pixel_centered: bool = False,
+) -> moderngl.Buffer:
+    """Create a fullscreen quad buffer.
+
+    Args:
+        ctx: ModernGL context
+        size: Buffer size (width, height)
+        pixel_centered: If True, UV coordinates are centered on pixels
+    """
     w, h = size
-    # Map UV coordinates to pixel centers
-    u_min = 0.5 / w
-    u_max = (w - 0.5) / w
-    v_min = 0.5 / h
-    v_max = (h - 0.5) / h
+
+    # Generate UV coordinates
+    if pixel_centered:
+        # Map UV coordinates to pixel centers
+        u_min = 0.5 / w
+        u_max = (w - 0.5) / w
+        v_min = 0.5 / h
+        v_max = (h - 0.5) / h
+    else:
+        # Standard UV coordinates
+        u_min, u_max = 0.0, 1.0
+        v_min, v_max = 0.0, 1.0
 
     vertices = np.array(
         [

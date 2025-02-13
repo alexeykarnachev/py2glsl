@@ -95,6 +95,14 @@ class GLSLGenerator:
     def get_type(self, node: ast.AST) -> GLSLType:
         """Get GLSL type for node with validation."""
         if isinstance(node, ast.Call):
+            # Handle math module functions
+            if isinstance(node.func, ast.Attribute) and isinstance(
+                node.func.value, ast.Name
+            ):
+                if node.func.value.id == "math":
+                    # All math functions return float
+                    return FLOAT
+
             if isinstance(node.func, ast.Name):
                 func_name = node.func.id.lower()
 
@@ -220,8 +228,20 @@ class GLSLGenerator:
             case ast.Constant():
                 return self._format_constant(node.value)
 
-            case ast.Call() if isinstance(node.func, ast.Name):
-                return self._generate_call(node)
+            case ast.Call():
+                # Handle math module functions
+                if isinstance(node.func, ast.Attribute) and isinstance(
+                    node.func.value, ast.Name
+                ):
+                    if node.func.value.id == "math":
+                        # Convert math.func() to func()
+                        args = [self.generate_expression(arg) for arg in node.args]
+                        return f"{node.func.attr}({', '.join(args)})"
+
+                if isinstance(node.func, ast.Name):
+                    return self._generate_call(node)
+
+                raise GLSLTypeError(f"Invalid function call: {ast.dump(node)}")
 
             case ast.BinOp():
                 return self._generate_binary_op(node)
@@ -546,7 +566,7 @@ class GLSLGenerator:
             self.add_line(f"{return_type!s} {node.name}({', '.join(args)})")
             self.begin_block()
 
-            # Generate hoisted variable declarations with type validation
+            # Generate all variable declarations at the start
             hoisted = sorted(
                 var
                 for var in self.analysis.hoisted_vars[node.name]
@@ -559,6 +579,7 @@ class GLSLGenerator:
                     if not var_type:
                         raise GLSLTypeError(f"Unknown type for variable: {var_name}")
                     self.add_line(f"{var_type!s} {var_name};")
+                    self.declared_vars[self.current_scope].add(var_name)
                 self.add_line("")
 
             # Generate function body

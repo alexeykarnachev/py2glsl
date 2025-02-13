@@ -27,27 +27,27 @@ def gl_context(size: Size) -> Iterator[moderngl.Context]:
 
 
 def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray:
-    """Render shader to numpy array"""
-    with gl_context(size) as ctx:
+    """Render shader to numpy array."""
+    with moderngl.create_standalone_context() as ctx:
         # Create fullscreen quad with proper UV coordinates
         quad_vertices = np.array(
             [
                 -1.0,
                 -1.0,
                 0.0,
-                0.0,
+                0.0,  # bottom left
                 1.0,
                 -1.0,
                 1.0,
-                0.0,
+                0.0,  # bottom right
                 -1.0,
                 1.0,
                 0.0,
+                1.0,  # top left
                 1.0,
                 1.0,
                 1.0,
-                1.0,
-                1.0,
+                1.0,  # top right
             ],
             dtype="f4",
         )
@@ -62,29 +62,28 @@ def render_array(shader_func, size: Size = (512, 512), **uniforms) -> np.ndarray
             fragment_shader=shader_result.fragment_source,
         )
 
-        # Set built-in uniforms
-        if "u_resolution" in shader_result.uniforms:
-            program["u_resolution"].value = tuple(map(int, size))
-
-        # Set custom uniforms
-        for name, value in uniforms.items():
-            if name in shader_result.uniforms:
-                try:
-                    uniform_type = shader_result.uniforms[name]
-                    if uniform_type == "int":
-                        program[name].value = int(value)  # Keep integers as integers
-                    elif isinstance(value, (tuple, list, np.ndarray)):
-                        program[name].value = tuple(map(float, value))
-                    else:
-                        program[name].value = float(value)
-                except KeyError:
-                    continue
-
+        # Create vertex array
         vao = ctx.vertex_array(
             program,
             [(quad, "2f 2f", "in_pos", "in_uv")],
             skip_errors=True,
         )
+
+        # Set built-in uniforms
+        width, height = size
+        if "u_aspect" in shader_result.uniforms:
+            program["u_aspect"].value = width / height
+        if "u_time" in shader_result.uniforms and "u_time" not in uniforms:
+            program["u_time"].value = 0.0
+        if "u_frame" in shader_result.uniforms and "u_frame" not in uniforms:
+            program["u_frame"].value = 0
+        if "u_mouse" in shader_result.uniforms and "u_mouse" not in uniforms:
+            program["u_mouse"].value = (0.5, 0.5)
+
+        # Set custom uniforms
+        for name, value in uniforms.items():
+            if name in shader_result.uniforms:
+                program[name].value = value
 
         # Create framebuffer
         fbo = ctx.framebuffer(color_attachments=[ctx.texture(size, 4)])

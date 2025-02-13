@@ -550,7 +550,7 @@ class ShaderAnalyzer:
         raise GLSLTypeError(f"Unknown or unsupported built-in function: {func_name}")
 
     def analyze(self, shader_func) -> ShaderAnalysis:
-        """Analyze shader AST."""
+        """Analyze shader AST or function."""
         self.analysis = ShaderAnalysis()
         self.type_constraints = {}
         self.current_scope = "global"
@@ -558,9 +558,13 @@ class ShaderAnalyzer:
 
         logger.debug("Starting shader analysis")
 
-        # Get function source code and create AST
-        source = dedent(inspect.getsource(shader_func))
-        tree = ast.parse(source)
+        # Handle both AST and function inputs
+        if isinstance(shader_func, ast.Module):
+            tree = shader_func
+        else:
+            # Get function source code and create AST
+            source = dedent(inspect.getsource(shader_func))
+            tree = ast.parse(source)
 
         # Phase 1: Collect type constraints
         self._collect_type_constraints(tree)
@@ -782,7 +786,13 @@ class ShaderAnalyzer:
                         f"Missing type annotation for uniform {arg.arg}"
                     )
                 base_type = self.get_type_from_annotation(arg.annotation)
-                self.analysis.uniforms[arg.arg] = base_type
+                # Create uniform type with is_uniform=True
+                uniform_type = GLSLType(
+                    kind=base_type.kind,
+                    is_uniform=True,
+                    array_size=base_type.array_size,
+                )
+                self.analysis.uniforms[arg.arg] = uniform_type
 
             # Register function type in global scope
             self.analysis.var_types["global"][node.name] = self.current_return_type
