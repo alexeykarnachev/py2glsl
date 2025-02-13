@@ -1,7 +1,20 @@
 """GLSL type system."""
 
 from .base import GLSLType, TypeKind
-from .constructors import bvec2, bvec3, bvec4, ivec2, ivec3, ivec4, vec2, vec3, vec4
+from .constructors import (
+    bvec2,
+    bvec3,
+    bvec4,
+    ivec2,
+    ivec3,
+    ivec4,
+    mat2,
+    mat3,
+    mat4,
+    vec2,
+    vec3,
+    vec4,
+)
 from .errors import GLSLError, GLSLOperationError, GLSLSwizzleError, GLSLTypeError
 from .singletons import (
     BOOL,
@@ -58,6 +71,9 @@ __all__ = [
     "vec2",
     "vec3",
     "vec4",
+    "mat2",
+    "mat3",
+    "mat4",
     "ivec2",
     "ivec3",
     "ivec4",

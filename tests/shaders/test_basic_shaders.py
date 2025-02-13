@@ -2,7 +2,7 @@
 
 import pytest
 
-from py2glsl import py2glsl, vec2, vec4
+from py2glsl import vec2, vec4
 from py2glsl.builtins import (
     abs,
     atan,
@@ -16,11 +16,11 @@ from py2glsl.builtins import (
     min,
     mix,
     mod,
-    normalize,
     sin,
     smoothstep,
     sqrt,
 )
+from py2glsl.types.constructors import mat2
 
 from .utils import verify_shader_output
 
@@ -344,106 +344,3 @@ def test_comprehensive_shader(tmp_path):
             "u_scale": (3.0, 3.0),
         },
     )
-
-
-# def test_complex_nested_shader(tmp_path):
-#     """Test shader with complex nested structures and features."""
-#
-#     def complex_shader(
-#         vs_uv: vec2,
-#         *,
-#         u_color1: vec4,
-#         u_color2: vec4,
-#         u_time: float,
-#         u_scale: float,
-#     ) -> vec4:
-#         def create_rotation_matrix(angle: float) -> mat2:
-#             c = cos(angle)
-#             s = sin(angle)
-#             return mat2(c, -s, s, c)
-#
-#         def create_fractal(p: vec2, iterations: int) -> float:
-#             z = vec2(0.0, 0.0)
-#             c = p
-#             value = 0.0
-#
-#             for i in range(iterations):
-#                 # Early break optimization
-#                 if length(z) > 2.0:
-#                     break
-#
-#                 # Complex number multiplication
-#                 z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c
-#
-#                 value += exp(-length(z))
-#
-#             return value / float(iterations)
-#
-#         def create_pattern(uv: vec2, time: float) -> vec4:
-#             # Rotate UV space
-#             rot = create_rotation_matrix(time * 0.5)
-#             rotated_uv = rot * (uv * 2.0 - 1.0)
-#
-#             # Create multiple layers
-#             color = vec4(0.0, 0.0, 0.0, 0.0)
-#             scale = 1.0
-#
-#             for i in range(3):  # Layer loop
-#                 offset = vec2(
-#                     sin(time + float(i) * 0.5), cos(time * 0.7 + float(i) * 0.5)
-#                 )
-#
-#                 scaled_uv = rotated_uv * scale + offset
-#
-#                 # Create grid pattern
-#                 for x in range(-1, 2):  # Grid X
-#                     for y in range(-1, 2):  # Grid Y
-#                         cell_uv = scaled_uv + vec2(x - 0.0, y - 0.0)
-#
-#                         # Calculate fractal value
-#                         fractal = create_fractal(cell_uv * 0.5, 8)
-#
-#                         # Create cell color
-#                         cell_color = mix(u_color1, u_color2, fractal)
-#
-#                         # Apply distance falloff
-#                         dist = length(vec2(x - 0.0, y - 0.0))
-#                         falloff = smoothstep(2.0, 0.0, dist)
-#
-#                         color += cell_color * falloff * 0.3
-#
-#                 scale *= 1.5
-#
-#             return color
-#
-#         # Main shader logic
-#         uv = vs_uv * u_scale
-#
-#         # Create base pattern
-#         pattern = create_pattern(uv, u_time)
-#
-#         # Apply post-processing effects
-#         final_color = pattern
-#
-#         # Vignette effect
-#         center_dist = length(vs_uv * 2.0 - 1.0)
-#         vignette = 1.0 - smoothstep(0.5, 1.5, center_dist)
-#         final_color *= vignette
-#
-#         # Ensure valid alpha
-#         final_color.a = clamp(final_color.a, 0.0, 1.0)
-#
-#         return final_color
-#
-#     # Test the shader with specific uniforms
-#     verify_shader_output(
-#         shader_func=complex_shader,
-#         test_name="complex_nested",
-#         tmp_path=tmp_path,
-#         uniforms={
-#             "u_color1": (1.0, 0.2, 0.1, 1.0),
-#             "u_color2": (0.1, 0.4, 1.0, 1.0),
-#             "u_time": 1.234,
-#             "u_scale": 3.0,
-#         },
-#     )

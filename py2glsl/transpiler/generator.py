@@ -829,15 +829,17 @@ class GLSLGenerator:
 
         # Generate functions
         for func in self.analysis.functions:
+            logger.debug(f"Generating function: {func.name}")
             self.generate_function(func)
             self.add_line()
 
         # Generate main shader function if exists
         if self.analysis.main_function:
+            logger.debug("Generating main shader function")
             self.generate_function(self.analysis.main_function)
             self.add_line()
 
-            # Generate main function
+            logger.debug("Generating main() wrapper")
             self.add_line("void main()")
             self.begin_block()
             self.add_line(f"fs_color = {self.analysis.main_function.name}(vs_uv);")

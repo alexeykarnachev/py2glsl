@@ -56,7 +56,7 @@ from .types.base import GLSLType, TypeKind
 from .types.constructors import (
     bvec2,
     bvec3,
-    bvec4,  # Vectors; Matrices
+    bvec4,
     ivec2,
     ivec3,
     ivec4,
@@ -68,8 +68,8 @@ from .types.constructors import (
     vec4,
 )
 from .types.errors import GLSLError, GLSLOperationError, GLSLSwizzleError, GLSLTypeError
+from .types.singletons import BOOL  # Basic types; Vector types; Matrix types
 from .types.singletons import (
-    BOOL,  # Basic types; Vector types; Matrix types
     BVEC2,
     BVEC3,
     BVEC4,

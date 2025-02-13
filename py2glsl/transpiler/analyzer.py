@@ -587,12 +587,12 @@ class ShaderAnalyzer:
 
     def analyze(self, shader_func) -> ShaderAnalysis:
         """Analyze shader AST or function."""
+        logger.debug("Starting shader analysis")
+
         self.analysis = ShaderAnalysis()
         self.type_constraints = {}
         self.current_scope = "global"
         self.scope_stack = []
-
-        logger.debug("Starting shader analysis")
 
         # Handle both AST and function inputs
         if isinstance(shader_func, ast.Module):
@@ -601,16 +601,23 @@ class ShaderAnalyzer:
             # Get function source code and create AST
             source = dedent(inspect.getsource(shader_func))
             tree = ast.parse(source)
+            logger.debug(f"Parsed AST: {ast.dump(tree, indent=2)}")
 
         # Phase 1: Collect type constraints
+        logger.debug("Phase 1: Collecting type constraints")
         self._collect_type_constraints(tree)
+        logger.debug(f"Collected constraints: {self.type_constraints}")
 
         # Phase 2: Apply type constraints
+        logger.debug("Phase 2: Applying type constraints")
         self._apply_type_constraints()
+        logger.debug(f"Applied constraints: {self.analysis.var_types}")
 
         # Phase 3: Analyze all nodes
+        logger.debug("Phase 3: Analyzing nodes")
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
+                logger.debug(f"Analyzing function: {node.name}")
                 if not self.analysis.main_function:
                     self.analysis.main_function = node
                 self.analyze_function_def(node)
@@ -815,11 +822,7 @@ class ShaderAnalyzer:
             )
 
     def analyze_function_def(self, node: ast.FunctionDef) -> None:
-        """Analyze function definition with type validation.
-
-        Args:
-            node: Function definition AST node
-        """
+        """Analyze function definition with type validation."""
         logger.debug(f"Analyzing function: {node.name}")
 
         self.enter_scope(node.name)
@@ -848,7 +851,6 @@ class ShaderAnalyzer:
                         f"Missing type annotation for uniform {arg.arg}"
                     )
                 base_type = self.get_type_from_annotation(arg.annotation)
-                # Create uniform type with is_uniform=True
                 uniform_type = GLSLType(
                     kind=base_type.kind,
                     is_uniform=True,
@@ -871,11 +873,14 @@ class ShaderAnalyzer:
             # Process body
             for stmt in node.body:
                 if isinstance(stmt, ast.FunctionDef):
-                    # Only add nested functions to functions list
+                    logger.debug(f"Found nested function: {stmt.name}")
+                    # Only add nested functions to functions list if not in global scope
                     if self.current_scope != "global":
-                        self.analysis.functions.append(stmt)
+                        if stmt not in self.analysis.functions:  # Add this check
+                            self.analysis.functions.append(stmt)
                     self.analyze_function_def(stmt)
                 else:
+                    logger.debug(f"Analyzing statement: {type(stmt)}")
                     self.analyze_statement(stmt)
 
             # Validate return type
