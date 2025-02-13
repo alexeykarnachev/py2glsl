@@ -233,11 +233,12 @@ class ShaderAnalyzer:
                 raise GLSLTypeError(f"Unsupported expression type: {type(node)}")
 
     def _infer_call_type(self, node: ast.Call) -> GLSLType:
-        """Infer type of function call."""
+        """Infer return type of function call."""
         if not isinstance(node.func, ast.Name):
             raise GLSLTypeError("Invalid function call")
 
         func_name = node.func.id
+        arg_types = [self.infer_type(arg) for arg in node.args]
 
         # Type conversion functions
         type_conversions = {
@@ -246,6 +247,8 @@ class ShaderAnalyzer:
             "bool": BOOL,
         }
         if func_name in type_conversions:
+            if len(arg_types) != 1:
+                raise GLSLTypeError(f"{func_name} requires exactly one argument")
             return type_conversions[func_name]
 
         # Vector constructors
@@ -264,54 +267,87 @@ class ShaderAnalyzer:
             target_type, size = vector_types[func_name]
 
             # Special case: single scalar argument fills all components
-            if len(node.args) == 1:
-                arg_type = self.infer_type(node.args[0])
-                if not arg_type.is_vector:
-                    return target_type
+            if len(arg_types) == 1 and not arg_types[0].is_vector:
+                return target_type
 
-            # Normal case: validate components
-            arg_types = [self.infer_type(arg) for arg in node.args]
+            # Count total components
             total_components = sum(
-                arg_type.vector_size() if arg_type.is_vector else 1
-                for arg_type in arg_types
+                t.vector_size() if t.is_vector else 1 for t in arg_types
             )
             if total_components != size:
                 raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} construction"
+                    f"Invalid number of components for {func_name} construction: "
+                    f"expected {size}, got {total_components}"
                 )
             return target_type
 
-        # Check if it's a user-defined function in global scope
-        if func_name in self.analysis.var_types["global"]:
-            return self.analysis.var_types["global"][func_name]
-
-        # Built-in functions
-        scalar_funcs = {
-            "length",
-            "dot",
-            "distance",
-            "noise",
-            "abs",
-            "sign",
+        # Functions that preserve input type
+        preserve_type_funcs = {
             "floor",
             "ceil",
             "fract",
+            "mod",
+            "abs",
+            "sign",
+            "normalize",
+            "reflect",
+            "refract",
+            "clamp",
+        }
+        if func_name in preserve_type_funcs:
+            if not arg_types:
+                raise GLSLTypeError(f"{func_name} requires at least one argument")
+            return arg_types[0]
+
+        # Scalar return functions
+        scalar_funcs = {
+            "length",
+            "distance",
+            "dot",
             "sin",
             "cos",
             "tan",
             "asin",
             "acos",
             "atan",
+            "radians",
+            "degrees",
+            "exp",
+            "log",
+            "exp2",
+            "log2",
+            "sqrt",
+            "inversesqrt",
+            "min",  # Add min function
+            "max",  # Add max for completeness
         }
         if func_name in scalar_funcs:
             return FLOAT
 
-        preserve_funcs = {"normalize", "reflect", "refract"}
-        if func_name in preserve_funcs:
-            arg_types = [self.infer_type(arg) for arg in node.args]
-            if arg_types and arg_types[0].is_vector:
-                return arg_types[0]
-            return FLOAT
+        # Special case functions
+        if func_name == "mix":
+            if len(arg_types) != 3:
+                raise GLSLTypeError("mix requires 3 arguments")
+            if not is_compatible_with(arg_types[0], arg_types[1]):
+                raise GLSLTypeError("mix requires compatible x and y arguments")
+            return arg_types[0]
+
+        if func_name == "cross":
+            if len(arg_types) != 2:
+                raise GLSLTypeError("cross requires 2 arguments")
+            if not (arg_types[0] == VEC3 and arg_types[1] == VEC3):
+                raise GLSLTypeError("cross requires vec3 arguments")
+            return VEC3
+
+        if func_name == "smoothstep":  # Add smoothstep function
+            if len(arg_types) != 3:
+                raise GLSLTypeError("smoothstep requires 3 arguments")
+            # Return type matches the third argument's type
+            return arg_types[2]
+
+        # Check if it's a user-defined function
+        if func_name in self.analysis.var_types["global"]:
+            return self.analysis.var_types["global"][func_name]
 
         raise GLSLTypeError(f"Unknown function: {func_name}")
 
@@ -600,6 +636,9 @@ class ShaderAnalyzer:
             case ast.Assign():
                 self._analyze_assignment(node)
 
+            case ast.AnnAssign():
+                self._analyze_annotated_assignment(node)
+
             case ast.AugAssign():
                 self._analyze_aug_assignment(node)
 
@@ -627,6 +666,25 @@ class ShaderAnalyzer:
 
             case _:
                 raise GLSLTypeError(f"Unsupported statement type: {type(node)}")
+
+    def _analyze_annotated_assignment(self, node: ast.AnnAssign) -> None:
+        """Analyze annotated assignment statement."""
+        if not isinstance(node.target, ast.Name):
+            raise GLSLTypeError("Only simple assignments are supported")
+
+        # Get type from annotation
+        target_type = self.get_type_from_annotation(node.annotation)
+
+        # Register variable with annotated type
+        self.register_variable(node.target.id, target_type)
+
+        # If there's a value, validate it
+        if node.value:
+            value_type = self.infer_type(node.value)
+            if not can_convert_to(value_type, target_type):
+                raise GLSLTypeError(
+                    f"Cannot assign value of type {value_type} to variable of type {target_type}"
+                )
 
     def _analyze_assignment(self, node: ast.Assign) -> None:
         """Analyze assignment statement."""

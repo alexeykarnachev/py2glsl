@@ -106,6 +106,24 @@ class GLSLGenerator:
             if isinstance(node.func, ast.Name):
                 func_name = node.func.id.lower()
 
+                # Basic type constructors
+                type_constructors = {
+                    "float": FLOAT,
+                    "int": INT,
+                    "bool": BOOL,
+                }
+                if func_name in type_constructors:
+                    if len(node.args) != 1:
+                        raise GLSLTypeError(
+                            f"{func_name} constructor requires exactly one argument"
+                        )
+                    arg_type = self.get_type(node.args[0])
+                    if not can_convert_to(arg_type, type_constructors[func_name]):
+                        raise GLSLTypeError(
+                            f"Cannot convert type {arg_type} to {type_constructors[func_name]}"
+                        )
+                    return type_constructors[func_name]
+
                 # Vector constructors
                 vector_types = {
                     "vec2": (VEC2, 2),
@@ -121,7 +139,7 @@ class GLSLGenerator:
 
                 if func_name in vector_types:
                     target_type, size = vector_types[func_name]
-                    return target_type  # Just return type, validation in _generate_call
+                    return target_type
 
                 # Built-in functions
                 builtin_types = {
@@ -193,6 +211,28 @@ class GLSLGenerator:
             elif isinstance(node.value, float):
                 return FLOAT
             raise GLSLTypeError(f"Unsupported constant type: {type(node.value)}")
+
+        elif isinstance(node, ast.Compare):
+            # All comparison operations return bool
+            return BOOL
+
+        elif isinstance(node, ast.UnaryOp):
+            # Handle unary operations
+            operand_type = self.get_type(node.operand)
+
+            if isinstance(node.op, ast.USub):
+                # Negation preserves type
+                return operand_type
+            elif isinstance(node.op, ast.UAdd):
+                # Positive preserves type
+                return operand_type
+            elif isinstance(node.op, ast.Not):
+                # Logical not returns bool
+                if operand_type == BOOL or operand_type.is_bool_vector:
+                    return operand_type
+                raise GLSLTypeError(f"Cannot apply logical not to type {operand_type}")
+
+            raise GLSLTypeError(f"Unsupported unary operator: {type(node.op)}")
 
         elif isinstance(node, ast.BinOp):
             left_type = self.get_type(node.left)
@@ -273,6 +313,18 @@ class GLSLGenerator:
         """Generate formatted function call with type validation."""
         func_name = node.func.id.lower()
         logger.debug(f"Generating call for function: {func_name}")
+
+        # Type conversion functions
+        type_conversions = {
+            "float": "float",
+            "int": "int",
+            "bool": "bool",
+        }
+        if func_name in type_conversions:
+            if len(node.args) != 1:
+                raise GLSLTypeError(f"{func_name} requires exactly one argument")
+            arg = self.generate_expression(node.args[0])
+            return f"{type_conversions[func_name]}({arg})"
 
         # Vector constructor validation
         vector_types = {
@@ -380,6 +432,7 @@ class GLSLGenerator:
             "mix",
             "step",
             "smoothstep",
+            "mod",
         }
 
         if func_name in builtin_functions:
