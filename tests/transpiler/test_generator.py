@@ -47,9 +47,9 @@ def test_basic_shader_generation(basic_analysis):
     """Test basic shader generation."""
     code = dedent(
         """
-    def shader(vs_uv: vec2) -> vec4:
-        return vec4(vs_uv, 0.0, 1.0)
-    """
+        def shader(vs_uv: vec2) -> vec4:
+            return vec4(vs_uv, 0.0, 1.0)
+        """
     )
 
     tree = ast.parse(code)
@@ -203,7 +203,7 @@ def test_uniform_generation(basic_analysis):
     result = generator.generate()
 
     assert "uniform float u_time;" in result.fragment_source
-    assert "uniform vec2 u_aspect;" in result.fragment_source
+    assert "uniform float u_aspect;" in result.fragment_source
 
 
 def test_vertex_shader_inclusion(basic_analysis):

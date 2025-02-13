@@ -757,7 +757,11 @@ class ShaderAnalyzer:
             )
 
     def analyze_function_def(self, node: ast.FunctionDef) -> None:
-        """Analyze function definition."""
+        """Analyze function definition with type validation.
+
+        Args:
+            node: Function definition AST node
+        """
         logger.debug(f"Analyzing function: {node.name}")
 
         self.enter_scope(node.name)
@@ -794,6 +798,15 @@ class ShaderAnalyzer:
                 )
                 self.analysis.uniforms[arg.arg] = uniform_type
 
+            # Add built-in uniforms if not already present
+            for name, type_ in BUILTIN_UNIFORMS.items():
+                if name not in self.analysis.uniforms:
+                    self.analysis.uniforms[name] = GLSLType(
+                        kind=type_.kind,
+                        is_uniform=True,
+                        array_size=type_.array_size,
+                    )
+
             # Register function type in global scope
             self.analysis.var_types["global"][node.name] = self.current_return_type
 
@@ -806,6 +819,17 @@ class ShaderAnalyzer:
                     self.analyze_function_def(stmt)
                 else:
                     self.analyze_statement(stmt)
+
+            # Validate return type
+            if self.current_return_type != VOID:
+                has_return = any(
+                    isinstance(stmt, ast.Return) and stmt.value is not None
+                    for stmt in node.body
+                )
+                if not has_return:
+                    raise GLSLTypeError(
+                        f"Function {node.name} must return a value of type {self.current_return_type}"
+                    )
 
         finally:
             self.current_return_type = prev_return_type

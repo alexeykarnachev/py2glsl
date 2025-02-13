@@ -34,16 +34,15 @@ def create_quad_buffer(ctx: moderngl.Context) -> moderngl.Buffer:
 
 
 def create_vertex_array(
-    ctx: moderngl.Context,
-    program: moderngl.Program,
-    buffer: moderngl.Buffer,
+    ctx: moderngl.Context, program: moderngl.Program, buffer: moderngl.Buffer
 ) -> moderngl.VertexArray:
     """Create a vertex array for shader rendering."""
     try:
-        return ctx.vertex_array(
+        vao = ctx.vertex_array(
             program,
             [(buffer, "2f 2f", "in_pos", "in_uv")],
-            skip_errors=True,
+            skip_errors=False,
         )
+        return vao
     except Exception as e:
         raise BufferError(f"Failed to create vertex array: {e}") from e

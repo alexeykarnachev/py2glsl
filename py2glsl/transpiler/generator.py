@@ -26,7 +26,7 @@ from py2glsl.types import (
 )
 
 from .analyzer import ShaderAnalysis
-from .constants import GLSL_VERSION, VERTEX_SHADER
+from .constants import BUILTIN_UNIFORMS, GLSL_VERSION, VERTEX_SHADER
 
 
 @dataclass
@@ -754,15 +754,24 @@ class GLSLGenerator:
         self.add_line(f"#version {GLSL_VERSION}")
         self.add_line()
 
-        # Input/output declarations
-        self.add_line("in vec2 vs_uv;")
+        # Input from vertex shader
+        self.add_line("in vec2 vs_uv;")  # Input from vertex shader
         self.add_line("out vec4 fs_color;")
         self.add_line()
 
-        # Uniform declarations
-        for name, glsl_type in sorted(self.analysis.uniforms.items()):
-            self.add_line(f"uniform {glsl_type.name} {name};")
-        if self.analysis.uniforms:
+        # Ensure built-in uniforms are included
+        all_uniforms = {
+            **BUILTIN_UNIFORMS,  # Add built-in uniforms first
+            **self.analysis.uniforms,  # Then add shader-specific uniforms
+        }
+
+        # Uniform declarations (sorted for consistent output)
+        for name, glsl_type in sorted(all_uniforms.items()):
+            uniform_type = GLSLType(
+                kind=glsl_type.kind, is_uniform=True, array_size=glsl_type.array_size
+            )
+            self.add_line(f"uniform {uniform_type.name} {name};")
+        if all_uniforms:
             self.add_line()
 
         # Generate functions
@@ -782,7 +791,7 @@ class GLSLGenerator:
             self.end_block()
 
         return GeneratedShader(
-            vertex_source=self.vertex_source,
+            vertex_source=VERTEX_SHADER,
             fragment_source="\n".join(self.lines),
-            uniforms=self.analysis.uniforms,
+            uniforms=all_uniforms,  # Return all uniforms including built-ins
         )

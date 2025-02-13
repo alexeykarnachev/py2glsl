@@ -89,8 +89,8 @@ def test_invalid_program():
         program = ctx.program(
             vertex_shader="""
                 #version 460
-                in vec2 wrong_pos;  # Wrong attribute name
-                in vec2 wrong_uv;   # Wrong attribute name
+                in vec2 wrong_pos;  // Wrong attribute name
+                in vec2 wrong_uv;   // Wrong attribute name
                 void main() {
                     gl_Position = vec4(wrong_pos, 0.0, 1.0);
                 }
@@ -104,5 +104,6 @@ def test_invalid_program():
             """,
         )
 
+        # This should raise BufferError due to missing attributes
         with pytest.raises(BufferError):
             create_vertex_array(ctx, program, buffer)

@@ -5,6 +5,9 @@ import imageio
 import numpy as np
 from PIL import Image
 
+from py2glsl.types.base import TypeKind
+from py2glsl.types.errors import GLSLError
+
 from ..transpiler import py2glsl
 from ..transpiler.constants import VERTEX_SHADER
 from .buffers import create_quad_buffer, create_vertex_array
@@ -26,31 +29,41 @@ def render_array(shader_func, size=(512, 512), **uniforms) -> np.ndarray:
             fragment_shader=shader_result.fragment_source,
         )
 
-        # Set built-in uniforms
-        if "u_aspect" in shader_result.uniforms:
-            u_aspect = size[0] / size[1]
-            program["u_aspect"].value = u_aspect
-
-        # Set custom uniforms
-        for name, value in uniforms.items():
-            if name in shader_result.uniforms:
-                try:
-                    uniform_type = shader_result.uniforms[name]
-                    if uniform_type == "int":
-                        program[name].value = int(value)
-                    elif isinstance(value, (tuple, list, np.ndarray)):
-                        program[name].value = tuple(map(float, value))
-                    else:
-                        program[name].value = float(value)
-                except KeyError:
-                    continue
-
         # Create vertex array
         vao = create_vertex_array(ctx, program, quad)
 
         # Create framebuffer
         fbo = ctx.framebuffer(color_attachments=[ctx.texture(size, 4)])
         fbo.use()
+
+        # Set uniforms only if they exist in the program
+        for name, value in uniforms.items():
+            if name in program:  # Check if uniform exists in program
+                try:
+                    if isinstance(value, (tuple, list)):
+                        program[name].value = tuple(map(float, value))
+                    else:
+                        program[name].value = float(value)
+                except Exception as e:
+                    raise GLSLError(f"Failed to set uniform {name}: {e}")
+
+        # Handle built-in uniforms that are actually used in the shader
+        built_in_uniforms = {
+            "u_time": uniforms.get("u_time", 0.0),
+            "u_frame": uniforms.get("u_frame", 0),
+            "u_mouse": uniforms.get("u_mouse", (0.0, 0.0)),
+            "u_aspect": float(size[0]) / float(size[1]),
+        }
+
+        for name, value in built_in_uniforms.items():
+            if name in program:  # Only set if uniform exists in program
+                try:
+                    if isinstance(value, (tuple, list)):
+                        program[name].value = tuple(map(float, value))
+                    else:
+                        program[name].value = float(value)
+                except Exception as e:
+                    raise GLSLError(f"Failed to set built-in uniform {name}: {e}")
 
         # Clear and render
         ctx.clear()
@@ -77,7 +90,7 @@ def render_gif(
     frame_duration = int(1000 / fps)
 
     with create_standalone_context() as ctx:
-        quad = create_quad_buffer(ctx, size)
+        quad = create_quad_buffer(ctx)
         shader_result = py2glsl(shader_func)
         program = ctx.program(
             vertex_shader=VERTEX_SHADER,

@@ -4,13 +4,13 @@ from ..types import FLOAT, INT, VEC2
 
 # Default vertex shader for fragment shader rendering
 VERTEX_SHADER = """#version 460
-layout(location = 0) in vec2 in_pos;
-layout(location = 1) in vec2 in_uv;
-out vec2 vs_uv;
+layout(location = 0) in vec2 in_pos;   // Input position attribute
+layout(location = 1) in vec2 in_uv;    // Input UV attribute
+out vec2 vs_uv;                        // Output UV to fragment shader
 
 void main() {
     gl_Position = vec4(in_pos, 0.0, 1.0);
-    vs_uv = in_uv;
+    vs_uv = in_uv;                     // Pass UV to fragment shader
 }
 """
 

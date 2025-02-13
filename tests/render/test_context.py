@@ -29,10 +29,8 @@ def test_window_context_creation():
 
 def test_invalid_gl_version():
     """Test context creation with invalid OpenGL version."""
-    config = GLConfig(major_version=9, minor_version=9)  # Invalid version
-    with pytest.raises(GLContextError):
-        with create_standalone_context(config=config):
-            pass
+    with pytest.raises(GLContextError, match="Unsupported OpenGL version: 9.9"):
+        GLConfig(major_version=9, minor_version=9)  # Invalid version
 
 
 def test_context_cleanup():
