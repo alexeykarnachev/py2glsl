@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import imageio
+import moderngl
 import numpy as np
 from PIL import Image
 
@@ -38,15 +39,59 @@ class ShaderRenderer:
         self.config = config or RenderConfig()
         self.shader_result = py2glsl(shader_func)
 
-    def setup_render_context(self, ctx):
-        """Set up rendering context with program and framebuffer."""
+    def setup_render_context(
+        self, ctx: moderngl.Context
+    ) -> tuple[ShaderProgram, moderngl.VertexArray, moderngl.Framebuffer]:
+        """Set up rendering context with program and framebuffer.
+
+        Args:
+            ctx: ModernGL context
+
+        Returns:
+            Tuple of (program, vertex array object, framebuffer)
+        """
+        # Create shader program
         program = ShaderProgram(
             ctx,
             self.shader_result.vertex_source,
             self.shader_result.fragment_source,
         )
+
+        # Create quad buffer for fullscreen rendering
+        quad_vertices = np.array(
+            [
+                -1.0,
+                -1.0,
+                0.0,
+                1.0,  # Bottom left (flipped v from 0.0 to 1.0)
+                1.0,
+                -1.0,
+                1.0,
+                1.0,  # Bottom right (flipped v from 0.0 to 1.0)
+                -1.0,
+                1.0,
+                0.0,
+                0.0,  # Top left (flipped v from 1.0 to 0.0)
+                1.0,
+                1.0,
+                1.0,
+                0.0,  # Top right (flipped v from 1.0 to 0.0)
+            ],
+            dtype="f4",
+        )
+
+        quad_buffer = ctx.buffer(quad_vertices.tobytes())
+
+        # Create vertex array with attributes
+        vao = ctx.vertex_array(
+            program.program,  # Use the underlying ModernGL program
+            [(quad_buffer, "2f 2f", "in_pos", "in_uv")],
+        )
+
+        # Create framebuffer for rendering
         fbo = ctx.framebuffer(color_attachments=[ctx.texture(self.config.size, 4)])
-        return program, fbo
+
+        return program, vao, fbo
 
     def render_frame(
         self,
@@ -62,7 +107,7 @@ class ShaderRenderer:
 
         Args:
             ctx: ModernGL context
-            program: Shader program
+            program: Shader program wrapper
             vao: Vertex array object
             fbo: Framebuffer object
             time: Current time in seconds
@@ -77,7 +122,6 @@ class ShaderRenderer:
         # Update uniforms
         frame_uniforms = {**uniforms, "u_time": time, "u_frame": frame}
         program.set_uniforms(frame_uniforms)
-        program.set_built_in_uniforms(self.config.size, time, frame)
 
         # Render
         ctx.clear()
