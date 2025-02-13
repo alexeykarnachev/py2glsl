@@ -5,7 +5,6 @@ import imageio
 import numpy as np
 from PIL import Image
 
-from py2glsl.types.base import TypeKind
 from py2glsl.types.errors import GLSLError
 
 from ..transpiler import py2glsl
