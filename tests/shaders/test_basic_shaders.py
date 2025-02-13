@@ -1,6 +1,6 @@
 import math
 
-from py2glsl import vec2, vec4
+from py2glsl import py2glsl, vec2, vec4
 
 from .utils import verify_shader_output
 
@@ -10,6 +10,13 @@ def test_solid_color(tmp_path):
 
     def solid_color(vs_uv: vec2, *, u_color: vec4) -> vec4:
         return u_color
+
+    # Add debug prints
+    result = py2glsl(solid_color)
+    print("\nVertex Shader:")
+    print(result.vertex_source)
+    print("\nFragment Shader:")
+    print(result.fragment_source)
 
     verify_shader_output(
         shader_func=solid_color,

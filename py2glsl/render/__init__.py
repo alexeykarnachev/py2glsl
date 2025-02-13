@@ -1,7 +1,6 @@
 """Rendering functionality for shaders."""
 
 from .animation import animate
-from .buffers import BufferError, create_quad_buffer, create_vertex_array
 from .context import (
     GLConfig,
     GLContextError,
@@ -22,10 +21,6 @@ __all__ = [
     "render_gif",
     "render_video",
     "animate",
-    # Buffer management
-    "BufferError",
-    "create_quad_buffer",
-    "create_vertex_array",
     # Context management
     "GLConfig",
     "GLContextError",
