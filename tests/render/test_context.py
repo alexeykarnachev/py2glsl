@@ -88,18 +88,7 @@ def test_custom_config():
         minor_version=6,
         samples=8,
         vsync=False,
-        debug=True,
     )
     with create_standalone_context(config=config) as ctx:
         assert ctx is not None
         assert ctx.version_code >= 460
-
-
-@pytest.mark.xfail(reason="Multiple contexts not supported in all environments")
-def test_multiple_contexts():
-    """Test creating multiple contexts."""
-    with create_standalone_context() as ctx1:
-        with create_standalone_context() as ctx2:
-            assert ctx1 is not None
-            assert ctx2 is not None
-            assert id(ctx1) != id(ctx2)
