@@ -15,7 +15,7 @@ def render_array(shader_func, size=(512, 512), **uniforms) -> np.ndarray:
     """Render shader to numpy array."""
     with create_standalone_context() as ctx:
         # Create quad buffer
-        quad = create_quad_buffer(ctx, size)
+        quad = create_quad_buffer(ctx)
 
         # Convert shader to GLSL
         shader_result = py2glsl(shader_func)
@@ -27,8 +27,9 @@ def render_array(shader_func, size=(512, 512), **uniforms) -> np.ndarray:
         )
 
         # Set built-in uniforms
-        if "u_resolution" in shader_result.uniforms:
-            program["u_resolution"].value = tuple(map(int, size))
+        if "u_aspect" in shader_result.uniforms:
+            u_aspect = size[0] / size[1]
+            program["u_aspect"].value = u_aspect
 
         # Set custom uniforms
         for name, value in uniforms.items():

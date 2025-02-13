@@ -43,7 +43,7 @@ def animate(
         setup_context(ctx)
 
         # Create quad and program
-        quad = create_quad_buffer(ctx, size)
+        quad = create_quad_buffer(ctx)
         shader_result = py2glsl(shader_func)
         program = ctx.program(
             vertex_shader=VERTEX_SHADER,
@@ -66,6 +66,7 @@ def animate(
         last_frame = start_time
         frame = 0
         frame_time = 1.0 / fps
+        aspect = size.x / size.y
 
         # Main loop
         while not glfw.window_should_close(window):
@@ -83,7 +84,7 @@ def animate(
                     **uniforms,
                     "u_time": elapsed,
                     "u_frame": frame,
-                    "u_resolution": (width, height),
+                    "u_aspect": aspect,
                     "u_mouse": tuple(mouse_pos),
                 }
 
