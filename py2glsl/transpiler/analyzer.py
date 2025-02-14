@@ -257,7 +257,7 @@ class ShaderAnalyzer:
         if not isinstance(node.func, ast.Name):
             raise GLSLTypeError("Invalid function call")
 
-        func_name = node.func.id
+        func_name = node.func.id.lower()
         arg_types = [self.infer_type(arg) for arg in node.args]
 
         # Type conversion functions
@@ -287,19 +287,40 @@ class ShaderAnalyzer:
             target_type, size = vector_types[func_name]
 
             # Special case: single scalar argument fills all components
-            if len(arg_types) == 1 and not arg_types[0].is_vector:
+            if len(arg_types) == 1:
+                if not arg_types[0].is_vector:
+                    return target_type
+
+                # If vector, must match size
+                if arg_types[0].vector_size() != size:
+                    raise GLSLTypeError(
+                        f"Cannot construct {func_name} from vector of size {arg_types[0].vector_size()}"
+                    )
                 return target_type
 
-            # Count total components
-            total_components = sum(
-                t.vector_size() if t.is_vector else 1 for t in arg_types
-            )
+            # Calculate total components from all arguments
+            total_components = 0
+            for arg_type in arg_types:
+                if arg_type.is_vector:
+                    total_components += arg_type.vector_size()
+                else:
+                    total_components += 1
+
             if total_components != size:
                 raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} construction: "
+                    f"Invalid number of components for {func_name} constructor: "
                     f"expected {size}, got {total_components}"
                 )
             return target_type
+
+        # Range validation for loops
+        if func_name == "range":
+            if not arg_types:
+                raise GLSLTypeError("range() requires at least one argument")
+            for arg_type in arg_types:
+                if not can_convert_to(arg_type, INT):
+                    raise GLSLTypeError("Range argument must be integer")
+            return INT
 
         # Functions that preserve input type
         preserve_type_funcs = {
@@ -338,8 +359,8 @@ class ShaderAnalyzer:
             "log2",
             "sqrt",
             "inversesqrt",
-            "min",  # Add min function
-            "max",  # Add max for completeness
+            "min",
+            "max",
         }
         if func_name in scalar_funcs:
             return FLOAT
@@ -359,10 +380,9 @@ class ShaderAnalyzer:
                 raise GLSLTypeError("cross requires vec3 arguments")
             return VEC3
 
-        if func_name == "smoothstep":  # Add smoothstep function
+        if func_name == "smoothstep":
             if len(arg_types) != 3:
                 raise GLSLTypeError("smoothstep requires 3 arguments")
-            # Return type matches the third argument's type
             return arg_types[2]
 
         # Check if it's a user-defined function
@@ -623,24 +643,60 @@ class ShaderAnalyzer:
             tree = ast.parse(source)
             logger.debug(f"Parsed AST: {ast.dump(tree, indent=2)}")
 
-        # Phase 1: Collect type constraints
-        logger.debug("Phase 1: Collecting type constraints")
-        self._collect_type_constraints(tree)
-        logger.debug(f"Collected constraints: {self.type_constraints}")
+        # Phase 1: Process function signatures and register types
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                # Register return type
+                if node.returns:
+                    return_type = self.get_type_from_annotation(node.returns)
+                    self.analysis.var_types["global"][node.name] = return_type
+                    if node.name not in self.analysis.var_types:
+                        self.analysis.var_types[node.name] = {}
 
-        # Phase 2: Apply type constraints
-        logger.debug("Phase 2: Applying type constraints")
-        self._apply_type_constraints()
-        logger.debug(f"Applied constraints: {self.analysis.var_types}")
+                # Register argument types
+                for arg in node.args.args:
+                    if arg.annotation:
+                        arg_type = self.get_type_from_annotation(arg.annotation)
+                        self.analysis.var_types["global"][arg.arg] = arg_type
+                        self.analysis.var_types[node.name][arg.arg] = arg_type
 
-        # Phase 3: Analyze all nodes
-        logger.debug("Phase 3: Analyzing nodes")
+                # Register keyword-only arguments as uniforms
+                for arg in node.args.kwonlyargs:
+                    if arg.annotation:
+                        base_type = self.get_type_from_annotation(arg.annotation)
+                        uniform_type = GLSLType(
+                            kind=base_type.kind,
+                            is_uniform=True,
+                            array_size=base_type.array_size,
+                        )
+                        self.analysis.uniforms[arg.arg] = uniform_type
+
+        # Phase 2: Analyze function bodies
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
                 logger.debug(f"Analyzing function: {node.name}")
                 if not self.analysis.main_function:
                     self.analysis.main_function = node
-                self.analyze_function_def(node)
+
+                # Enter function scope
+                self.enter_scope(node.name)
+
+                try:
+                    # Set return type
+                    if node.returns:
+                        self.current_return_type = self.get_type_from_annotation(
+                            node.returns
+                        )
+                    else:
+                        self.current_return_type = VOID
+
+                    # Analyze function body
+                    for stmt in node.body:
+                        self.analyze_statement(stmt)
+                finally:
+                    # Exit function scope
+                    self.exit_scope()
+                    self.current_return_type = None
 
         return self.analysis
 
@@ -789,16 +845,7 @@ class ShaderAnalyzer:
 
     def _analyze_for_loop(self, node: ast.For) -> None:
         """Analyze for loop."""
-
         self.push_context(GLSLContext.LOOP)
-
-        # Range-loops analysis
-        if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name):
-            if node.iter.func.id == "range":
-                # Check first argument type to determine loop type
-                if node.iter.args:
-                    arg_type = self.infer_type(node.iter.args[0])
-                    # This will affect how loop variable is typed
 
         try:
             if not (
@@ -817,10 +864,10 @@ class ShaderAnalyzer:
             # Analyze range arguments
             for arg in node.iter.args:
                 arg_type = self.infer_type(arg)
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, float):
+                    raise GLSLTypeError("Range argument must be integer")
                 if not can_convert_to(arg_type, INT):
-                    raise GLSLTypeError(
-                        f"Range argument must be integer, got {arg_type}"
-                    )
+                    raise GLSLTypeError("Range argument must be integer")
 
             for stmt in node.body:
                 self.analyze_statement(stmt)
@@ -871,17 +918,23 @@ class ShaderAnalyzer:
         try:
             # Get return type
             if node.returns:
-                self.current_return_type = self.get_type_from_annotation(node.returns)
+                return_type = self.get_type_from_annotation(node.returns)
+                # Register function return type in global scope
+                self.analysis.var_types["global"][node.name] = return_type
+                self.current_return_type = return_type
             else:
                 self.current_return_type = VOID
 
-            # Process arguments
+            # Process arguments first
             for arg in node.args.args:
                 if not arg.annotation:
                     raise GLSLTypeError(
                         f"Missing type annotation for argument {arg.arg}"
                     )
                 arg_type = self.get_type_from_annotation(arg.annotation)
+                # Register in both function and global scope
+                self.analysis.var_types[node.name][arg.arg] = arg_type
+                self.analysis.var_types["global"][arg.arg] = arg_type
                 self.register_variable(arg.arg, arg_type)
 
             # Process keyword-only arguments as uniforms
@@ -898,41 +951,17 @@ class ShaderAnalyzer:
                 )
                 self.analysis.uniforms[arg.arg] = uniform_type
 
-            # Add built-in uniforms if not already present
-            for name, type_ in BUILTIN_UNIFORMS.items():
-                if name not in self.analysis.uniforms:
-                    self.analysis.uniforms[name] = GLSLType(
-                        kind=type_.kind,
-                        is_uniform=True,
-                        array_size=type_.array_size,
-                    )
-
-            # Register function type in global scope
-            self.analysis.var_types["global"][node.name] = self.current_return_type
-
             # Process body
             for stmt in node.body:
                 if isinstance(stmt, ast.FunctionDef):
                     logger.debug(f"Found nested function: {stmt.name}")
-                    # Only add nested functions to functions list if not in global scope
                     if self.current_scope != "global":
-                        if stmt not in self.analysis.functions:  # Add this check
+                        if stmt not in self.analysis.functions:
                             self.analysis.functions.append(stmt)
                     self.analyze_function_def(stmt)
                 else:
                     logger.debug(f"Analyzing statement: {type(stmt)}")
                     self.analyze_statement(stmt)
-
-            # Validate return type
-            if self.current_return_type != VOID:
-                has_return = any(
-                    isinstance(stmt, ast.Return) and stmt.value is not None
-                    for stmt in node.body
-                )
-                if not has_return:
-                    raise GLSLTypeError(
-                        f"Function {node.name} must return a value of type {self.current_return_type}"
-                    )
 
         finally:
             self.current_return_type = prev_return_type

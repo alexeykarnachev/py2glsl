@@ -349,6 +349,59 @@ class GLSLGenerator:
             "vec2": 2,
         }
 
+        if func_name in vector_constructors:
+            size = vector_constructors[func_name]
+
+            # Single scalar argument - expand to all components
+            if len(node.args) == 1:
+                arg = self.generate_expression(node.args[0])
+                arg_type = self.get_type(node.args[0])
+
+                # If scalar, expand to all components
+                if not arg_type.is_vector:
+                    return f"{func_name}({', '.join([arg] * size)})"
+
+                # If vector, must match size
+                if arg_type.vector_size() != size:
+                    raise GLSLTypeError(
+                        f"Cannot construct {func_name} from vector of size {arg_type.vector_size()}"
+                    )
+                return f"{func_name}({arg})"
+
+            # Multiple arguments
+            args = []
+            total_components = 0
+
+            for arg in node.args:
+                arg_expr = self.generate_expression(arg)
+                arg_type = self.get_type(arg)
+
+                if arg_type.is_vector:
+                    vec_size = arg_type.vector_size()
+                    total_components += vec_size
+                    if total_components > size:
+                        raise GLSLTypeError(
+                            f"Too many components for {func_name} constructor"
+                        )
+                else:
+                    total_components += 1
+                args.append(arg_expr)
+
+            if total_components != size:
+                raise GLSLTypeError(
+                    f"Invalid number of components for {func_name} constructor: "
+                    f"expected {size}, got {total_components}"
+                )
+
+            return f"{func_name}({', '.join(args)})"
+
+        # Handle type conversions
+        if func_name in ("int", "float", "bool"):
+            if len(node.args) != 1:
+                raise GLSLTypeError(f"{func_name} requires exactly one argument")
+            arg = self.generate_expression(node.args[0])
+            return f"{func_name}({arg})"
+
         # GLSL built-in functions
         builtin_functions = {
             # Trigonometry
@@ -404,60 +457,6 @@ class GLSLGenerator:
             "all",
         }
 
-        if func_name in vector_constructors:
-            size = vector_constructors[func_name]
-
-            # Single scalar argument - expand to all components
-            if len(node.args) == 1:
-                arg = self.generate_expression(node.args[0])
-                arg_type = self.get_type(node.args[0])
-
-                # If scalar, expand to all components
-                if not arg_type.is_vector:
-                    return f"{func_name}({', '.join([arg] * size)})"
-
-                # If vector, must match size
-                if arg_type.vector_size() != size:
-                    raise GLSLTypeError(
-                        f"Cannot construct {func_name} from vector of size {arg_type.vector_size()}"
-                    )
-                return f"{func_name}({arg})"
-
-            # Multiple arguments
-            args = []
-            total_components = 0
-
-            for arg in node.args:
-                arg_expr = self.generate_expression(arg)
-                arg_type = self.get_type(arg)
-
-                if arg_type.is_vector:
-                    vec_size = arg_type.vector_size()
-                    total_components += vec_size
-                    if total_components > size:
-                        raise GLSLTypeError(
-                            f"Too many components for {func_name} constructor"
-                        )
-                else:
-                    total_components += 1
-                args.append(arg_expr)
-
-            if total_components != size:
-                raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} constructor: "
-                    f"expected {size}, got {total_components}"
-                )
-
-            return f"{func_name}({', '.join(args)})"
-
-        # Handle type conversions
-        if func_name in ("int", "float", "bool"):
-            if len(node.args) != 1:
-                raise GLSLTypeError(f"{func_name} requires exactly one argument")
-            arg = self.generate_expression(node.args[0])
-            return f"{func_name}({arg})"
-
-        # Handle built-in functions
         if func_name in builtin_functions:
             args = [self.generate_expression(arg) for arg in node.args]
             return f"{func_name}({', '.join(args)})"
@@ -647,7 +646,10 @@ class GLSLGenerator:
             # Process arguments
             args = []
             for arg in node.args.args:
-                arg_type = self.analysis.var_types[node.name].get(arg.arg)
+                # Look in global scope first, then function scope
+                arg_type = self.analysis.var_types["global"].get(
+                    arg.arg
+                ) or self.analysis.var_types[node.name].get(arg.arg)
                 if not arg_type:
                     raise GLSLTypeError(f"Unknown type for argument: {arg.arg}")
                 args.append(f"{arg_type!s} {arg.arg}")
@@ -715,6 +717,9 @@ class GLSLGenerator:
                 expr = self.generate_expression(node.value)
                 self.add_line(f"{expr};")
 
+            case ast.Pass():
+                self.add_line(";")
+
             case _:
                 raise GLSLTypeError(f"Unsupported statement: {type(node)}")
 
@@ -759,7 +764,7 @@ class GLSLGenerator:
         for arg in node.iter.args:
             arg_type = self.get_type(arg)
             if not can_convert_to(arg_type, INT):
-                raise GLSLTypeError(f"Range argument must be integer, got {arg_type}")
+                raise GLSLTypeError("Range argument must be integer")
 
         # Handle range arguments
         if len(node.iter.args) == 1:
