@@ -241,6 +241,18 @@ class GLSLGenerator:
                 )
             return result_type
 
+        elif isinstance(node, ast.BoolOp):
+            if isinstance(node.op, ast.And):
+                # Validate all values are boolean
+                for value in node.values:
+                    value_type = self.get_type(value)
+                    if value_type != BOOL:
+                        raise GLSLTypeError(
+                            f"Boolean operation requires bool operands, got {value_type}"
+                        )
+                return BOOL
+            raise GLSLTypeError("Only 'and' operations are supported")
+
         elif isinstance(node, ast.UnaryOp):
             operand_type = self.get_type(node.operand)
             if isinstance(node.op, ast.UAdd | ast.USub):
@@ -287,6 +299,15 @@ class GLSLGenerator:
                     return self._generate_call(node)
 
                 raise GLSLTypeError(f"Invalid function call: {ast.dump(node)}")
+
+            case ast.BoolOp():
+                if isinstance(node.op, ast.And):
+                    # Generate each condition and join with &&
+                    conditions = [
+                        self.generate_expression(value) for value in node.values
+                    ]
+                    return f"({' && '.join(conditions)})"
+                raise GLSLTypeError("Only 'and' operations are supported")
 
             case ast.BinOp():
                 return self._generate_binary_op(node)
