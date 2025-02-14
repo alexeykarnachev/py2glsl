@@ -412,7 +412,14 @@ class GLSLGenerator:
         if func_name in vector_constructors:
             size = vector_constructors[func_name]
             total_components = 0
-            args = []
+
+            # Calculate total components first
+            for arg in node.args:
+                arg_type = self.get_type(arg)
+                if arg_type.is_vector:
+                    total_components += arg_type.vector_size()
+                else:
+                    total_components += 1
 
             # Handle special case: single scalar argument
             if len(node.args) == 1:
@@ -425,46 +432,16 @@ class GLSLGenerator:
                 elif arg_type.vector_size() == size:
                     # Direct vector assignment
                     return f"{func_name}({arg})"
-                else:
-                    raise GLSLTypeError(
-                        f"Cannot construct {func_name} from vector of size {arg_type.vector_size()}"
-                    )
 
-            # Handle special case: vec2 + scalar for vec3
-            if len(node.args) == 2 and size == 3:
-                arg0_type = self.get_type(node.args[0])
-                if arg0_type.is_vector and arg0_type.vector_size() == 2:
-                    arg0 = self.generate_expression(node.args[0])
-                    arg1 = self.generate_expression(node.args[1])
-                    return f"{func_name}({arg0}, {arg1})"
-
-            # Handle special case: vec2 + scalar + scalar for vec4
-            if len(node.args) == 3 and size == 4:
-                arg0_type = self.get_type(node.args[0])
-                if arg0_type.is_vector and arg0_type.vector_size() == 2:
-                    args = [self.generate_expression(arg) for arg in node.args]
-                    return f"{func_name}({', '.join(args)})"
-
-            # Handle general case
-            for arg in node.args:
-                arg_type = self.get_type(arg)
-                if arg_type.is_vector:
-                    total_components += arg_type.vector_size()
-                else:
-                    total_components += 1
-
-                if total_components > size:
-                    raise GLSLTypeError(
-                        f"Too many components for {func_name} constructor: got {total_components}, max {size}"
-                    )
-
-                args.append(self.generate_expression(arg))
-
+            # Validate total components before generating code
             if total_components != size:
                 raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} constructor: expected {size}, got {total_components}"
+                    f"Invalid number of components for {func_name} constructor: "
+                    f"expected {size}, got {total_components}"
                 )
 
+            # Generate arguments
+            args = [self.generate_expression(arg) for arg in node.args]
             return f"{func_name}({', '.join(args)})"
 
         # Handle type conversions
@@ -676,7 +653,6 @@ class GLSLGenerator:
 
         # Register variable in current scope
         self.analysis.var_types[self.current_scope][node.target.id] = target_type
-        self.analysis.hoisted_vars[self.current_scope].add(node.target.id)
 
         if node.value:
             # Handle initialization
@@ -689,17 +665,13 @@ class GLSLGenerator:
                     f"Cannot assign value of type {value_type} to variable of type {target_type}"
                 )
 
-            # Generate combined declaration and initialization
-            if node.target.id not in self.declared_vars[self.current_scope]:
-                self.add_line(f"{target_type!s} {node.target.id} = {value};")
-                self.declared_vars[self.current_scope].add(node.target.id)
-            else:
-                self.add_line(f"{node.target.id} = {value};")
+            # Always generate combined declaration and initialization
+            self.add_line(f"{target_type!s} {node.target.id} = {value};")
+            self.declared_vars[self.current_scope].add(node.target.id)
         else:
             # Handle declaration without initialization
-            if node.target.id not in self.declared_vars[self.current_scope]:
-                self.add_line(f"{target_type!s} {node.target.id};")
-                self.declared_vars[self.current_scope].add(node.target.id)
+            self.add_line(f"{target_type!s} {node.target.id};")
+            self.declared_vars[self.current_scope].add(node.target.id)
 
         logger.debug(
             f"Generated annotated assignment for {node.target.id} of type {target_type}"
