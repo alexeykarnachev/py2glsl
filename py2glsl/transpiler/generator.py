@@ -27,6 +27,12 @@ from py2glsl.types import (
 
 from .analyzer import ShaderAnalysis
 from .constants import BUILTIN_UNIFORMS, GLSL_VERSION, VERTEX_SHADER
+from .operators import (
+    AUGASSIGN_OPERATORS,
+    BINARY_OPERATORS,
+    COMPARISON_OPERATORS,
+    UNARY_OPERATORS,
+)
 
 
 @dataclass
@@ -243,17 +249,10 @@ class GLSLGenerator:
         elif isinstance(node, ast.BinOp):
             left_type = self.get_type(node.left)
             right_type = self.get_type(node.right)
-            operators = {
-                ast.Add: "+",
-                ast.Sub: "-",
-                ast.Mult: "*",
-                ast.Div: "/",
-                ast.Mod: "%",
-            }
-            if type(node.op) not in operators:
+            if type(node.op) not in BINARY_OPERATORS:
                 raise GLSLTypeError(f"Unsupported binary operator: {type(node.op)}")
 
-            op = operators[type(node.op)]
+            op = BINARY_OPERATORS[type(node.op)]
             result_type = validate_operation(left_type, op, right_type)
             if result_type is None:
                 raise GLSLTypeError(
@@ -547,18 +546,10 @@ class GLSLGenerator:
         left_type = self.get_type(node.left)
         right_type = self.get_type(node.right)
 
-        operators = {
-            ast.Add: "+",
-            ast.Sub: "-",
-            ast.Mult: "*",
-            ast.Div: "/",
-            ast.Mod: "%",
-        }
-
-        if type(node.op) not in operators:
+        if type(node.op) not in BINARY_OPERATORS:
             raise GLSLTypeError(f"Unsupported binary operator: {type(node.op)}")
 
-        op = operators[type(node.op)]
+        op = BINARY_OPERATORS[type(node.op)]
 
         # Validate operation using type system
         result_type = validate_operation(left_type, op, right_type)
@@ -577,18 +568,9 @@ class GLSLGenerator:
         if len(node.ops) != 1 or len(node.comparators) != 1:
             raise GLSLTypeError("Only simple comparisons are supported")
 
-        operators = {
-            ast.Eq: "==",
-            ast.NotEq: "!=",
-            ast.Lt: "<",
-            ast.LtE: "<=",
-            ast.Gt: ">",
-            ast.GtE: ">=",
-        }
-
         left_type = self.get_type(node.left)
         right_type = self.get_type(node.comparators[0])
-        op = operators[type(node.ops[0])]
+        op = COMPARISON_OPERATORS[type(node.ops[0])]
 
         # Validate comparison using type system
         result_type = validate_operation(left_type, op, right_type)
@@ -604,16 +586,11 @@ class GLSLGenerator:
 
     def _generate_unary_op(self, node: ast.UnaryOp) -> str:
         """Generate formatted unary operation with type validation."""
-        operators = {
-            ast.UAdd: "+",
-            ast.USub: "-",
-            ast.Not: "!",
-        }
 
-        if type(node.op) not in operators:
+        if type(node.op) not in UNARY_OPERATORS:
             raise GLSLTypeError(f"Unsupported unary operator: {type(node.op)}")
 
-        op = operators[type(node.op)]
+        op = UNARY_OPERATORS[type(node.op)]
         operand_type = self.get_type(node.operand)
 
         # Validate unary operation
@@ -897,20 +874,12 @@ class GLSLGenerator:
         target_type = self.get_type(node.target)
         value_type = self.get_type(node.value)
 
-        operators = {
-            ast.Add: "+=",
-            ast.Sub: "-=",
-            ast.Mult: "*=",
-            ast.Div: "/=",
-            ast.Mod: "%=",
-        }
-
-        if type(node.op) not in operators:
+        if type(node.op) not in AUGASSIGN_OPERATORS:
             raise GLSLTypeError(
                 f"Unsupported augmented assignment operator: {type(node.op)}"
             )
 
-        op = operators[type(node.op)]
+        op = AUGASSIGN_OPERATORS[type(node.op)]
         base_op = op[0]  # Get the basic operator without '='
 
         # Validate operation using type system
