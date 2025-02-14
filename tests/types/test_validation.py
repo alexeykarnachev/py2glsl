@@ -206,9 +206,9 @@ class TestTypeConversion:
         assert can_convert_to(VEC3, VEC3)
         assert can_convert_to(MAT4, MAT4)
 
-        # Int to float
+        # Int <-> float
         assert can_convert_to(INT, FLOAT)
-        assert not can_convert_to(FLOAT, INT)
+        assert can_convert_to(FLOAT, INT)
 
         # Vector conversions
         assert can_convert_to(VEC2, VEC2)
