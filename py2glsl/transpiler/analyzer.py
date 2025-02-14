@@ -158,99 +158,141 @@ class ShaderAnalyzer:
         return None
 
     def infer_type(self, node: ast.AST) -> GLSLType:
-        """Infer GLSL type from AST node with validation."""
-        logger.debug(f"Inferring type for node: {ast.dump(node)}")
+        """Infer GLSL type for AST node."""
+        logger.debug(f"Inferring type for node: {node}")
 
-        if self.current_context == GLSLContext.LOOP:
-            if isinstance(node, ast.Constant):
-                # Use numeric detection here for loop variables
-                if isinstance(node.value, float):
-                    return FLOAT
-                return INT
+        if isinstance(node, ast.Name):
+            # Check if variable exists in current scope
+            if node.id in self.analysis.var_types[self.current_scope]:
+                return self.analysis.var_types[self.current_scope][node.id]
 
-        match node:
-            case ast.Name():
-                # Special case for vertex shader UV coordinates
-                if node.id == "vs_uv":
-                    return VEC2
-                # Look up variable type
-                var_type = self.get_variable_type(node.id)
-                if var_type:
-                    return var_type
-                # Check uniforms
-                if node.id in self.analysis.uniforms:
-                    return self.analysis.uniforms[node.id]
-                raise GLSLTypeError(f"Undefined variable: {node.id}")
+            # Check parent scopes
+            for scope in reversed(self.scope_stack):
+                if node.id in self.analysis.var_types[scope]:
+                    return self.analysis.var_types[scope][node.id]
 
-            case ast.Constant():
-                if isinstance(node.value, bool):
-                    return BOOL
-                elif isinstance(node.value, int):
-                    return INT if self.current_context == GLSLContext.LOOP else FLOAT
-                elif isinstance(node.value, float):
-                    return FLOAT
-                raise GLSLTypeError(f"Unsupported constant type: {type(node.value)}")
+            # Check uniforms and built-ins
+            if node.id in self.analysis.uniforms:
+                return self.analysis.uniforms[node.id]
+            if node.id == "vs_uv":
+                return VEC2
 
-            case ast.Call():
-                # Handle math module functions
-                if isinstance(node.func, ast.Attribute) and isinstance(
-                    node.func.value, ast.Name
-                ):
-                    if node.func.value.id == "math":
-                        # Map Python math functions to GLSL functions
-                        math_funcs = {
-                            "sqrt": FLOAT,
-                            "sin": FLOAT,
-                            "cos": FLOAT,
-                            "tan": FLOAT,
-                            "asin": FLOAT,
-                            "acos": FLOAT,
-                            "atan": FLOAT,
-                            "abs": None,  # Returns same type as input
-                        }
-                        if node.func.attr in math_funcs:
-                            return_type = math_funcs[node.func.attr]
-                            if return_type is None:
-                                # Function returns same type as input
-                                return self.infer_type(node.args[0])
-                            return return_type
+            raise GLSLTypeError(f"Undefined variable: {node.id}")
+
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id.lower()
+
+                # Vector constructors
+                vector_types = {
+                    "vec2": (VEC2, 2),
+                    "vec3": (VEC3, 3),
+                    "vec4": (VEC4, 4),
+                    "ivec2": (IVEC2, 2),
+                    "ivec3": (IVEC3, 3),
+                    "ivec4": (IVEC4, 4),
+                    "bvec2": (BVEC2, 2),
+                    "bvec3": (BVEC3, 3),
+                    "bvec4": (BVEC4, 4),
+                }
+
+                if func_name in vector_types:
+                    target_type, size = vector_types[func_name]
+
+                    # Calculate total components
+                    total_components = 0
+                    for arg in node.args:
+                        arg_type = self.infer_type(arg)
+                        if arg_type.is_vector:
+                            total_components += arg_type.vector_size()
+                        else:
+                            total_components += 1
+
+                    # Special case: single scalar expands to fill vector
+                    if (
+                        len(node.args) == 1
+                        and not self.infer_type(node.args[0]).is_vector
+                    ):
+                        return target_type
+
+                    # Validate component count
+                    if total_components != size:
                         raise GLSLTypeError(
-                            f"Unsupported math function: {node.func.attr}"
+                            f"Invalid number of components for {func_name} constructor: "
+                            f"expected {size}, got {total_components}"
                         )
 
-                # Handle regular function calls
-                if isinstance(node.func, ast.Name):
-                    return self._infer_call_type(node)
+                    return target_type
 
-                raise GLSLTypeError(f"Invalid function call: {ast.dump(node)}")
+                # Built-in functions
+                if func_name in self.analysis.var_types["global"]:
+                    return self.analysis.var_types["global"][func_name].return_type
 
-            case ast.BoolOp():
-                # For 'and' operations in GLSL
-                if isinstance(node.op, ast.And):
-                    # Check all values are boolean
-                    for value in node.values:
-                        value_type = self.infer_type(value)
-                        if value_type != BOOL:
-                            raise GLSLTypeError(
-                                f"Boolean operation requires bool operands, got {value_type}"
-                            )
-                    return BOOL
-                raise GLSLTypeError("Only 'and' operations are supported")
+                builtin_types = {
+                    "length": FLOAT,
+                    "distance": FLOAT,
+                    "dot": FLOAT,
+                    "cross": VEC3,
+                    "normalize": None,  # Returns same as input
+                    "sin": FLOAT,
+                    "cos": FLOAT,
+                    "tan": FLOAT,
+                    "asin": FLOAT,
+                    "acos": FLOAT,
+                    "atan": FLOAT,
+                    "pow": FLOAT,
+                    "exp": FLOAT,
+                    "log": FLOAT,
+                    "sqrt": FLOAT,
+                    "abs": None,  # Returns same as input
+                    "sign": None,  # Returns same as input
+                    "floor": None,  # Returns same as input
+                    "ceil": None,  # Returns same as input
+                    "fract": None,  # Returns same as input
+                    "min": None,  # Returns same as input
+                    "max": None,  # Returns same as input
+                    "mix": None,  # Returns same as input
+                    "smoothstep": FLOAT,
+                }
 
-            case ast.BinOp():
-                return self._infer_binary_operation(node)
+                if func_name in builtin_types:
+                    return_type = builtin_types[func_name]
+                    if return_type is None:
+                        # Function returns same type as input
+                        return self.infer_type(node.args[0])
+                    return return_type
 
-            case ast.Compare():
-                return self._infer_comparison(node)
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, bool):
+                return BOOL
+            elif isinstance(node.value, int):
+                return INT
+            elif isinstance(node.value, float):
+                return FLOAT
+            raise GLSLTypeError(f"Unsupported constant type: {type(node.value)}")
 
-            case ast.UnaryOp():
-                return self._infer_unary_operation(node)
+        elif isinstance(node, ast.BinOp):
+            left_type = self.infer_type(node.left)
+            right_type = self.infer_type(node.right)
+            operators = {
+                ast.Add: "+",
+                ast.Sub: "-",
+                ast.Mult: "*",
+                ast.Div: "/",
+                ast.Mod: "%",
+            }
+            if type(node.op) not in operators:
+                raise GLSLTypeError(f"Unsupported binary operator: {type(node.op)}")
 
-            case ast.Attribute():
-                return self._infer_attribute_type(node)
+            op = operators[type(node.op)]
+            result_type = validate_operation(left_type, op, right_type)
+            if result_type is None:
+                raise GLSLTypeError(
+                    f"Invalid operation {op} between types {left_type} and {right_type}"
+                )
+            return result_type
 
-            case _:
-                raise GLSLTypeError(f"Unsupported expression type: {type(node)}")
+        raise GLSLTypeError(f"Cannot infer type for node: {type(node)}")
 
     def _infer_call_type(self, node: ast.Call) -> GLSLType:
         """Infer return type of function call."""
@@ -259,17 +301,6 @@ class ShaderAnalyzer:
 
         func_name = node.func.id.lower()
         arg_types = [self.infer_type(arg) for arg in node.args]
-
-        # Type conversion functions
-        type_conversions = {
-            "float": FLOAT,
-            "int": INT,
-            "bool": BOOL,
-        }
-        if func_name in type_conversions:
-            if len(arg_types) != 1:
-                raise GLSLTypeError(f"{func_name} requires exactly one argument")
-            return type_conversions[func_name]
 
         # Vector constructors
         vector_types = {
@@ -283,22 +314,11 @@ class ShaderAnalyzer:
             "bvec3": (BVEC3, 3),
             "bvec4": (BVEC4, 4),
         }
+
         if func_name in vector_types:
-            target_type, size = vector_types[func_name]
+            target_type, expected_size = vector_types[func_name]
 
-            # Special case: single scalar argument fills all components
-            if len(arg_types) == 1:
-                if not arg_types[0].is_vector:
-                    return target_type
-
-                # If vector, must match size
-                if arg_types[0].vector_size() != size:
-                    raise GLSLTypeError(
-                        f"Cannot construct {func_name} from vector of size {arg_types[0].vector_size()}"
-                    )
-                return target_type
-
-            # Calculate total components from all arguments
+            # Calculate total components
             total_components = 0
             for arg_type in arg_types:
                 if arg_type.is_vector:
@@ -306,11 +326,17 @@ class ShaderAnalyzer:
                 else:
                     total_components += 1
 
-            if total_components != size:
+            # Special case: single scalar argument fills all components
+            if len(arg_types) == 1 and not arg_types[0].is_vector:
+                return target_type
+
+            # For all other cases, total components must match exactly
+            if total_components != expected_size:
                 raise GLSLTypeError(
                     f"Invalid number of components for {func_name} constructor: "
-                    f"expected {size}, got {total_components}"
+                    f"expected {expected_size}, got {total_components}"
                 )
+
             return target_type
 
         # Range validation for loops

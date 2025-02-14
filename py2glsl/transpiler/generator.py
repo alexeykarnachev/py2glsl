@@ -41,6 +41,42 @@ class GeneratedShader:
 class GLSLGenerator:
     """Generates formatted GLSL code with type validation."""
 
+    BUILTIN_FUNCTIONS = {
+        "length",
+        "distance",
+        "dot",
+        "cross",
+        "normalize",
+        "sin",
+        "cos",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "pow",
+        "exp",
+        "log",
+        "exp2",
+        "log2",
+        "sqrt",
+        "inversesqrt",
+        "abs",
+        "sign",
+        "floor",
+        "ceil",
+        "fract",
+        "mod",
+        "min",
+        "max",
+        "clamp",
+        "mix",
+        "step",
+        "smoothstep",
+        "faceforward",
+        "reflect",
+        "refract",
+    }
+
     def __init__(self, analysis: ShaderAnalysis):
         """Initialize generator with analysis results."""
         self.analysis = analysis
@@ -185,7 +221,25 @@ class GLSLGenerator:
                         return self.get_type(node.args[0])
                     return return_type
 
-        elif isinstance(node, ast.Name):
+        if isinstance(node, ast.Name):
+            # Check if it's a type annotation
+            type_map = {
+                "vec2": VEC2,
+                "vec3": VEC3,
+                "vec4": VEC4,
+                "ivec2": IVEC2,
+                "ivec3": IVEC3,
+                "ivec4": IVEC4,
+                "bvec2": BVEC2,
+                "bvec3": BVEC3,
+                "bvec4": BVEC4,
+                "float": FLOAT,
+                "int": INT,
+                "bool": BOOL,
+            }
+            if node.id in type_map:
+                return type_map[node.id]
+
             # Check current scope first
             if node.id in self.analysis.var_types[self.current_scope]:
                 return self.analysis.var_types[self.current_scope][node.id]
@@ -347,50 +401,68 @@ class GLSLGenerator:
             "vec4": 4,
             "vec3": 3,
             "vec2": 2,
+            "ivec4": 4,
+            "ivec3": 3,
+            "ivec2": 2,
+            "bvec4": 4,
+            "bvec3": 3,
+            "bvec2": 2,
         }
 
         if func_name in vector_constructors:
             size = vector_constructors[func_name]
+            total_components = 0
+            args = []
 
-            # Single scalar argument - expand to all components
+            # Handle special case: single scalar argument
             if len(node.args) == 1:
                 arg = self.generate_expression(node.args[0])
                 arg_type = self.get_type(node.args[0])
 
-                # If scalar, expand to all components
                 if not arg_type.is_vector:
+                    # Scalar expansion (e.g., vec3(1.0) -> vec3(1.0, 1.0, 1.0))
                     return f"{func_name}({', '.join([arg] * size)})"
-
-                # If vector, must match size
-                if arg_type.vector_size() != size:
+                elif arg_type.vector_size() == size:
+                    # Direct vector assignment
+                    return f"{func_name}({arg})"
+                else:
                     raise GLSLTypeError(
                         f"Cannot construct {func_name} from vector of size {arg_type.vector_size()}"
                     )
-                return f"{func_name}({arg})"
 
-            # Multiple arguments
-            args = []
-            total_components = 0
+            # Handle special case: vec2 + scalar for vec3
+            if len(node.args) == 2 and size == 3:
+                arg0_type = self.get_type(node.args[0])
+                if arg0_type.is_vector and arg0_type.vector_size() == 2:
+                    arg0 = self.generate_expression(node.args[0])
+                    arg1 = self.generate_expression(node.args[1])
+                    return f"{func_name}({arg0}, {arg1})"
 
+            # Handle special case: vec2 + scalar + scalar for vec4
+            if len(node.args) == 3 and size == 4:
+                arg0_type = self.get_type(node.args[0])
+                if arg0_type.is_vector and arg0_type.vector_size() == 2:
+                    args = [self.generate_expression(arg) for arg in node.args]
+                    return f"{func_name}({', '.join(args)})"
+
+            # Handle general case
             for arg in node.args:
-                arg_expr = self.generate_expression(arg)
                 arg_type = self.get_type(arg)
-
                 if arg_type.is_vector:
-                    vec_size = arg_type.vector_size()
-                    total_components += vec_size
-                    if total_components > size:
-                        raise GLSLTypeError(
-                            f"Too many components for {func_name} constructor"
-                        )
+                    total_components += arg_type.vector_size()
                 else:
                     total_components += 1
-                args.append(arg_expr)
+
+                if total_components > size:
+                    raise GLSLTypeError(
+                        f"Too many components for {func_name} constructor: got {total_components}, max {size}"
+                    )
+
+                args.append(self.generate_expression(arg))
 
             if total_components != size:
                 raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} constructor: "
-                    f"expected {size}, got {total_components}"
+                    f"Invalid number of components for {func_name} constructor: expected {size}, got {total_components}"
                 )
 
             return f"{func_name}({', '.join(args)})"
@@ -402,62 +474,13 @@ class GLSLGenerator:
             arg = self.generate_expression(node.args[0])
             return f"{func_name}({arg})"
 
-        # GLSL built-in functions
-        builtin_functions = {
-            # Trigonometry
-            "sin",
-            "cos",
-            "tan",
-            "asin",
-            "acos",
-            "atan",
-            # Exponential
-            "pow",
-            "exp",
-            "log",
-            "exp2",
-            "log2",
-            "sqrt",
-            "inversesqrt",
-            # Common
-            "abs",
-            "sign",
-            "floor",
-            "ceil",
-            "fract",
-            "mod",
-            "min",
-            "max",
-            "clamp",
-            "mix",
-            "step",
-            "smoothstep",
-            # Geometric
-            "length",
-            "distance",
-            "dot",
-            "cross",
-            "normalize",
-            "faceforward",
-            "reflect",
-            "refract",
-            # Matrix
-            "matrixCompMult",
-            "transpose",
-            "determinant",
-            "inverse",
-            # Vector
-            "lessThan",
-            "greaterThan",
-            "lessThanEqual",
-            "greaterThanEqual",
-            "equal",
-            "notEqual",
-            "any",
-            "all",
-        }
+        # Handle built-in functions
+        if func_name in self.BUILTIN_FUNCTIONS:
+            args = [self.generate_expression(arg) for arg in node.args]
+            return f"{func_name}({', '.join(args)})"
 
-        if func_name in builtin_functions:
+        # Check if it's a user-defined function
+        if func_name in self.analysis.var_types["global"]:
             args = [self.generate_expression(arg) for arg in node.args]
             return f"{func_name}({', '.join(args)})"
 
@@ -567,53 +590,96 @@ class GLSLGenerator:
     def _generate_assignment(self, node: ast.Assign) -> None:
         """Generate formatted assignment with type validation."""
         try:
+            # Get value type and expression before handling targets
             value_type = self.get_type(node.value)
             value = self.generate_expression(node.value)
 
+            # Handle each target
             for target in node.targets:
                 if not isinstance(target, ast.Name):
                     raise GLSLTypeError("Only simple assignments are supported")
 
-                # Check if variable exists in any parent scope
-                target_type = None
-                current = self.current_scope
-                while current:
-                    if target.id in self.analysis.var_types[current]:
-                        target_type = self.analysis.var_types[current][target.id]
-                        break
-                    current = self.scope_stack[-1] if self.scope_stack else None
+                try:
+                    # Check if variable exists in any parent scope
+                    target_type = None
+                    current = self.current_scope
+                    while current:
+                        if target.id in self.analysis.var_types[current]:
+                            target_type = self.analysis.var_types[current][target.id]
+                            break
+                        if current == "global":
+                            break
+                        current = self.scope_stack[-1] if self.scope_stack else None
 
-                # If variable doesn't exist anywhere, declare it
-                if not target_type:
-                    target_type = value_type
-                    self.analysis.var_types[self.current_scope][target.id] = value_type
+                    # If variable doesn't exist anywhere, declare it
+                    if not target_type:
+                        target_type = value_type
+                        self.analysis.var_types[self.current_scope][
+                            target.id
+                        ] = value_type
+                        self.analysis.hoisted_vars[self.current_scope].add(target.id)
 
-                # Validate assignment compatibility
-                if not can_convert_to(value_type, target_type):
+                    # Validate assignment compatibility
+                    if not can_convert_to(value_type, target_type):
+                        raise GLSLTypeError(
+                            f"Cannot assign value of type {value_type} to variable of type {target_type}"
+                        )
+
+                    # Generate declaration or assignment
+                    if target.id not in self.declared_vars[self.current_scope]:
+                        # For new variables, combine declaration and initialization
+                        self.add_line(f"{target_type!s} {target.id} = {value};")
+                        self.declared_vars[self.current_scope].add(target.id)
+                    else:
+                        # For existing variables, just assign
+                        self.add_line(f"{target.id} = {value};")
+
+                except Exception as e:
                     raise GLSLTypeError(
-                        f"Cannot assign value of type {value_type} to variable of type {target_type}"
-                    )
-
-                # Generate declaration or assignment
-                if target.id not in self.declared_vars[self.current_scope]:
-                    self.add_line(f"{target_type!s} {target.id} = {value};")
-                    self.declared_vars[self.current_scope].add(target.id)
-                else:
-                    self.add_line(f"{target.id} = {value};")
+                        f"Error in assignment to {target.id}: {e!s}"
+                    ) from e
 
         except Exception as e:
-            raise GLSLTypeError(f"Error in assignment to {target.id}: {e!s}") from e
+            if not isinstance(e, GLSLTypeError):
+                raise GLSLTypeError("Error in assignment") from e
+            raise
 
     def _generate_annotated_assignment(self, node: ast.AnnAssign) -> None:
         """Generate annotated assignment with type validation."""
         if not isinstance(node.target, ast.Name):
             raise GLSLTypeError("Only simple assignments are supported")
 
-        target_type = self.analysis.var_types[self.current_scope].get(node.target.id)
-        if not target_type:
-            raise GLSLTypeError(f"Unknown variable: {node.target.id}")
+        # Get type from annotation
+        target_type = None
+        if isinstance(node.annotation, ast.Name):
+            type_map = {
+                "vec2": VEC2,
+                "vec3": VEC3,
+                "vec4": VEC4,
+                "ivec2": IVEC2,
+                "ivec3": IVEC3,
+                "ivec4": IVEC4,
+                "bvec2": BVEC2,
+                "bvec3": BVEC3,
+                "bvec4": BVEC4,
+                "float": FLOAT,
+                "int": INT,
+                "bool": BOOL,
+            }
+            target_type = type_map.get(node.annotation.id)
+            if target_type is None:
+                raise GLSLTypeError(
+                    f"Unsupported type annotation: {node.annotation.id}"
+                )
+        else:
+            raise GLSLTypeError("Only simple type annotations are supported")
+
+        # Register variable in current scope
+        self.analysis.var_types[self.current_scope][node.target.id] = target_type
+        self.analysis.hoisted_vars[self.current_scope].add(node.target.id)
 
         if node.value:
+            # Handle initialization
             value_type = self.get_type(node.value)
             value = self.generate_expression(node.value)
 
@@ -623,14 +689,21 @@ class GLSLGenerator:
                     f"Cannot assign value of type {value_type} to variable of type {target_type}"
                 )
 
+            # Generate combined declaration and initialization
             if node.target.id not in self.declared_vars[self.current_scope]:
                 self.add_line(f"{target_type!s} {node.target.id} = {value};")
                 self.declared_vars[self.current_scope].add(node.target.id)
             else:
                 self.add_line(f"{node.target.id} = {value};")
         else:
-            self.add_line(f"{target_type!s} {node.target.id};")
-            self.declared_vars[self.current_scope].add(node.target.id)
+            # Handle declaration without initialization
+            if node.target.id not in self.declared_vars[self.current_scope]:
+                self.add_line(f"{target_type!s} {node.target.id};")
+                self.declared_vars[self.current_scope].add(node.target.id)
+
+        logger.debug(
+            f"Generated annotated assignment for {node.target.id} of type {target_type}"
+        )
 
     def generate_function(self, node: ast.FunctionDef) -> None:
         """Generate GLSL function with proper scope handling."""
@@ -719,6 +792,13 @@ class GLSLGenerator:
 
             case ast.Pass():
                 self.add_line(";")
+
+            case ast.FunctionDef():
+                # Handle nested function definitions
+                if node not in self.analysis.functions:
+                    self.analysis.functions.append(node)
+                self.generate_function(node)
+                self.add_line()
 
             case _:
                 raise GLSLTypeError(f"Unsupported statement: {type(node)}")
