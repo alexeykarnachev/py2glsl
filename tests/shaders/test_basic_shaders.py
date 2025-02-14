@@ -344,3 +344,141 @@ def test_comprehensive_shader(tmp_path):
             "u_scale": (3.0, 3.0),
         },
     )
+
+
+"""Test shaders for type conversion behavior."""
+
+
+def test_loop_integer_context(tmp_path):
+    """Test integer context in loop variables."""
+
+    def loop_shader(vs_uv: vec2) -> vec4:
+        color = vec4(0.0)
+        # Loop variable should be int despite float literals
+        for i in range(4):  # i should be int
+            color += vec4(float(i) / 3.0)  # Need explicit float conversion
+        return color
+
+    verify_shader_output(
+        shader_func=loop_shader,
+        test_name="loop_integer",
+        tmp_path=tmp_path,
+    )
+
+
+def test_float_to_int_conversion(tmp_path):
+    """Test float to int conversion in different contexts."""
+
+    def conversion_shader(vs_uv: vec2) -> vec4:
+        # Float to int conversion in mod context
+        grid_x = mod(floor(vs_uv.x * 8.0), 2.0)  # floor returns float
+        grid_y = mod(floor(vs_uv.y * 8.0), 2.0)
+
+        # Loop using float value converted to int
+        color = vec4(0.0)
+        cell_count = floor(grid_x * 4.0)  # This is float
+        for i in range(int(cell_count)):  # Need explicit int conversion for range
+            color += vec4(0.25)
+
+        return color + vec4(grid_x * grid_y)
+
+    verify_shader_output(
+        shader_func=conversion_shader,
+        test_name="float_to_int",
+        tmp_path=tmp_path,
+    )
+
+
+def test_mixed_numeric_operations(tmp_path):
+    """Test mixed float/int operations."""
+
+    def mixed_shader(vs_uv: vec2, *, u_steps: float) -> vec4:
+        # u_steps is float but needs to be int in range
+        steps = int(u_steps)  # Explicit conversion for range
+        color = vec4(0.0)
+
+        for i in range(steps):
+            # i is int, but used in float context
+            t = i / float(steps - 1)  # Need explicit float conversion for division
+            color += vec4(t)  # t is float, auto-converts in vec4 constructor
+
+        return color
+
+    verify_shader_output(
+        shader_func=mixed_shader,
+        test_name="mixed_numeric",
+        tmp_path=tmp_path,
+        uniforms={"u_steps": 4.0},
+    )
+
+
+@pytest.mark.parametrize(
+    "grid_size",
+    [2.0, 4.0, 8.0],  # Float values that need int conversion
+)
+def test_grid_pattern_conversion(tmp_path, grid_size: float):
+    """Test grid pattern with float to int conversion."""
+
+    def grid_shader(vs_uv: vec2, *, u_grid: float) -> vec4:
+        # Convert float grid size to int for range
+        cells = int(u_grid)
+        color = vec4(0.0)
+
+        # Nested loops with integer context
+        for x in range(cells):
+            for y in range(cells):
+                # Convert back to float for position calculation
+                cell_x = float(x) / u_grid
+                cell_y = float(y) / u_grid
+
+                if (
+                    vs_uv.x >= cell_x
+                    and vs_uv.x < cell_x + 1.0 / u_grid
+                    and vs_uv.y >= cell_y
+                    and vs_uv.y < cell_y + 1.0 / u_grid
+                ):
+                    # Alternate cell colors
+                    if mod(float(x + y), 2.0) < 1.0:
+                        color = vec4(1.0)
+
+        return color
+
+    verify_shader_output(
+        shader_func=grid_shader,
+        test_name=f"grid_pattern_{int(grid_size)}",
+        tmp_path=tmp_path,
+        uniforms={"u_grid": grid_size},
+    )
+
+
+def test_complex_type_conversion(tmp_path):
+    """Test complex scenarios with type conversion."""
+
+    def complex_shader(vs_uv: vec2, *, u_iterations: float) -> vec4:
+        # Start with float uniform but need int for iteration
+        max_iter = int(u_iterations)
+        color = vec4(0.0)
+
+        # Initialize with integer coordinates
+        pos_x = int(vs_uv.x * 10.0)  # Explicit conversion to int
+        pos_y = int(vs_uv.y * 10.0)
+
+        # Accumulate in float context
+        value = 0.0
+        for i in range(max_iter):
+            # Mix int and float operations
+            offset = float(i + pos_x + pos_y) / float(max_iter)
+            value += mod(offset, 1.0)
+
+            # Integer-based condition
+            if i % 2 == 0:  # Modulo requires int
+                value *= 0.5  # Float operation
+
+        return vec4(value)
+
+    verify_shader_output(
+        shader_func=complex_shader,
+        test_name="complex_conversion",
+        tmp_path=tmp_path,
+        uniforms={"u_iterations": 5.0},
+    )
