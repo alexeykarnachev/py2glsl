@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from py2glsl.transpiler.function_call import FunctionCallGenerator
 from py2glsl.types import (
     BOOL,
     BVEC2,
@@ -309,95 +310,8 @@ class GLSLGenerator:
 
     def _generate_call(self, node: ast.Call) -> str:
         """Generate formatted function call with type validation."""
-        if not isinstance(node.func, ast.Name):
-            raise GLSLTypeError("Only simple function calls are supported")
-
-        func_name = node.func.id.lower()
-
-        if func_name in VECTOR_CONSTRUCTORS:
-            size = VECTOR_CONSTRUCTORS[func_name]
-
-            # Special case: single scalar argument fills all components
-            if len(node.args) == 1:
-                arg_type = self.get_type(node.args[0])
-                if not arg_type.is_vector:
-                    arg = self.generate_expression(node.args[0])
-                    return f"{func_name}({arg})"
-                # Single vector argument must match size exactly
-                if arg_type.vector_size() != size:
-                    raise GLSLTypeError(f"Cannot construct {func_name} from {arg_type}")
-
-            # Get component sizes for all arguments
-            arg_sizes = []
-            for arg in node.args:
-                arg_type = self.get_type(arg)
-                if arg_type.is_vector:
-                    arg_sizes.append(arg_type.vector_size())
-                else:
-                    arg_sizes.append(1)
-
-            # Check if argument combination is valid
-            if tuple(arg_sizes) not in VALID_VECTOR_COMBINATIONS[size]:
-                raise GLSLTypeError(
-                    f"Invalid arguments for {func_name} constructor: "
-                    f"cannot construct from components {arg_sizes}"
-                )
-
-            # Generate constructor call
-            args = [self.generate_expression(arg) for arg in node.args]
-            return f"{func_name}({', '.join(args)})"
-
-        # Handle type conversions
-        if func_name in ("int", "float", "bool"):
-            if len(node.args) != 1:
-                raise GLSLTypeError(f"{func_name} requires exactly one argument")
-            arg = self.generate_expression(node.args[0])
-            return f"{func_name}({arg})"
-
-        # Handle built-in functions
-        if func_name in BUILTIN_FUNCTIONS:
-            args = [self.generate_expression(arg) for arg in node.args]
-
-            # Validate argument count using BUILTIN_FUNCTIONS_ARGS
-            if func_name in BUILTIN_FUNCTIONS_ARGS:
-                expected_args = BUILTIN_FUNCTIONS_ARGS[func_name]
-                if len(args) != expected_args:
-                    raise GLSLTypeError(
-                        f"{func_name} requires exactly {expected_args} arguments"
-                    )
-
-            return f"{func_name}({', '.join(args)})"
-
-        # Handle matrix constructors
-        if func_name in MATRIX_CONSTRUCTORS:
-            size = MATRIX_CONSTRUCTORS[func_name]
-            args = [self.generate_expression(arg) for arg in node.args]
-
-            # Count total components
-            total_components = 0
-            for arg in node.args:
-                arg_type = self.get_type(arg)
-                if arg_type.is_matrix:
-                    total_components += arg_type.matrix_size() * arg_type.matrix_size()
-                elif arg_type.is_vector:
-                    total_components += arg_type.vector_size()
-                else:
-                    total_components += 1
-
-            if total_components != size:
-                raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} constructor: "
-                    f"expected {size}, got {total_components}"
-                )
-
-            return f"{func_name}({', '.join(args)})"
-
-        # Check if it's a user-defined function
-        if func_name in self.analysis.var_types["global"]:
-            args = [self.generate_expression(arg) for arg in node.args]
-            return f"{func_name}({', '.join(args)})"
-
-        raise GLSLTypeError(f"Unknown function: {func_name}")
+        generator = FunctionCallGenerator(self.get_type, self.generate_expression)
+        return generator.generate(node)
 
     def _generate_binary_op(self, node: ast.BinOp) -> str:
         """Generate formatted binary operation with type validation."""
