@@ -176,6 +176,15 @@ def can_convert_to(source: GLSLType, target: GLSLType) -> bool:
     if source == target:
         return True
 
+    # Handle uniform source types
+    if source.is_uniform:
+        # Allow uniform float to int/float
+        if source.kind == TypeKind.FLOAT:
+            return target.kind in (TypeKind.INT, TypeKind.FLOAT)
+        # Other uniform conversions follow normal rules
+        base_source = GLSLType(source.kind, is_uniform=False)
+        return can_convert_to(base_source, target)
+
     if target.kind == TypeKind.VOID or source.kind == TypeKind.VOID:
         logger.debug("Cannot convert to/from void type")
         return False
@@ -184,8 +193,10 @@ def can_convert_to(source: GLSLType, target: GLSLType) -> bool:
         logger.debug("Cannot convert array types")
         return False
 
-    # Allow int to float conversion
     if source.kind == TypeKind.INT and target.kind == TypeKind.FLOAT:
+        return True
+
+    if source.kind == TypeKind.FLOAT and target.kind == TypeKind.INT:
         return True
 
     # Allow vector conversions of same size (except bool vectors)

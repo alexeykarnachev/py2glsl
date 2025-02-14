@@ -161,6 +161,13 @@ class ShaderAnalyzer:
         """Infer GLSL type from AST node with validation."""
         logger.debug(f"Inferring type for node: {ast.dump(node)}")
 
+        if self.current_context == GLSLContext.LOOP:
+            if isinstance(node, ast.Constant):
+                # Use numeric detection here for loop variables
+                if isinstance(node.value, float):
+                    return FLOAT
+                return INT
+
         match node:
             case ast.Name():
                 # Special case for vertex shader UV coordinates
@@ -216,6 +223,19 @@ class ShaderAnalyzer:
                     return self._infer_call_type(node)
 
                 raise GLSLTypeError(f"Invalid function call: {ast.dump(node)}")
+
+            case ast.BoolOp():
+                # For 'and' operations in GLSL
+                if isinstance(node.op, ast.And):
+                    # Check all values are boolean
+                    for value in node.values:
+                        value_type = self.infer_type(value)
+                        if value_type != BOOL:
+                            raise GLSLTypeError(
+                                f"Boolean operation requires bool operands, got {value_type}"
+                            )
+                    return BOOL
+                raise GLSLTypeError("Only 'and' operations are supported")
 
             case ast.BinOp():
                 return self._infer_binary_operation(node)
@@ -694,22 +714,33 @@ class ShaderAnalyzer:
                 )
 
     def _analyze_assignment(self, node: ast.Assign) -> None:
-        """Analyze assignment statement."""
-        value_type = self.infer_type(node.value)
+        """Analyze assignment and register variable."""
+        try:
+            # Get type of the value being assigned
+            value_type = self.infer_type(node.value)
 
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                raise GLSLTypeError("Only simple assignments are supported")
+            for target in node.targets:
+                if not isinstance(target, ast.Name):
+                    raise GLSLTypeError("Only simple assignments are supported")
 
-            # Check existing variable type
-            existing_type = self.get_variable_type(target.id)
-            if existing_type:
-                if not can_convert_to(value_type, existing_type):
-                    raise GLSLTypeError(
-                        f"Cannot assign {value_type} to variable of type {existing_type}"
-                    )
-            else:
-                self.register_variable(target.id, value_type)
+                # Check if variable already exists in current scope
+                existing_type = self.get_variable_type(target.id)
+                if existing_type:
+                    # Validate assignment compatibility
+                    if not can_convert_to(value_type, existing_type):
+                        raise GLSLTypeError(
+                            f"Cannot assign value of type {value_type} to variable of type {existing_type}"
+                        )
+                else:
+                    # Register new variable in current scope
+                    self.analysis.var_types[self.current_scope][target.id] = value_type
+                    # Add to hoisted vars for declaration
+                    self.analysis.hoisted_vars[self.current_scope].add(target.id)
+
+                logger.debug(f"Registered variable {target.id} of type {value_type}")
+
+        except Exception as e:
+            raise GLSLTypeError(f"Error analyzing assignment: {str(e)}") from e
 
     def _analyze_aug_assignment(self, node: ast.AugAssign) -> None:
         """Analyze augmented assignment statement."""
@@ -758,7 +789,16 @@ class ShaderAnalyzer:
 
     def _analyze_for_loop(self, node: ast.For) -> None:
         """Analyze for loop."""
+
         self.push_context(GLSLContext.LOOP)
+
+        # Range-loops analysis
+        if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name):
+            if node.iter.func.id == "range":
+                # Check first argument type to determine loop type
+                if node.iter.args:
+                    arg_type = self.infer_type(node.iter.args[0])
+                    # This will affect how loop variable is typed
 
         try:
             if not (
