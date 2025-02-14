@@ -14,11 +14,16 @@ from py2glsl.types import FLOAT, VEC2, VEC4, GLSLTypeError
 def basic_analysis() -> ShaderAnalysis:
     """Create basic shader analysis for testing."""
     analysis = ShaderAnalysis()
+    # Set up the necessary types for the shader function
     analysis.var_types = {
-        "global": {"shader": VEC4},
-        "shader": {"vs_uv": VEC2},
+        "global": {"shader": VEC4},  # Return type
+        "shader": {
+            "vs_uv": VEC2,  # Input argument type
+        },
     }
     analysis.hoisted_vars = {"global": set(), "shader": set()}
+    # Add the main function to analysis
+    analysis.main_function = None  # Will be set by test
     return analysis
 
 
@@ -78,8 +83,15 @@ def test_vector_constructor_validation(basic_analysis):
     tree = ast.parse(code)
     basic_analysis.main_function = tree.body[0]
 
+    # Set up proper type information for the shader function
+    basic_analysis.var_types = {
+        "global": {"shader": VEC4},  # Return type
+        "shader": {"vs_uv": VEC2},  # Argument type
+    }
+    basic_analysis.hoisted_vars = {"global": set(), "shader": set()}
+
     generator = GLSLGenerator(basic_analysis)
-    with pytest.raises(GLSLTypeError, match="Invalid number of components"):
+    with pytest.raises(GLSLTypeError, match="Invalid arguments for vec4 constructor"):
         generator.generate()
 
 

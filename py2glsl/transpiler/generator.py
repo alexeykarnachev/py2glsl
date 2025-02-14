@@ -94,98 +94,7 @@ class GLSLGenerator:
 
     def get_type(self, node: ast.AST) -> GLSLType:
         """Get GLSL type for node with validation."""
-        if isinstance(node, ast.Call):
-            # Handle math module functions
-            if isinstance(node.func, ast.Attribute) and isinstance(
-                node.func.value, ast.Name
-            ):
-                if node.func.value.id == "math":
-                    # All math functions return float
-                    return FLOAT
-
-            if isinstance(node.func, ast.Name):
-                func_name = node.func.id.lower()
-
-                # Basic type constructors
-                type_constructors = {
-                    "float": FLOAT,
-                    "int": INT,
-                    "bool": BOOL,
-                }
-                if func_name in type_constructors:
-                    if len(node.args) != 1:
-                        raise GLSLTypeError(
-                            f"{func_name} constructor requires exactly one argument"
-                        )
-                    arg_type = self.get_type(node.args[0])
-                    if not can_convert_to(arg_type, type_constructors[func_name]):
-                        raise GLSLTypeError(
-                            f"Cannot convert type {arg_type} to {type_constructors[func_name]}"
-                        )
-                    return type_constructors[func_name]
-
-                # Vector constructors
-                vector_types = {
-                    "vec2": (VEC2, 2),
-                    "vec3": (VEC3, 3),
-                    "vec4": (VEC4, 4),
-                    "ivec2": (IVEC2, 2),
-                    "ivec3": (IVEC3, 3),
-                    "ivec4": (IVEC4, 4),
-                    "bvec2": (BVEC2, 2),
-                    "bvec3": (BVEC3, 3),
-                    "bvec4": (BVEC4, 4),
-                }
-
-                if func_name in vector_types:
-                    target_type, size = vector_types[func_name]
-                    return target_type
-
-                # Built-in functions
-                builtin_types = {
-                    "length": FLOAT,
-                    "distance": FLOAT,
-                    "dot": FLOAT,
-                    "cross": VEC3,
-                    "normalize": None,  # Returns same as input
-                    "faceforward": None,  # Returns same as input
-                    "reflect": None,  # Returns same as input
-                    "refract": None,  # Returns same as input
-                    "pow": FLOAT,
-                    "exp": FLOAT,
-                    "log": FLOAT,
-                    "exp2": FLOAT,
-                    "log2": FLOAT,
-                    "sqrt": FLOAT,
-                    "inversesqrt": FLOAT,
-                    "abs": None,  # Returns same as input
-                    "sign": None,  # Returns same as input
-                    "floor": None,  # Returns same as input
-                    "ceil": None,  # Returns same as input
-                    "fract": None,  # Returns same as input
-                    "mod": None,  # Returns same as input
-                    "min": None,  # Returns same as input
-                    "max": None,  # Returns same as input
-                    "clamp": None,  # Returns same as input
-                    "mix": None,  # Returns same as input
-                    "step": None,  # Returns same as input
-                    "smoothstep": None,  # Returns same as input
-                    "sin": FLOAT,
-                    "cos": FLOAT,
-                    "tan": FLOAT,
-                    "asin": FLOAT,
-                    "acos": FLOAT,
-                    "atan": FLOAT,
-                }
-
-                if func_name in builtin_types:
-                    return_type = builtin_types[func_name]
-                    if return_type is None:
-                        # Function returns same type as input
-                        return self.get_type(node.args[0])
-                    return return_type
-
-        elif isinstance(node, ast.Name):
+        if isinstance(node, ast.Name):
             # Check current scope first
             if node.id in self.analysis.var_types[self.current_scope]:
                 return self.analysis.var_types[self.current_scope][node.id]
@@ -193,10 +102,6 @@ class GLSLGenerator:
             # Check parent scopes
             for scope in reversed(self.scope_stack):
                 if node.id in self.analysis.var_types[scope]:
-                    # Found in parent scope - register in current scope too
-                    self.analysis.var_types[self.current_scope][node.id] = (
-                        self.analysis.var_types[scope][node.id]
-                    )
                     return self.analysis.var_types[scope][node.id]
 
             # Check uniforms and built-ins
@@ -206,6 +111,121 @@ class GLSLGenerator:
                 return VEC2
 
             raise GLSLTypeError(f"Undefined variable: {node.id}")
+
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                raise GLSLTypeError("Only simple function calls are supported")
+
+            func_name = node.func.id.lower()
+
+            # Vector constructors - check these first
+            vector_types = {
+                "vec2": (VEC2, 2),
+                "vec3": (VEC3, 3),
+                "vec4": (VEC4, 4),
+                "ivec2": (IVEC2, 2),
+                "ivec3": (IVEC3, 3),
+                "ivec4": (IVEC4, 4),
+                "bvec2": (BVEC2, 2),
+                "bvec3": (BVEC3, 3),
+                "bvec4": (BVEC4, 4),
+            }
+
+            if func_name in vector_types:
+                target_type, size = vector_types[func_name]
+
+                # Count total components for all arguments
+                total_components = 0
+                for arg in node.args:
+                    arg_type = self.get_type(arg)
+                    if arg_type.is_vector:
+                        total_components += arg_type.vector_size()
+                    else:
+                        total_components += 1
+
+                # Special case: single scalar argument - expands to fill all components
+                if len(node.args) == 1 and not self.get_type(node.args[0]).is_vector:
+                    return target_type
+
+                if total_components != size:
+                    raise GLSLTypeError(
+                        f"Invalid number of components for {func_name} constructor: "
+                        f"expected {size}, got {total_components}"
+                    )
+
+                return target_type
+
+            # Basic type constructors
+            type_constructors = {
+                "float": FLOAT,
+                "int": INT,
+                "bool": BOOL,
+            }
+            if func_name in type_constructors:
+                if len(node.args) != 1:
+                    raise GLSLTypeError(
+                        f"{func_name} constructor requires exactly one argument"
+                    )
+                arg_type = self.get_type(node.args[0])
+                if not can_convert_to(arg_type, type_constructors[func_name]):
+                    raise GLSLTypeError(
+                        f"Cannot convert type {arg_type} to {type_constructors[func_name]}"
+                    )
+                return type_constructors[func_name]
+
+            # Built-in functions
+            builtin_types = {
+                "length": FLOAT,
+                "distance": FLOAT,
+                "dot": FLOAT,
+                "cross": VEC3,
+                "normalize": None,  # Returns same as input
+                "faceforward": None,  # Returns same as input
+                "reflect": None,  # Returns same as input
+                "refract": None,  # Returns same as input
+                "pow": FLOAT,
+                "exp": FLOAT,
+                "log": FLOAT,
+                "exp2": FLOAT,
+                "log2": FLOAT,
+                "sqrt": FLOAT,
+                "inversesqrt": FLOAT,
+                "abs": None,  # Returns same as input
+                "sign": None,  # Returns same as input
+                "floor": None,  # Returns same as input
+                "ceil": None,  # Returns same as input
+                "fract": None,  # Returns same as input
+                "mod": None,  # Returns same as input
+                "min": None,  # Returns same as input
+                "max": None,  # Returns same as input
+                "clamp": None,  # Returns same as input
+                "mix": None,  # Returns same as input
+                "step": None,  # Returns same as input
+                "smoothstep": None,  # Returns same as input
+                "sin": FLOAT,
+                "cos": FLOAT,
+                "tan": FLOAT,
+                "asin": FLOAT,
+                "acos": FLOAT,
+                "atan": FLOAT,
+            }
+
+            if func_name in builtin_types:
+                return_type = builtin_types[func_name]
+                if return_type is None:
+                    # Function returns same type as input
+                    return self.get_type(node.args[0])
+                return return_type
+
+            # Handle math module functions
+            if isinstance(node.func, ast.Attribute) and isinstance(
+                node.func.value, ast.Name
+            ):
+                if node.func.value.id == "math":
+                    # All math functions return float
+                    return FLOAT
+
+            raise GLSLTypeError(f"Unknown function: {func_name}")
 
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
@@ -358,26 +378,56 @@ class GLSLGenerator:
         if func_name in vector_constructors:
             size = vector_constructors[func_name]
 
-            # Count total components for all arguments
-            total_components = 0
+            # Special case: single scalar argument fills all components
+            if len(node.args) == 1:
+                arg_type = self.get_type(node.args[0])
+                if not arg_type.is_vector:
+                    arg = self.generate_expression(node.args[0])
+                    return f"{func_name}({arg})"
+                # Single vector argument must match size exactly
+                if arg_type.vector_size() != size:
+                    raise GLSLTypeError(f"Cannot construct {func_name} from {arg_type}")
+
+            # Validate vector constructor arguments
+            valid_combinations = {
+                4: [  # Valid vec4 combinations
+                    (4,),  # vec4
+                    (3, 1),  # vec3 + float
+                    (1, 3),  # float + vec3
+                    (2, 1, 1),  # vec2 + float + float
+                    (1, 2, 1),  # float + vec2 + float
+                    (1, 1, 2),  # float + float + vec2
+                    (1, 1, 1, 1),  # four scalars
+                ],
+                3: [  # Valid vec3 combinations
+                    (3,),  # vec3
+                    (2, 1),  # vec2 + float
+                    (1, 2),  # float + vec2
+                    (1, 1, 1),  # three scalars
+                ],
+                2: [  # Valid vec2 combinations
+                    (2,),  # vec2
+                    (1, 1),  # two scalars
+                ],
+            }
+
+            # Get component sizes for all arguments
+            arg_sizes = []
             for arg in node.args:
                 arg_type = self.get_type(arg)
                 if arg_type.is_vector:
-                    total_components += arg_type.vector_size()
+                    arg_sizes.append(arg_type.vector_size())
                 else:
-                    total_components += 1
+                    arg_sizes.append(1)
 
-            # Special case: single scalar argument - expands to fill all components
-            if len(node.args) == 1 and not self.get_type(node.args[0]).is_vector:
-                arg = self.generate_expression(node.args[0])
-                return f"{func_name}({arg})"
-
-            if total_components != size:
+            # Check if argument combination is valid
+            if tuple(arg_sizes) not in valid_combinations[size]:
                 raise GLSLTypeError(
-                    f"Invalid number of components for {func_name} constructor: "
-                    f"expected {size}, got {total_components}"
+                    f"Invalid arguments for {func_name} constructor: "
+                    f"cannot construct from components {arg_sizes}"
                 )
 
+            # Generate constructor call
             args = [self.generate_expression(arg) for arg in node.args]
             return f"{func_name}({', '.join(args)})"
 
