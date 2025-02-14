@@ -740,7 +740,7 @@ class ShaderAnalyzer:
                 logger.debug(f"Registered variable {target.id} of type {value_type}")
 
         except Exception as e:
-            raise GLSLTypeError(f"Error analyzing assignment: {str(e)}") from e
+            raise GLSLTypeError(f"Error analyzing assignment: {e!s}") from e
 
     def _analyze_aug_assignment(self, node: ast.AugAssign) -> None:
         """Analyze augmented assignment statement."""

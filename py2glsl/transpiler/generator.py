@@ -243,9 +243,7 @@ class GLSLGenerator:
 
         elif isinstance(node, ast.UnaryOp):
             operand_type = self.get_type(node.operand)
-            if isinstance(node.op, ast.USub):
-                return operand_type
-            elif isinstance(node.op, ast.UAdd):
+            if isinstance(node.op, ast.UAdd | ast.USub):
                 return operand_type
             elif isinstance(node.op, ast.Not):
                 if operand_type == BOOL or operand_type.is_bool_vector:
@@ -584,7 +582,7 @@ class GLSLGenerator:
                     self.add_line(f"{target.id} = {value};")
 
         except Exception as e:
-            raise GLSLTypeError(f"Error in assignment to {target.id}: {str(e)}") from e
+            raise GLSLTypeError(f"Error in assignment to {target.id}: {e!s}") from e
 
     def _generate_annotated_assignment(self, node: ast.AnnAssign) -> None:
         """Generate annotated assignment with type validation."""

@@ -1,6 +1,6 @@
 """GLSL type validation and operation rules."""
 
-from typing import Literal, Optional
+from typing import Literal
 
 from loguru import logger
 
@@ -26,7 +26,7 @@ GLSLOperator = Literal[
 
 def validate_operation(
     left: GLSLType, op: GLSLOperator, right: GLSLType
-) -> Optional[GLSLType]:
+) -> GLSLType | None:
     """Validate operation between types and return result type."""
     logger.debug(f"Validating operation: {left} {op} {right}")
 
@@ -209,7 +209,7 @@ def can_convert_to(source: GLSLType, target: GLSLType) -> bool:
     return False
 
 
-def common_type(left: GLSLType, right: GLSLType) -> Optional[GLSLType]:
+def common_type(left: GLSLType, right: GLSLType) -> GLSLType | None:
     """Find common type for operation result."""
     logger.debug(f"Finding common type between {left} and {right}")
 
