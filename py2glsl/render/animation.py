@@ -11,6 +11,38 @@ from ..transpiler.constants import VERTEX_SHADER
 from .context import setup_context
 
 
+def create_quad_buffer(ctx) -> "moderngl.Buffer":
+    """Create buffer for fullscreen quad rendering."""
+    vertices = np.array(
+        [
+            # x,    y,     u,    v
+            -1.0,
+            -1.0,
+            0.0,
+            1.0,  # Bottom left
+            1.0,
+            -1.0,
+            1.0,
+            1.0,  # Bottom right
+            -1.0,
+            1.0,
+            0.0,
+            0.0,  # Top left
+            1.0,
+            1.0,
+            1.0,
+            0.0,  # Top right
+        ],
+        dtype="f4",
+    )
+    return ctx.buffer(vertices.tobytes())
+
+
+def create_vertex_array(ctx, program, quad_buffer) -> "moderngl.VertexArray":
+    """Create vertex array with quad buffer."""
+    return ctx.vertex_array(program, [(quad_buffer, "2f 2f", "in_pos", "in_uv")])
+
+
 def animate(
     shader_func,
     size=(512, 512),
@@ -65,7 +97,9 @@ def animate(
         last_frame = start_time
         frame = 0
         frame_time = 1.0 / fps
-        aspect = size.x / size.y
+
+        # Get available program uniforms
+        program_uniforms = program._members.keys()
 
         # Main loop
         while not glfw.window_should_close(window):
@@ -77,6 +111,7 @@ def animate(
 
                 width, height = glfw.get_framebuffer_size(window)
                 ctx.viewport = (0, 0, width, height)
+                aspect = width / height
 
                 # Update uniforms
                 frame_uniforms = {
@@ -87,14 +122,15 @@ def animate(
                     "u_mouse": tuple(mouse_pos),
                 }
 
-                # Set uniforms
+                # Set only uniforms that exist in the program
                 for name, value in frame_uniforms.items():
-                    if name in shader_result.uniforms:
-                        uniform_type = shader_result.uniforms[name]
-                        if uniform_type == "int":
-                            program[name].value = int(value)
-                        elif isinstance(value, (tuple, list, np.ndarray)):
+                    if name in program_uniforms:
+                        if isinstance(value, (tuple, list, np.ndarray)):
                             program[name].value = tuple(map(float, value))
+                        elif isinstance(value, bool):
+                            program[name].value = int(value)
+                        elif isinstance(value, int):
+                            program[name].value = value
                         else:
                             program[name].value = float(value)
 
