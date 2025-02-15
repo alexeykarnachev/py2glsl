@@ -8,6 +8,14 @@ from numpy.typing import NDArray
 Number: TypeAlias = float | NDArray[np.float32]
 Vector: TypeAlias = NDArray[np.float32]
 
+# Add pi constant
+pi = np.pi
+
+
+def round(x: Number) -> Number:
+    """Round to nearest integer."""
+    return np.round(x)
+
 
 def abs(x: Number) -> Number:
     """Absolute value."""

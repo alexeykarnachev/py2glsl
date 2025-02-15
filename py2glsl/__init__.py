@@ -1,7 +1,7 @@
 """Transform Python functions into GLSL shaders with zero boilerplate."""
 
 # Built-in GLSL functions
-from .builtins import (  # Angle/Trig; Exponential; Common; Geometric; Matrix; Vector
+from .builtins import (
     abs,
     acos,
     all,
@@ -37,10 +37,12 @@ from .builtins import (  # Angle/Trig; Exponential; Common; Geometric; Matrix; V
     mod,
     normalize,
     notEqual,
+    pi,
     pow,
     radians,
     reflect,
     refract,
+    round,
     sign,
     sin,
     smoothstep,
@@ -91,26 +93,20 @@ from .types.singletons import (
 __version__ = "0.1.0"
 
 __all__ = [
-    # Version
     "__version__",
-    # Main functionality
     "py2glsl",
     "VERTEX_SHADER",
-    # Rendering functions
     "render_array",
     "render_image",
     "render_gif",
     "render_video",
     "animate",
-    # Type system
     "GLSLType",
     "TypeKind",
-    # Basic types
     "VOID",
     "BOOL",
     "INT",
     "FLOAT",
-    # Vector constructors
     "vec2",
     "vec3",
     "vec4",
@@ -120,7 +116,6 @@ __all__ = [
     "bvec2",
     "bvec3",
     "bvec4",
-    # Vector types
     "VEC2",
     "VEC3",
     "VEC4",
@@ -130,15 +125,12 @@ __all__ = [
     "BVEC2",
     "BVEC3",
     "BVEC4",
-    # Matrix constructors
     "mat2",
     "mat3",
     "mat4",
-    # Matrix types
     "MAT2",
     "MAT3",
     "MAT4",
-    # Built-in functions - Angle/Trig
     "radians",
     "degrees",
     "sin",
@@ -147,7 +139,6 @@ __all__ = [
     "asin",
     "acos",
     "atan",
-    # Built-in functions - Exponential
     "pow",
     "exp",
     "log",
@@ -155,7 +146,6 @@ __all__ = [
     "log2",
     "sqrt",
     "inversesqrt",
-    # Built-in functions - Common
     "abs",
     "sign",
     "floor",
@@ -168,7 +158,6 @@ __all__ = [
     "mix",
     "step",
     "smoothstep",
-    # Built-in functions - Geometric
     "length",
     "distance",
     "dot",
@@ -177,11 +166,9 @@ __all__ = [
     "faceforward",
     "reflect",
     "refract",
-    # Built-in functions - Matrix
     "transpose",
     "inverse",
     "determinant",
-    # Built-in functions - Vector
     "lessThan",
     "greaterThan",
     "lessThanEqual",
@@ -190,7 +177,6 @@ __all__ = [
     "notEqual",
     "any",
     "all",
-    # Errors
     "GLSLError",
     "GLSLTypeError",
     "GLSLOperationError",

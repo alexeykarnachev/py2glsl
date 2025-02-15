@@ -91,6 +91,7 @@ BUILTIN_TYPES: Dict[str, Optional[GLSLType]] = {
     "log2": FLOAT,
     "sqrt": FLOAT,
     "inversesqrt": FLOAT,
+    "round": None,  # Returns same type as input
     "abs": None,  # Returns same as input
     "sign": None,  # Returns same as input
     "floor": None,  # Returns same as input
@@ -131,18 +132,17 @@ BUILTIN_FUNCTIONS_ARGS = {
     "normalize": 1,
     "abs": 1,
     "sign": 1,
+    "round": 1,
 }
 
 # All built-in functions
 BUILTIN_FUNCTIONS = {
-    # Trigonometry
     "sin",
     "cos",
     "tan",
     "asin",
     "acos",
     "atan",
-    # Exponential
     "pow",
     "exp",
     "log",
@@ -150,7 +150,7 @@ BUILTIN_FUNCTIONS = {
     "log2",
     "sqrt",
     "inversesqrt",
-    # Common
+    "round",
     "abs",
     "sign",
     "floor",
@@ -163,7 +163,6 @@ BUILTIN_FUNCTIONS = {
     "mix",
     "step",
     "smoothstep",
-    # Geometric
     "length",
     "distance",
     "dot",
@@ -172,12 +171,10 @@ BUILTIN_FUNCTIONS = {
     "faceforward",
     "reflect",
     "refract",
-    # Matrix
     "matrixCompMult",
     "transpose",
     "determinant",
     "inverse",
-    # Vector
     "lessThan",
     "greaterThan",
     "lessThanEqual",
