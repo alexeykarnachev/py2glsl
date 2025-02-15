@@ -7,6 +7,7 @@ from textwrap import dedent
 
 from loguru import logger
 
+from py2glsl.transpiler.operators import AUGASSIGN_OPERATORS
 from py2glsl.types.base import TypeKind
 
 from ..types import (
@@ -743,38 +744,104 @@ class ShaderAnalyzer:
             raise GLSLTypeError(f"Error analyzing assignment: {e!s}") from e
 
     def _analyze_aug_assignment(self, node: ast.AugAssign) -> None:
-        """Analyze augmented assignment statement."""
-        if not isinstance(node.target, ast.Name):
-            raise GLSLTypeError("Only simple augmented assignments are supported")
+        """Analyze augmented assignment statement with vector component support."""
+        logger.debug(f"Analyzing augmented assignment: {ast.dump(node)}")
 
-        target_type = self.get_variable_type(node.target.id)
-        if not target_type:
-            raise GLSLTypeError(f"Undefined variable: {node.target.id}")
+        try:
+            # Handle vector component assignments (e.g., vec.x *= scalar)
+            if isinstance(node.target, ast.Attribute) and isinstance(
+                node.target.value, ast.Name
+            ):
+                vector_name = node.target.value.id
+                component = node.target.attr
 
-        value_type = self.infer_type(node.value)
-        op_map = {
-            ast.Add: "+",
-            ast.Sub: "-",
-            ast.Mult: "*",
-            ast.Div: "/",
-            ast.Mod: "%",
-            ast.BitAnd: "&",
-            ast.BitOr: "|",
-            ast.BitXor: "^",
-            ast.LShift: "<<",
-            ast.RShift: ">>",
-        }
+                logger.debug(f"Vector component assignment: {vector_name}.{component}")
 
-        if type(node.op) not in op_map:
-            raise GLSLTypeError(
-                f"Unsupported augmented assignment operator: {type(node.op)}"
+                # Get vector type
+                vector_type = self.get_variable_type(vector_name)
+                if not vector_type:
+                    raise GLSLTypeError(f"Undefined vector: {vector_name}")
+                if not vector_type.is_vector:
+                    raise GLSLTypeError(
+                        f"Cannot access component of non-vector type: {vector_name}"
+                    )
+
+                # Validate component access
+                try:
+                    component_type = vector_type.validate_swizzle(component)
+                except GLSLSwizzleError as e:
+                    raise GLSLTypeError(f"Invalid vector component access: {e}")
+
+                # Get value type
+                value_type = self.infer_type(node.value)
+                logger.debug(
+                    f"Component type: {component_type}, Value type: {value_type}"
+                )
+
+                # Validate operator
+                if type(node.op) not in AUGASSIGN_OPERATORS:
+                    raise GLSLTypeError(
+                        f"Unsupported augmented assignment operator: {type(node.op)}"
+                    )
+
+                op = AUGASSIGN_OPERATORS[type(node.op)]
+                base_op = op[0]  # Get the basic operator without '='
+
+                # Validate operation using type system
+                result_type = validate_operation(component_type, base_op, value_type)
+                if result_type is None:
+                    raise GLSLTypeError(
+                        f"Invalid operation {base_op} between types {component_type} and {value_type}"
+                    )
+                if not can_convert_to(result_type, component_type):
+                    raise GLSLTypeError(
+                        f"Cannot assign result of type {result_type} to component of type {component_type}"
+                    )
+
+                logger.debug(
+                    f"Vector component assignment validated: {vector_name}.{component} {op}"
+                )
+                return
+
+            # Handle regular augmented assignments
+            if not isinstance(node.target, ast.Name):
+                raise GLSLTypeError("Only simple augmented assignments are supported")
+
+            target_name = node.target.id
+            target_type = self.get_variable_type(target_name)
+            if not target_type:
+                raise GLSLTypeError(f"Undefined variable: {target_name}")
+
+            value_type = self.infer_type(node.value)
+            logger.debug(
+                f"Regular assignment - Target type: {target_type}, Value type: {value_type}"
             )
 
-        result_type = validate_operation(target_type, op_map[type(node.op)], value_type)
-        if result_type is None or not can_convert_to(result_type, target_type):
-            raise GLSLTypeError(
-                f"Invalid augmented assignment between {target_type} and {value_type}"
-            )
+            if type(node.op) not in AUGASSIGN_OPERATORS:
+                raise GLSLTypeError(
+                    f"Unsupported augmented assignment operator: {type(node.op)}"
+                )
+
+            op = AUGASSIGN_OPERATORS[type(node.op)]
+            base_op = op[0]  # Get the basic operator without '='
+
+            # Validate operation using type system
+            result_type = validate_operation(target_type, base_op, value_type)
+            if result_type is None:
+                raise GLSLTypeError(
+                    f"Invalid operation {base_op} between types {target_type} and {value_type}"
+                )
+            if not can_convert_to(result_type, target_type):
+                raise GLSLTypeError(
+                    f"Cannot assign result of type {result_type} to variable of type {target_type}"
+                )
+
+            logger.debug(f"Regular augmented assignment validated: {target_name} {op}")
+
+        except GLSLTypeError:
+            raise
+        except Exception as e:
+            raise GLSLTypeError(f"Error in augmented assignment analysis: {e}") from e
 
     def _analyze_if_statement(self, node: ast.If) -> None:
         """Analyze if statement."""
