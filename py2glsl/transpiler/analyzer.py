@@ -8,6 +8,13 @@ from textwrap import dedent
 from loguru import logger
 
 from py2glsl.transpiler.operators import AUGASSIGN_OPERATORS
+from py2glsl.transpiler.type_mappings import (
+    MATRIX_CONSTRUCTORS,
+    TYPE_CONSTRUCTORS,
+    VECTOR_TYPES,
+    ArgumentBehavior,
+    get_builtin_info,
+)
 from py2glsl.types.base import TypeKind
 
 from ..types import (
@@ -261,37 +268,38 @@ class ShaderAnalyzer:
         func_name = node.func.id
         arg_types = [self.infer_type(arg) for arg in node.args]
 
+        # Check built-in function
+        if builtin := get_builtin_info(func_name):
+            if not (builtin.min_args <= len(arg_types) <= builtin.max_args):
+                raise GLSLTypeError(
+                    f"{func_name} requires {builtin.min_args} to {builtin.max_args} arguments"
+                )
+
+            match builtin.arg_behavior:
+                case ArgumentBehavior.EXACT:
+                    return builtin.return_type if builtin.return_type else arg_types[0]
+                case ArgumentBehavior.PRESERVE:
+                    return arg_types[0]
+                case ArgumentBehavior.FLEXIBLE:
+                    if func_name == "mix":
+                        if not is_compatible_with(arg_types[0], arg_types[1]):
+                            raise GLSLTypeError(
+                                "mix requires compatible x and y arguments"
+                            )
+                        return arg_types[0]
+                    return arg_types[0]
+
         # Type conversion functions
-        type_conversions = {
-            "float": FLOAT,
-            "int": INT,
-            "bool": BOOL,
-        }
-        if func_name in type_conversions:
+        if func_name in TYPE_CONSTRUCTORS:
             if len(arg_types) != 1:
                 raise GLSLTypeError(f"{func_name} requires exactly one argument")
-            return type_conversions[func_name]
+            return TYPE_CONSTRUCTORS[func_name]
 
         # Vector constructors
-        vector_types = {
-            "vec2": (VEC2, 2),
-            "vec3": (VEC3, 3),
-            "vec4": (VEC4, 4),
-            "ivec2": (IVEC2, 2),
-            "ivec3": (IVEC3, 3),
-            "ivec4": (IVEC4, 4),
-            "bvec2": (BVEC2, 2),
-            "bvec3": (BVEC3, 3),
-            "bvec4": (BVEC4, 4),
-        }
-        if func_name in vector_types:
-            target_type, size = vector_types[func_name]
-
-            # Special case: single scalar argument fills all components
+        if func_name in VECTOR_TYPES:
+            target_type, size = VECTOR_TYPES[func_name]
             if len(arg_types) == 1 and not arg_types[0].is_vector:
                 return target_type
-
-            # Count total components
             total_components = sum(
                 t.vector_size() if t.is_vector else 1 for t in arg_types
             )
@@ -302,71 +310,25 @@ class ShaderAnalyzer:
                 )
             return target_type
 
-        # Functions that preserve input type
-        preserve_type_funcs = {
-            "floor",
-            "ceil",
-            "fract",
-            "mod",
-            "abs",
-            "sign",
-            "normalize",
-            "reflect",
-            "refract",
-            "clamp",
-        }
-        if func_name in preserve_type_funcs:
-            if not arg_types:
-                raise GLSLTypeError(f"{func_name} requires at least one argument")
-            return arg_types[0]
+        # Matrix constructors
+        if func_name in MATRIX_CONSTRUCTORS:
+            size = MATRIX_CONSTRUCTORS[func_name]
+            total_components = sum(
+                (
+                    t.matrix_size() * t.matrix_size()
+                    if t.is_matrix
+                    else t.vector_size() if t.is_vector else 1
+                )
+                for t in arg_types
+            )
+            if total_components != size:
+                raise GLSLTypeError(
+                    f"Invalid number of components for {func_name} constructor: "
+                    f"expected {size}, got {total_components}"
+                )
+            return GLSLType(kind=TypeKind.from_str(func_name))
 
-        # Scalar return functions
-        scalar_funcs = {
-            "length",
-            "distance",
-            "dot",
-            "sin",
-            "cos",
-            "tan",
-            "asin",
-            "acos",
-            "atan",
-            "radians",
-            "degrees",
-            "exp",
-            "log",
-            "exp2",
-            "log2",
-            "sqrt",
-            "inversesqrt",
-            "min",  # Add min function
-            "max",  # Add max for completeness
-        }
-        if func_name in scalar_funcs:
-            return FLOAT
-
-        # Special case functions
-        if func_name == "mix":
-            if len(arg_types) != 3:
-                raise GLSLTypeError("mix requires 3 arguments")
-            if not is_compatible_with(arg_types[0], arg_types[1]):
-                raise GLSLTypeError("mix requires compatible x and y arguments")
-            return arg_types[0]
-
-        if func_name == "cross":
-            if len(arg_types) != 2:
-                raise GLSLTypeError("cross requires 2 arguments")
-            if not (arg_types[0] == VEC3 and arg_types[1] == VEC3):
-                raise GLSLTypeError("cross requires vec3 arguments")
-            return VEC3
-
-        if func_name == "smoothstep":  # Add smoothstep function
-            if len(arg_types) != 3:
-                raise GLSLTypeError("smoothstep requires 3 arguments")
-            # Return type matches the third argument's type
-            return arg_types[2]
-
-        # Check if it's a user-defined function
+        # User-defined functions
         if func_name in self.analysis.var_types["global"]:
             return self.analysis.var_types["global"][func_name]
 

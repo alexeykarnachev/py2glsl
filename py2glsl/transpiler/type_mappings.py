@@ -1,6 +1,8 @@
 """GLSL type mappings and built-in functions."""
 
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum, auto
+from typing import Dict, Optional, Set, Tuple
 
 from py2glsl.types import (
     BOOL,
@@ -17,6 +19,27 @@ from py2glsl.types import (
     VEC4,
     GLSLType,
 )
+
+
+class ArgumentBehavior(Enum):
+    """How function handles its arguments."""
+
+    EXACT = auto()  # Arguments must match exactly
+    PRESERVE = auto()  # Returns same type as first argument
+    PROMOTE = auto()  # Can promote types (e.g. float -> vec4)
+    FLEXIBLE = auto()  # Special handling needed
+
+
+@dataclass
+class GLSLFunction:
+    """Definition of a GLSL built-in function."""
+
+    return_type: Optional[GLSLType]  # None means preserve input type
+    min_args: int
+    max_args: int
+    arg_behavior: ArgumentBehavior
+    description: str = ""
+
 
 # Vector type mappings
 VECTOR_TYPES: Dict[str, Tuple[GLSLType, int]] = {
@@ -74,44 +97,6 @@ TYPE_CONSTRUCTORS: Dict[str, GLSLType] = {
     "bool": BOOL,
 }
 
-# Built-in function return types
-BUILTIN_TYPES: Dict[str, Optional[GLSLType]] = {
-    "length": FLOAT,
-    "distance": FLOAT,
-    "dot": FLOAT,
-    "cross": VEC3,
-    "normalize": None,  # Returns same as input
-    "faceforward": None,  # Returns same as input
-    "reflect": None,  # Returns same as input
-    "refract": None,  # Returns same as input
-    "pow": FLOAT,
-    "exp": FLOAT,
-    "log": FLOAT,
-    "exp2": FLOAT,
-    "log2": FLOAT,
-    "sqrt": FLOAT,
-    "inversesqrt": FLOAT,
-    "round": None,  # Returns same type as input
-    "abs": None,  # Returns same as input
-    "sign": None,  # Returns same as input
-    "floor": None,  # Returns same as input
-    "ceil": None,  # Returns same as input
-    "fract": None,  # Returns same as input
-    "mod": None,  # Returns same as input
-    "min": None,  # Returns same as input
-    "max": None,  # Returns same as input
-    "clamp": None,  # Returns same as input
-    "mix": None,  # Returns same as input
-    "step": None,  # Returns same as input
-    "smoothstep": None,  # Returns same as input
-    "sin": FLOAT,
-    "cos": FLOAT,
-    "tan": FLOAT,
-    "asin": FLOAT,
-    "acos": FLOAT,
-    "atan": FLOAT,
-}
-
 # Matrix constructors
 MATRIX_CONSTRUCTORS: Dict[str, int] = {
     "mat2": 4,
@@ -119,68 +104,49 @@ MATRIX_CONSTRUCTORS: Dict[str, int] = {
     "mat4": 16,
 }
 
-# Built-in functions with argument count validation
-BUILTIN_FUNCTIONS_ARGS = {
-    "mix": 3,
-    "clamp": 3,
-    "smoothstep": 3,
-    "cross": 2,
-    "dot": 2,
-    "distance": 2,
-    "reflect": 2,
-    "length": 1,
-    "normalize": 1,
-    "abs": 1,
-    "sign": 1,
-    "round": 1,
+# Built-in function definitions
+_BUILTIN_DEFS: Dict[str, GLSLFunction] = {
+    # Trigonometric functions
+    "sin": GLSLFunction(FLOAT, 1, 1, ArgumentBehavior.PRESERVE),
+    "cos": GLSLFunction(FLOAT, 1, 1, ArgumentBehavior.PRESERVE),
+    "tan": GLSLFunction(FLOAT, 1, 1, ArgumentBehavior.PRESERVE),
+    "asin": GLSLFunction(FLOAT, 1, 1, ArgumentBehavior.PRESERVE),
+    "acos": GLSLFunction(FLOAT, 1, 1, ArgumentBehavior.PRESERVE),
+    "atan": GLSLFunction(FLOAT, 1, 1, ArgumentBehavior.PRESERVE),
+    # Common math functions
+    "abs": GLSLFunction(None, 1, 1, ArgumentBehavior.PRESERVE),
+    "sign": GLSLFunction(None, 1, 1, ArgumentBehavior.PRESERVE),
+    "floor": GLSLFunction(None, 1, 1, ArgumentBehavior.PRESERVE),
+    "ceil": GLSLFunction(None, 1, 1, ArgumentBehavior.PRESERVE),
+    "fract": GLSLFunction(None, 1, 1, ArgumentBehavior.PRESERVE),
+    "mod": GLSLFunction(None, 2, 2, ArgumentBehavior.PRESERVE),
+    # Vector functions
+    "length": GLSLFunction(FLOAT, 1, 1, ArgumentBehavior.EXACT),
+    "distance": GLSLFunction(FLOAT, 2, 2, ArgumentBehavior.EXACT),
+    "dot": GLSLFunction(FLOAT, 2, 2, ArgumentBehavior.EXACT),
+    "cross": GLSLFunction(VEC3, 2, 2, ArgumentBehavior.EXACT),
+    "normalize": GLSLFunction(None, 1, 1, ArgumentBehavior.PRESERVE),
+    # Special functions
+    "mix": GLSLFunction(None, 3, 3, ArgumentBehavior.FLEXIBLE),
+    "step": GLSLFunction(None, 2, 2, ArgumentBehavior.PRESERVE),
+    "smoothstep": GLSLFunction(None, 3, 3, ArgumentBehavior.PRESERVE),
+    "min": GLSLFunction(None, 2, 2, ArgumentBehavior.PRESERVE),
+    "max": GLSLFunction(None, 2, 2, ArgumentBehavior.PRESERVE),
+    "clamp": GLSLFunction(None, 3, 3, ArgumentBehavior.PRESERVE),
 }
 
-# All built-in functions
-BUILTIN_FUNCTIONS = {
-    "sin",
-    "cos",
-    "tan",
-    "asin",
-    "acos",
-    "atan",
-    "pow",
-    "exp",
-    "log",
-    "exp2",
-    "log2",
-    "sqrt",
-    "inversesqrt",
-    "round",
-    "abs",
-    "sign",
-    "floor",
-    "ceil",
-    "fract",
-    "mod",
-    "min",
-    "max",
-    "clamp",
-    "mix",
-    "step",
-    "smoothstep",
-    "length",
-    "distance",
-    "dot",
-    "cross",
-    "normalize",
-    "faceforward",
-    "reflect",
-    "refract",
-    "matrixCompMult",
-    "transpose",
-    "determinant",
-    "inverse",
-    "lessThan",
-    "greaterThan",
-    "lessThanEqual",
-    "greaterThanEqual",
-    "equal",
-    "notEqual",
-    "any",
-    "all",
+# Generate the old-style mappings from the definitions
+BUILTIN_FUNCTIONS: Set[str] = set(_BUILTIN_DEFS.keys())
+BUILTIN_TYPES: Dict[str, Optional[GLSLType]] = {
+    name: func.return_type for name, func in _BUILTIN_DEFS.items()
 }
+BUILTIN_FUNCTIONS_ARGS: Dict[str, int] = {
+    name: func.min_args
+    for name, func in _BUILTIN_DEFS.items()
+    if func.min_args == func.max_args
+}
+
+
+def get_builtin_info(func_name: str) -> Optional[GLSLFunction]:
+    """Get built-in function information."""
+    return _BUILTIN_DEFS.get(func_name)
