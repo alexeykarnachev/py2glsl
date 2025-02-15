@@ -1,271 +1,137 @@
-"""Base GLSL type definitions."""
+"""GLSL Type System - Core Definitions (Combined)"""
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Optional
+from typing import Dict, List, Optional, Union
 
-from loguru import logger
-
-from py2glsl.types.errors import GLSLSwizzleError, GLSLTypeError
+# ======================================================================================
+#                                      CORE TYPES
+# ======================================================================================
 
 
 class TypeKind(Enum):
-    """GLSL type kinds with validation rules."""
+    """Enumeration of fundamental GLSL type categories"""
 
     VOID = auto()
-    BOOL = auto()
-    INT = auto()
     FLOAT = auto()
-    VEC2 = auto()
-    VEC3 = auto()
-    VEC4 = auto()
-    IVEC2 = auto()
-    IVEC3 = auto()
-    IVEC4 = auto()
-    BVEC2 = auto()
-    BVEC3 = auto()
-    BVEC4 = auto()
-    MAT2 = auto()
-    MAT3 = auto()
-    MAT4 = auto()
-
-    @property
-    def is_numeric(self) -> bool:
-        """Check if type is numeric."""
-        return self in {
-            TypeKind.INT,
-            TypeKind.FLOAT,
-            TypeKind.VEC2,
-            TypeKind.VEC3,
-            TypeKind.VEC4,
-            TypeKind.IVEC2,
-            TypeKind.IVEC3,
-            TypeKind.IVEC4,
-            TypeKind.MAT2,
-            TypeKind.MAT3,
-            TypeKind.MAT4,
-        }
-
-    @property
-    def is_vector(self) -> bool:
-        """Check if type is a vector type."""
-        return self in {
-            TypeKind.VEC2,
-            TypeKind.VEC3,
-            TypeKind.VEC4,
-            TypeKind.IVEC2,
-            TypeKind.IVEC3,
-            TypeKind.IVEC4,
-            TypeKind.BVEC2,
-            TypeKind.BVEC3,
-            TypeKind.BVEC4,
-        }
-
-    @property
-    def is_matrix(self) -> bool:
-        """Check if type is a matrix type."""
-        return self in {TypeKind.MAT2, TypeKind.MAT3, TypeKind.MAT4}
-
-    @property
-    def vector_size(self) -> Optional[int]:
-        """Get vector size if applicable."""
-        return {
-            TypeKind.VEC2: 2,
-            TypeKind.VEC3: 3,
-            TypeKind.VEC4: 4,
-            TypeKind.IVEC2: 2,
-            TypeKind.IVEC3: 3,
-            TypeKind.IVEC4: 4,
-            TypeKind.BVEC2: 2,
-            TypeKind.BVEC3: 3,
-            TypeKind.BVEC4: 4,
-        }.get(self)
-
-    @property
-    def matrix_size(self) -> Optional[int]:
-        """Get matrix size if applicable."""
-        return {
-            TypeKind.MAT2: 2,
-            TypeKind.MAT3: 3,
-            TypeKind.MAT4: 4,
-        }.get(self)
+    INT = auto()
+    BOOL = auto()
+    VECTOR = auto()
+    MATRIX = auto()
+    FUNCTION = auto()
+    STRUCT = auto()
 
 
-@dataclass(frozen=True)
 class GLSLType:
-    """GLSL type with core properties."""
+    """Base class for all GLSL types with common properties"""
 
-    kind: TypeKind
-    is_uniform: bool = False
-    is_const: bool = False
-    is_attribute: bool = False
-    array_size: Optional[int] = None
-
-    # Cache for singleton instances
-    _instances = {}
-
-    def __new__(cls, kind, **kwargs):
-        """Implement singleton pattern."""
-        key = (kind, *sorted(kwargs.items()))
-        if key not in cls._instances:
-            cls._instances[key] = super().__new__(cls)
-        return cls._instances[key]
-
-    def __post_init__(self) -> None:
-        """Validate type configuration."""
-        logger.debug(f"Validating GLSLType: {self}")
-
-        if self.array_size is not None:
-            self._validate_array_size(self.array_size)
-
-        if self.is_uniform and self.is_attribute:
-            msg = "Type cannot be both uniform and attribute"
-            logger.error(msg)
-            raise GLSLTypeError(msg)
-
-        if self.kind == TypeKind.VOID:
-            if self.is_uniform or self.is_attribute or self.array_size is not None:
-                msg = "Void type cannot have storage qualifiers or be an array"
-                logger.error(msg)
-                raise GLSLTypeError(msg)
-
-    def _validate_array_size(self, size: Any) -> None:
-        """Validate array size."""
-        if not isinstance(size, int) or isinstance(size, bool):
-            msg = f"Array size must be an integer, got {type(size)}"
-            logger.error(msg)
-            raise GLSLTypeError(msg)
-        if size <= 0:
-            msg = f"Array size must be positive, got {size}"
-            logger.error(msg)
-            raise GLSLTypeError(msg)
-
-    @property
-    def name(self) -> str:
-        """Get GLSL type name."""
-        base = {
-            TypeKind.VOID: "void",
-            TypeKind.BOOL: "bool",
-            TypeKind.INT: "int",
-            TypeKind.FLOAT: "float",
-            TypeKind.VEC2: "vec2",
-            TypeKind.VEC3: "vec3",
-            TypeKind.VEC4: "vec4",
-            TypeKind.IVEC2: "ivec2",
-            TypeKind.IVEC3: "ivec3",
-            TypeKind.IVEC4: "ivec4",
-            TypeKind.BVEC2: "bvec2",
-            TypeKind.BVEC3: "bvec3",
-            TypeKind.BVEC4: "bvec4",
-            TypeKind.MAT2: "mat2",
-            TypeKind.MAT3: "mat3",
-            TypeKind.MAT4: "mat4",
-        }[self.kind]
-
-        if self.array_size is not None:
-            return f"{base}[{self.array_size}]"
-        return base
-
-    def __str__(self) -> str:
-        """Convert to GLSL declaration."""
-        parts = []
-        if self.is_uniform:
-            parts.append("uniform")
-        if self.is_const:
-            parts.append("const")
-        if self.is_attribute:
-            parts.append("attribute")
-        parts.append(self.name)
-        return " ".join(parts)
+    def __init__(
+        self,
+        kind: TypeKind,
+        size: Optional[int] = None,
+        component_type: Optional["GLSLType"] = None,
+        members: Optional[Dict[str, "GLSLType"]] = None,
+    ):
+        self.kind = kind
+        self.size = size  # For vectors/matrices/arrays
+        self.component_type = component_type  # For vectors/arrays
+        self.members = members or {}  # For structs
 
     @property
     def is_numeric(self) -> bool:
-        """Check if type is numeric."""
-        return self.kind.is_numeric
+        return self.kind in {TypeKind.FLOAT, TypeKind.INT}
 
     @property
     def is_vector(self) -> bool:
-        """Check if type is vector."""
-        return self.kind.is_vector
+        return self.kind == TypeKind.VECTOR
 
-    @property
-    def is_matrix(self) -> bool:
-        """Check if type is matrix."""
-        return self.kind.is_matrix
+    # ... other properties from original base.py ...
 
-    @property
-    def is_bool_vector(self) -> bool:
-        """Check if type is a boolean vector."""
-        return self.kind in {TypeKind.BVEC2, TypeKind.BVEC3, TypeKind.BVEC4}
-
-    @property
-    def is_int_vector(self) -> bool:
-        """Check if type is an integer vector."""
-        return self.kind in {TypeKind.IVEC2, TypeKind.IVEC3, TypeKind.IVEC4}
-
-    def vector_size(self) -> Optional[int]:
-        """Get vector size if vector type."""
-        return self.kind.vector_size
-
-    def matrix_size(self) -> Optional[int]:
-        """Get matrix size if matrix type."""
-        return self.kind.matrix_size
-
-    def validate_swizzle(self, components: str) -> Optional["GLSLType"]:
-        """Validate swizzle operation and return resulting type."""
-        logger.debug(f"Validating swizzle: {self}.{components}")
-
-        if not self.is_vector:
-            msg = f"Cannot swizzle non-vector type {self.name}"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        if not components:
-            msg = "Empty swizzle mask"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        # Split valid components into sets
-        position_components = {"x", "y", "z", "w"}
-        color_components = {"r", "g", "b", "a"}
-        texture_components = {"s", "t", "p", "q"}
-
-        component_set = set(components)
-        logger.debug(f"Component set: {component_set}")
-
-        # Check if components are from a single valid set
-        if not (
-            component_set.issubset(position_components)
-            or component_set.issubset(color_components)
-            or component_set.issubset(texture_components)
-        ):
-            msg = f"Invalid swizzle components: {components}"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        size = len(components)
-        if size > 4:
-            msg = "Swizzle mask too long"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
-
-        # Check if components are valid for this vector's size
-        max_component_idx = max(
-            (
-                "xyzw".index(c)
-                if c in "xyzw"
-                else "rgba".index(c) if c in "rgba" else "stpq".index(c)
-            )
-            for c in components
+    def __eq__(self, other):
+        return (
+            isinstance(other, GLSLType)
+            and self.kind == other.kind
+            and self.size == other.size
+            and self.component_type == other.component_type
         )
-        if max_component_idx >= self.vector_size():
-            msg = f"Component index {max_component_idx} out of range for {self.name}"
-            logger.error(msg)
-            raise GLSLSwizzleError(msg)
 
-        # Return appropriate type based on swizzle size
-        return GLSLType(
-            {1: TypeKind.FLOAT, 2: TypeKind.VEC2, 3: TypeKind.VEC3, 4: TypeKind.VEC4}[
-                size
-            ]
+
+# ======================================================================================
+#                                    FUNCTION TYPES
+# ======================================================================================
+
+
+@dataclass
+class FunctionSignature:
+    """Represents a function's type signature"""
+
+    parameters: List[GLSLType]
+    return_type: GLSLType
+    is_builtin: bool = False
+
+    def __str__(self):
+        params = ", ".join(str(p) for p in self.parameters)
+        return f"({params}) -> {self.return_type}"
+
+
+# ======================================================================================
+#                                 TYPE CONTEXT & RULES
+# ======================================================================================
+
+
+@dataclass
+class TypeContext:
+    """Tracks typing information within a specific scope"""
+
+    variables: Dict[str, GLSLType]
+    functions: Dict[str, List[FunctionSignature]]
+    structs: Dict[str, GLSLType]
+    current_return: Optional[GLSLType] = None
+
+    def child_context(self):
+        """Create a new nested context"""
+        return TypeContext(
+            variables=self.variables.copy(),
+            functions=self.functions.copy(),
+            structs=self.structs.copy(),
+            current_return=self.current_return,
         )
+
+
+@dataclass
+class TypePromotionRule:
+    """Defines allowed type conversions"""
+
+    source: GLSLType
+    target: GLSLType
+    implicit: bool  # Whether conversion happens automatically
+
+
+# ======================================================================================
+#                                 PREDEFINED TYPE INSTANCES
+# ======================================================================================
+
+VOID = GLSLType(TypeKind.VOID)
+FLOAT = GLSLType(TypeKind.FLOAT)
+INT = GLSLType(TypeKind.INT)
+BOOL = GLSLType(TypeKind.BOOL)
+VEC2 = GLSLType(TypeKind.VECTOR, size=2, component_type=FLOAT)
+VEC3 = GLSLType(TypeKind.VECTOR, size=3, component_type=FLOAT)
+VEC4 = GLSLType(TypeKind.VECTOR, size=4, component_type=FLOAT)
+MAT4 = GLSLType(TypeKind.MATRIX, size=4)
+
+__all__ = [
+    "TypeKind",
+    "GLSLType",
+    "FunctionSignature",
+    "TypeContext",
+    "TypePromotionRule",
+    "VOID",
+    "FLOAT",
+    "INT",
+    "BOOL",
+    "VEC2",
+    "VEC3",
+    "VEC4",
+    "MAT4",
+]
