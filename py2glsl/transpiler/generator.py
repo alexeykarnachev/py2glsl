@@ -643,8 +643,13 @@ class GLSLGenerator:
 
     def _generate_aug_assignment(self, node: ast.AugAssign) -> None:
         """Generate augmented assignment with type validation."""
+        logger.debug(f"Generating augmented assignment: {ast.dump(node)}")
+
         target_type = self.get_type(node.target)
+        logger.debug(f"Target type: {target_type}")
+
         value_type = self.get_type(node.value)
+        logger.debug(f"Value type: {value_type}")
 
         if type(node.op) not in AUGASSIGN_OPERATORS:
             raise GLSLTypeError(

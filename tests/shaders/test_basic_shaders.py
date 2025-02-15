@@ -482,3 +482,40 @@ def test_complex_type_conversion(tmp_path):
         tmp_path=tmp_path,
         uniforms={"u_iterations": 5.0},
     )
+
+
+def test_nested_and_global_functions_shader(tmp_path):
+    """Test shader with nested and global functions."""
+
+    def get_color_out(t: float) -> vec3:
+        return vec3(0.5 * (sin(t) + 1.0), 0.0, 0.0)
+
+    def main_shader(vs_uv: vec2, *, u_time: float) -> vec4:
+        def get_color_in(p: vec2) -> vec3:
+            return vec3(0.0, 1.0, 0.0)
+
+        color = get_color_in(vs_uv) + get_color_out(u_time)
+        return vec4(color, 1.0)
+
+    verify_shader_output(
+        shader_func=main_shader,
+        test_name="nested_and_global_functions",
+        tmp_path=tmp_path,
+        uniforms={"u_time": 1.0},
+    )
+
+
+def test_vector_component_shader(tmp_path):
+    """Test shader with vector component modification."""
+
+    def component_shader(vs_uv: vec2, *, u_aspect: float) -> vec4:
+        p = vs_uv
+        p.x *= u_aspect  # Direct component modification
+        return vec4(p, 0.0, 1.0)
+
+    verify_shader_output(
+        shader_func=component_shader,
+        test_name="vector_component",
+        tmp_path=tmp_path,
+        uniforms={"u_aspect": 1.5},
+    )
