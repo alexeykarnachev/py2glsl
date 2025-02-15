@@ -2,7 +2,7 @@
 
 import pytest
 
-from py2glsl import vec2, vec4
+from py2glsl import vec2, vec3, vec4
 from py2glsl.builtins import (
     abs,
     atan,
