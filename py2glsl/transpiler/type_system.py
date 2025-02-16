@@ -36,6 +36,10 @@ class TypeInfo:
 
 
 class TypeInferer(NodeVisitor):
+    _MATRIX_DIMENSION_COUNT = 2
+    _MIN_MATRIX_DIM = 2
+    _MAX_MATRIX_DIM = 4
+
     def __init__(self) -> None:
         self.symbols: dict[str, TypeInfo] = {}
         self.current_fn_return: TypeInfo | None = None
@@ -147,9 +151,23 @@ class TypeInferer(NodeVisitor):
     def _check_matrix_mult(
         self, op: ast.operator, left: TypeInfo, right: TypeInfo
     ) -> TypeInfo | None:
-        """Validate matrix-vector multiplication dimensions"""
         if not isinstance(op, ast.Mult):
             return None
+
+        if left.glsl_type.startswith("mat") and right.glsl_type.startswith("mat"):
+            assert left.matrix_dim is not None and right.matrix_dim is not None
+
+            lrows, lcols = left.matrix_dim
+            rrows, rcols = right.matrix_dim
+
+            if lcols != rrows:
+                raise GlslTypeError(
+                    op, f"Matrix dimension mismatch: {lrows}x{lcols} vs {rrows}x{rcols}"
+                )
+            return TypeInfo(
+                f"mat{lrows}x{rcols}" if lrows != rcols else f"mat{lrows}",
+                matrix_dim=(lrows, rcols),
+            )
 
         # Matrix * Vector case
         if (
@@ -186,7 +204,7 @@ class TypeInferer(NodeVisitor):
             return left
 
         raise GlslTypeError(
-            node, f"Type mismatch: {left.glsl_type} vs {right.glsl_type}"
+            node, f"Type mismatch in operation: {left.glsl_type} vs {right.glsl_type}"
         )
 
     def visit_BoolOp(self, node: ast.BoolOp) -> TypeInfo:  # noqa: N802
@@ -216,11 +234,19 @@ class TypeInferer(NodeVisitor):
         raise GlslTypeError(node, f"Unsupported constant {type(node.value)}")
 
     def visit_Call(self, node: ast.Call) -> TypeInfo:  # noqa: N802
-        if isinstance(node.func, ast.Name) and node.func.id.startswith("vec"):
-            dim = int(node.func.id[3])
-            for arg in node.args:
-                self.visit(arg)
-            return TypeInfo(f"vec{dim}", vector_size=dim)
+        if isinstance(node.func, ast.Name):
+            if node.func.id.startswith("vec"):
+                dim = int(node.func.id[3:])
+                return TypeInfo(f"vec{dim}", vector_size=dim)
+            elif node.func.id.startswith("mat"):
+                parts = node.func.id[3:].split("x")
+                if len(parts) == 1:
+                    rows = cols = int(parts[0])
+                else:
+                    rows, cols = map(int, parts)
+                # Use shorthand for square matrices
+                glsl_type = f"mat{rows}" if rows == cols else f"mat{rows}x{cols}"
+                return TypeInfo(glsl_type, matrix_dim=(rows, cols))
         raise GlslTypeError(node, f"Unsupported call: {getattr(node.func, 'id', '')}")
 
     def visit_Name(self, node: Name) -> TypeInfo:  # noqa: N802
@@ -240,20 +266,32 @@ class TypeInferer(NodeVisitor):
         raise GlslTypeError(node, "Invalid type annotation")
 
     def _handle_basic_type(self, type_name: str) -> TypeInfo:
-        basic_types = {
-            "float": TypeInfo("float"),
-            "int": TypeInfo("float"),
-            "bool": TypeInfo("bool"),
-            "vec2": TypeInfo("vec2", vector_size=2),
-            "vec3": TypeInfo("vec3", vector_size=3),
-            "vec4": TypeInfo("vec4", vector_size=4),
-            "mat2": TypeInfo("mat2", matrix_dim=(2, 2)),
-            "mat3": TypeInfo("mat3", matrix_dim=(3, 3)),
-            "mat4": TypeInfo("mat4", matrix_dim=(4, 4)),
-        }
-        if type_name not in basic_types:
-            raise ValueError(f"Unknown type: {type_name}")
-        return basic_types[type_name]
+        if type_name.startswith("vec"):
+            dim = int(type_name[3:])
+            if dim not in {2, 3, 4}:
+                raise ValueError(f"Invalid vector dimension: {dim}")
+            return TypeInfo(type_name, vector_size=dim)
+        elif type_name.startswith("mat"):
+            parts = type_name[3:].split("x")
+            if len(parts) == 1:
+                rows = cols = int(parts[0])
+            elif len(parts) == 2:  # noqa: PLR2004
+                rows, cols = map(int, parts)
+            else:
+                raise ValueError(f"Invalid matrix type: {type_name}")
+            if not (
+                self._MIN_MATRIX_DIM <= rows <= self._MAX_MATRIX_DIM
+                and self._MIN_MATRIX_DIM <= cols <= self._MAX_MATRIX_DIM
+            ):
+                raise ValueError(f"Invalid matrix dimensions: {rows}x{cols}")
+            return TypeInfo(type_name, matrix_dim=(rows, cols))
+        else:
+            basic_types = {
+                "float": TypeInfo("float"),
+                "int": TypeInfo("float"),
+                "bool": TypeInfo("bool"),
+            }
+            return basic_types[type_name]
 
     def _parse_vector_annotation(self, node: Subscript) -> TypeInfo:
         if isinstance(node.slice, ast.Tuple):
@@ -272,13 +310,17 @@ class TypeInferer(NodeVisitor):
                 else:
                     raise GlslTypeError(node, "Matrix dimensions must be integers")
 
-            if len(dims) != 2:  # noqa: PLR2004
+            if len(dims) != self._MATRIX_DIMENSION_COUNT:
                 raise GlslTypeError(node, "Matrix requires 2 dimensions")
 
             dims_tuple = cast(tuple[int, int], tuple(dims))
-            if dims_tuple not in {(2, 2), (3, 3), (4, 4)}:
+            valid_dims = {
+                (i, i) for i in range(self._MIN_MATRIX_DIM, self._MAX_MATRIX_DIM + 1)
+            }
+            if dims_tuple not in valid_dims:
                 raise GlslTypeError(node, f"Invalid matrix dimensions {dims_tuple}")
 
             return TypeInfo(f"mat{dims_tuple[0]}", matrix_dim=dims_tuple)
 
+        # Handle non-tuple cases outside the if block
         raise GlslTypeError(node, "Matrix annotation requires tuple of dimensions")

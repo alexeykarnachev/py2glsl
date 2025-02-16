@@ -174,3 +174,76 @@ def test_type_promotion_errors() -> None:
 
     # Verify first error is caught
     assert "float vs bool" in str(exc.value)
+
+
+def test_scalar_vector_multiplication() -> None:
+    code = parse_code(
+        """
+    def test(v: vec3) -> vec3:
+        a = 2 * v    # Left scalar
+        b = v * 0.5  # Right scalar
+        return a + b
+    """
+    )
+
+    inferer = TypeInferer()
+    inferer.visit(code)  # Should validate all operations
+
+
+def test_int_float_promotion() -> None:
+    code = parse_code(
+        """
+    def test() -> float:
+        a = 5        # int
+        b = 3.14     # float
+        return a * b  # Should promote to float
+    """
+    )
+
+    inferer = TypeInferer()
+    inferer.visit(code)
+    assert inferer.symbols["a"] == TypeInfo("float")
+
+
+def test_matrix_matrix_mult() -> None:
+    code = parse_code(
+        """
+    def test(m1: mat3x2, m2: mat2x4) -> mat3x4:
+        return m1 * m2  # Should produce mat3x4
+    """
+    )
+
+    inferer = TypeInferer()
+    inferer.visit(code)
+    assert inferer.current_fn_return == TypeInfo("mat3x4", matrix_dim=(3, 4))
+
+
+def test_invalid_matrix_mult() -> None:
+    code = parse_code(
+        """
+    def test(m: mat3, v: mat4) -> mat4:
+        return m * v  # Invalid dimensions: 3x3 * 4x4
+    """
+    )
+
+    inferer = TypeInferer()
+    with pytest.raises(GlslTypeError) as exc:
+        inferer.visit(code)
+
+    assert "Matrix dimension mismatch: 3x3 vs 4x4" in str(exc.value)
+
+
+def test_matrix_identity() -> None:
+    code = parse_code(
+        """
+    def test() -> mat4:
+        a: mat4 = mat4(1.0)  # Identity matrix
+        b: mat4 = mat4(1.0)
+        return a * b  # Should preserve mat4 type
+    """
+    )
+
+    inferer = TypeInferer()
+    inferer.visit(code)
+    assert inferer.symbols["a"].matrix_dim == (4, 4)
+    assert inferer.current_fn_return == TypeInfo("mat4", matrix_dim=(4, 4))
