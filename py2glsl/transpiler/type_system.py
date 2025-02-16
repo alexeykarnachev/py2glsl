@@ -235,19 +235,128 @@ class TypeInferer(NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> TypeInfo:  # noqa: N802
         if isinstance(node.func, ast.Name):
+
+            # Vector constructor handling (existing code)
             if node.func.id.startswith("vec"):
                 dim = int(node.func.id[3:])
+                if dim not in {2, 3, 4}:
+                    raise GlslTypeError(node, f"Invalid vector dimension: {dim}")
+
+                # Validate constructor arguments
+                if len(node.args) == 1:
+                    # Handle single-argument constructor (scalar or vector)
+                    arg_type = self.visit(node.args[0])
+                    if arg_type.vector_size:
+                        if arg_type.vector_size != dim:
+                            raise GlslTypeError(
+                                node,
+                                f"Cannot convert {arg_type.glsl_type} to vec{dim} - "
+                                "use explicit component selection",
+                            )
+                else:
+                    # Handle multi-argument constructor
+                    if len(node.args) != dim:
+                        raise GlslTypeError(
+                            node,
+                            f"vec{dim} requires {dim} arguments, got {len(node.args)}",
+                        )
+                    for arg in node.args:
+                        arg_type = self.visit(arg)
+                        if arg_type.glsl_type not in ("float", "int"):
+                            raise GlslTypeError(
+                                node,
+                                f"vec{dim} component must be scalar, got {arg_type.glsl_type}",
+                            )
+
                 return TypeInfo(f"vec{dim}", vector_size=dim)
+
+            # Add matrix constructor handling
             elif node.func.id.startswith("mat"):
                 parts = node.func.id[3:].split("x")
                 if len(parts) == 1:
                     rows = cols = int(parts[0])
-                else:
+                elif len(parts) == 2:
                     rows, cols = map(int, parts)
-                # Use shorthand for square matrices
-                glsl_type = f"mat{rows}" if rows == cols else f"mat{rows}x{cols}"
-                return TypeInfo(glsl_type, matrix_dim=(rows, cols))
+                else:
+                    raise GlslTypeError(node, f"Invalid matrix type {node.func.id}")
+
+                # Validate matrix dimensions
+                if not (
+                    self._MIN_MATRIX_DIM <= rows <= self._MAX_MATRIX_DIM
+                    and self._MIN_MATRIX_DIM <= cols <= self._MAX_MATRIX_DIM
+                ):
+                    raise GlslTypeError(
+                        node, f"Invalid matrix dimensions {rows}x{cols}"
+                    )
+
+                # Validate constructor arguments
+                if len(node.args) != 1:
+                    raise GlslTypeError(
+                        node,
+                        f"mat{rows}x{cols} constructor requires single scalar argument",
+                    )
+
+                arg_type = self.visit(node.args[0])
+                if arg_type.glsl_type not in ("float", "int"):
+                    raise GlslTypeError(
+                        node,
+                        f"Matrix constructor requires scalar, got {arg_type.glsl_type}",
+                    )
+
+                return TypeInfo(
+                    f"mat{rows}x{cols}" if rows != cols else f"mat{rows}",
+                    matrix_dim=(rows, cols),
+                )
         raise GlslTypeError(node, f"Unsupported call: {getattr(node.func, 'id', '')}")
+
+    def visit_Attribute(self, node: ast.Attribute) -> TypeInfo:  # noqa: N802
+        value_type = self.visit(node.value)
+        if not value_type.vector_size:
+            raise GlslTypeError(
+                node, f"Swizzle on non-vector type {value_type.glsl_type}"
+            )
+
+        swizzle = node.attr
+        valid_channels = {"x", "y", "z", "w", "r", "g", "b", "a", "s", "t", "p", "q"}
+        component_map = {
+            "x": 0,
+            "y": 1,
+            "z": 2,
+            "w": 3,
+            "r": 0,
+            "g": 1,
+            "b": 2,
+            "a": 3,
+            "s": 0,
+            "t": 1,
+            "p": 2,
+            "q": 3,
+        }
+
+        # Validate swizzle pattern
+        if len(swizzle) < 1 or len(swizzle) > 4:
+            raise GlslTypeError(
+                node, f"Invalid swizzle length {len(swizzle)}"
+            )  # Check length first
+        if any(c not in valid_channels for c in swizzle):
+            raise GlslTypeError(node, f"Invalid swizzle character in '{swizzle}'")
+
+        # Check channel consistency
+        has_rgba = any(c in {"r", "g", "b", "a"} for c in swizzle)
+        has_stpq = any(c in {"s", "t", "p", "q"} for c in swizzle)
+        if has_rgba and has_stpq:
+            raise GlslTypeError(node, "Mixed swizzle channels (rgba and stpq)")
+
+        # Check component bounds
+        max_component = value_type.vector_size
+        for c in swizzle:
+            if component_map[c] >= max_component:
+                raise GlslTypeError(
+                    node,
+                    f"Swizzle component '{c}' out of bounds for {value_type.glsl_type}",
+                )
+
+        return TypeInfo(f"vec{len(swizzle)}", vector_size=len(swizzle))
 
     def visit_Name(self, node: Name) -> TypeInfo:  # noqa: N802
         if node.id not in self.symbols:

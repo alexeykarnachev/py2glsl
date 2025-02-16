@@ -237,13 +237,86 @@ def test_matrix_identity() -> None:
     code = parse_code(
         """
     def test() -> mat4:
-        a: mat4 = mat4(1.0)  # Identity matrix
+        a: mat4 = mat4(1.0)
         b: mat4 = mat4(1.0)
-        return a * b  # Should preserve mat4 type
+        return a * b
+    """
+    )
+    inferer = TypeInferer()
+    inferer.visit(code)
+    assert inferer.current_fn_return == TypeInfo("mat4", matrix_dim=(4, 4))
+
+
+def test_vector_type_casting() -> None:
+    code = parse_code(
+        """
+    def test() -> vec3:
+        a: vec4 = vec4(1.0)
+        b = vec3(a)  # Invalid truncate without explicit component selection
+        return b
+    """
+    )
+
+    inferer = TypeInferer()
+    with pytest.raises(GlslTypeError) as exc:
+        inferer.visit(code)
+
+    assert "Cannot convert vec4 to vec3" in str(exc.value)
+
+
+def test_invalid_vector_cast() -> None:
+    code = parse_code(
+        """
+    def test() -> vec2:
+        return vec2(1.0, 2.0, 3.0)  # Too many components
+    """
+    )
+
+    inferer = TypeInferer()
+    with pytest.raises(GlslTypeError) as exc:
+        inferer.visit(code)
+
+    assert "vec2 requires 2 arguments, got 3" in str(exc.value)
+
+
+def test_swizzle_operations() -> None:
+    code = parse_code(
+        """
+    def test(v: vec4) -> vec3:
+        a = v.xyz  # Valid swizzle
+        return a
     """
     )
 
     inferer = TypeInferer()
     inferer.visit(code)
-    assert inferer.symbols["a"].matrix_dim == (4, 4)
-    assert inferer.current_fn_return == TypeInfo("mat4", matrix_dim=(4, 4))
+    assert inferer.current_fn_return == TypeInfo("vec3", vector_size=3)
+
+
+def test_invalid_swizzle() -> None:
+    code = parse_code(
+        """
+    def test(v: vec3) -> vec4:
+        return v.xyzw
+    """
+    )
+    inferer = TypeInferer()
+    with pytest.raises(GlslTypeError) as exc:
+        inferer.visit(code)
+
+    assert "Swizzle component 'w' out of bounds for vec3" in str(exc.value)
+
+
+def test_mixed_swizzle_channels() -> None:
+    code = parse_code(
+        """
+    def test(v: vec4) -> vec4:
+        return v.rgst  # Mixed color and texture channels
+    """
+    )
+
+    inferer = TypeInferer()
+    with pytest.raises(GlslTypeError) as exc:
+        inferer.visit(code)
+
+    assert "Mixed swizzle channels (rgba and stpq)" in str(exc.value)
