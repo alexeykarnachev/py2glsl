@@ -74,10 +74,13 @@ class GLSLBuilder:
     def _validate_identifier(self, name: str, context: str):
         if not name.isidentifier():
             raise GLSLCodeError(f"Invalid {context} name: '{name}'")
-        if any(c.isupper() for c in name):
-            raise GLSLCodeError(
-                f"{context.capitalize()} name '{name}' must be lowercase"
-            )
+
+        # Only enforce lowercase for specific contexts
+        if context in {"uniform", "attribute", "output", "function"}:
+            if any(c.isupper() for c in name):
+                raise GLSLCodeError(
+                    f"{context.capitalize()} name '{name}' must be lowercase"
+                )
 
     def build_vertex_shader(self) -> str:
         code = [self.version]

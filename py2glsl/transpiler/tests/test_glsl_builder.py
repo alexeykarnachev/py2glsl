@@ -8,6 +8,12 @@ def test_vertex_shader_generation():
     builder.add_vertex_attribute(0, "vec2", "a_pos")
     builder.add_interface_block("VertexOutput", "out", {"vs_uv": "vec2"})
 
+    # Add these lines to populate the main function body
+    builder.main_body = [
+        "vs_uv = a_pos * 0.5 + 0.5;",
+        "gl_Position = vec4(a_pos, 0.0, 1.0);",
+    ]
+
     expected = """
 #version 460 core
 layout(location = 0) in vec2 a_pos;
