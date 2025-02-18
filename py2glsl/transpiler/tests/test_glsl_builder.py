@@ -49,7 +49,7 @@ void main() {
     fs_color = main_shader(vs_uv, u_time);
 }
 """.strip()
-    assert builder.build_fragment_shader().strip() == expected
+    assert builder.build_fragment_shader(entry_point="main_shader").strip() == expected
 
 
 def test_naming_conventions():
@@ -76,7 +76,7 @@ in LightData {
     vec3 direction;
     vec4 color;
 };""".strip()
-    assert expected in builder.build_fragment_shader()
+    assert expected in builder.build_fragment_shader(entry_point="main")
 
 
 def test_struct_generation():
@@ -88,4 +88,4 @@ struct Material {
     vec3 albedo;
     float roughness;
 };""".strip()
-    assert expected in builder.build_fragment_shader()
+    assert expected in builder.build_fragment_shader(entry_point="main")
