@@ -1,5 +1,5 @@
 import keyword
-from typing import Dict, List, Tuple
+import re
 
 
 class GLSLCodeError(ValueError):
@@ -8,15 +8,15 @@ class GLSLCodeError(ValueError):
 
 class GLSLBuilder:
     def __init__(self):
-        self.uniforms: List[str] = []
-        self.vertex_interface: List[str] = []
-        self.fragment_interface: List[str] = []
-        self.outputs: List[str] = []
-        self.structs: List[str] = []
-        self.functions: List[str] = []
-        self.vertex_attributes: List[str] = []
-        self.vertex_main_body: List[str] = []
-        self.fragment_main_body: List[str] = []
+        self.uniforms: list[str] = []
+        self.vertex_interface: list[str] = []
+        self.fragment_interface: list[str] = []
+        self.outputs: list[str] = []
+        self.structs: list[str] = []
+        self.functions: list[str] = []
+        self.vertex_attributes: list[str] = []
+        self.vertex_main_body: list[str] = []
+        self.fragment_main_body: list[str] = []
         self.declared_names = set()
 
     def _validate_identifier(self, name: str):
@@ -49,7 +49,7 @@ class GLSLBuilder:
         )
 
     def add_interface_block(
-        self, block_name: str, qualifier: str, members: Dict[str, str]
+        self, block_name: str, qualifier: str, members: dict[str, str]
     ):
         self._validate_identifier(block_name)
         members_str = "\n    ".join(
@@ -68,7 +68,7 @@ class GLSLBuilder:
         self._validate_identifier(name)
         self.outputs.append(f"out {type_} {name};")
 
-    def add_struct(self, name: str, members: Dict[str, str]):
+    def add_struct(self, name: str, members: dict[str, str]):
         self._validate_identifier(name)
         members_str = "\n    ".join(
             [f"{type_} {name};" for name, type_ in members.items()]
@@ -79,8 +79,8 @@ class GLSLBuilder:
         self,
         return_type: str,
         name: str,
-        parameters: List[Tuple[str, str]],
-        body: List[str],
+        parameters: list[tuple[str, str]],
+        body: list[str],
     ):
         """Add a GLSL function with validation"""
         self._validate_identifier(name)
@@ -91,38 +91,41 @@ class GLSLBuilder:
         self.functions.append(f"{return_type} {name}({params}) {{\n{body_str}\n}}")
 
     def _validate_swizzle_operations(
-        self, parameters: List[Tuple[str, str]], body: List[str]
+        self, parameters: list[tuple[str, str]], body: list[str]
     ):
         """Check for invalid swizzle patterns in function body"""
+        component_indices = {"x": 0, "y": 1, "z": 2, "w": 3}
         param_types = {name: type_ for type_, name in parameters}
 
         for line in body:
-            if "." in line and any(c in "xyzw" for c in line.split(".")[1]):
-                var_name = line.split(".")[0].strip()
+            # Match swizzle patterns like .xyz or .rgba
+            swizzle_match = re.search(r"\b(\w+)\.([xyzw]{2,})", line)
+            if swizzle_match:
+                var_name = swizzle_match.group(1)
+                swizzle = swizzle_match.group(2)
                 var_type = param_types.get(var_name, "")
 
                 if var_type.startswith("vec"):
                     max_components = int(var_type[3])
-                    swizzle = line.split(".")[1].split()[0]  # Get swizzle components
-                    if any(ord(c) - ord("x") >= max_components for c in swizzle):
+                    if any(component_indices[c] >= max_components for c in swizzle):
                         raise GLSLCodeError(
-                            f"Invalid swizzle '{swizzle}' for {var_type}"
+                            f"Invalid swizzle '{swizzle}' for {var_type} in line: {line}"
                         )
 
-    def _format_parameters(self, parameters: List[Tuple[str, str]]) -> str:
+    def _format_parameters(self, parameters: list[tuple[str, str]]) -> str:
         """Format function parameters with type annotations"""
         return ", ".join([f"{type_} {name}" for type_, name in parameters])
 
-    def _format_body(self, body: List[str]) -> str:
+    def _format_body(self, body: list[str]) -> str:
         """Indent and join body lines"""
         return "    " + "\n    ".join(body)
 
     def configure_shader_transpiler(
         self,
-        uniforms: Dict[str, str],
-        attributes: Dict[str, str],
+        uniforms: dict[str, str],
+        attributes: dict[str, str],
         func_name: str,
-        shader_body: List[str],
+        shader_body: list[str],
     ):
         # Add vertex attributes
         for idx, (name, type_) in enumerate(attributes.items()):
@@ -157,9 +160,7 @@ class GLSLBuilder:
         ]
 
         # Fragment main
-        args = [f"VertexData.{name}" for name in attributes] + [
-            name for name in uniforms
-        ]
+        args = [f"VertexData.{name}" for name in attributes] + list(uniforms)
         self.fragment_main_body = [f"fs_color = {func_name}({', '.join(args)});"]
 
     def build_vertex_shader(self) -> str:

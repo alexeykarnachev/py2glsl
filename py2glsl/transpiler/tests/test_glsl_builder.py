@@ -100,13 +100,14 @@ def test_matrix_operations():
 def test_invalid_swizzle_patterns():
     """Test invalid swizzle operations"""
     builder = GLSLBuilder()
-    with pytest.raises(GLSLCodeError):
+    with pytest.raises(GLSLCodeError) as exc:
         builder.add_function(
             return_type="vec4",
             name="invalid_swizzle",
             parameters=[("vec3", "v")],
             body=["return v.xyzw;"],  # Invalid for vec3
         )
+    assert "Invalid swizzle 'xyzw' for vec3" in str(exc.value)
 
 
 def test_struct_usage():

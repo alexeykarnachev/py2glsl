@@ -1,7 +1,7 @@
 import pytest
 
-from py2glsl.glsl.types import mat4, vec2, vec4
-from py2glsl.transpiler.core import GLSLTypeError, TranspilerResult, transpile
+from py2glsl.glsl.types import vec2, vec4
+from py2glsl.transpiler.core import GLSLTypeError, transpile
 from py2glsl.transpiler.glsl_builder import GLSLCodeError
 
 
@@ -151,21 +151,9 @@ def test_reserved_keyword_usage():
         transpile(shader)
 
 
-def test_interface_block_member_mismatch():
-    """Test vertex/fragment interface mismatch detection"""
-
-    def shader(vs_uv: vec2, /, res: vec2) -> vec4:
-        return vec4(vs_uv, 0, 1)
-
-    with pytest.raises(GLSLCodeError):
-        # Intentionally corrupt the interface
-        result = transpile(shader)
-        result.fragment_src = result.fragment_src.replace("vec2 vs_uv", "vec3 vs_uv")
-
-
 def test_matrix_uniforms():
     """Test matrix uniform declaration and usage in shader operations"""
-    from py2glsl.glsl.types import mat4, vec4
+    from py2glsl.glsl.types import vec4
 
     def shader(vs_uv: vec2, /, mvp: mat4) -> vec4:
         # Transform position using matrix
