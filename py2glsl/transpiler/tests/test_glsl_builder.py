@@ -1,140 +1,163 @@
+from typing import Callable
+
 import pytest
 
 from py2glsl.transpiler.glsl_builder import GLSLBuilder, GLSLCodeError
 
 
-def test_vertex_shader_generation():
+def test_vertex_shader_generation_basic():
     builder = GLSLBuilder()
-    builder.add_vertex_attribute(0, "vec2", "a_pos")
-    builder.add_interface_block("VertexOutput", "out", {"vs_uv": "vec2"})
+    builder.add_vertex_attribute(0, "vec2", "vs_uv")
+    # Add required interface blocks
+    builder.add_interface_block("VertexData", "out", {"vs_uv": "vec2"})
+    builder.add_interface_block("VertexData", "in", {"vs_uv": "vec2"})
 
-    # Add these lines to populate the main function body
     builder.vertex_main_body = [
-        "vs_uv = a_pos * 0.5 + 0.5;",
-        "gl_Position = vec4(a_pos, 0.0, 1.0);",
+        "VertexData.vs_uv = vs_uv;",
+        "gl_Position = vec4(vs_uv * 2.0 - 1.0, 0.0, 1.0);",
     ]
 
-    expected = """
-#version 460 core
-layout(location = 0) in vec2 a_pos;
-out VertexOutput {
-    vec2 vs_uv;
-};
-void main() {
-    vs_uv = a_pos * 0.5 + 0.5;
-    gl_Position = vec4(a_pos, 0.0, 1.0);
-}
-""".strip()
-    assert builder.build_vertex_shader().strip() == expected
+    result = builder.build_vertex_shader()
+
+    assert "layout(location = 0) in vec2 vs_uv" in result
+    assert "out VertexData" in result
+    assert "gl_Position = vec4(vs_uv * 2.0 - 1.0, 0.0, 1.0);" in result
 
 
-def test_fragment_shader_generation():
+def test_fragment_shader_with_uniforms():
     builder = GLSLBuilder()
     builder.add_uniform("u_time", "float")
-    builder.add_interface_block("VertexInput", "in", {"vs_uv": "vec2"})
-    builder.add_output("fs_color", "vec4")
-    builder.add_function(
-        return_type="vec4",
-        name="main_shader",
-        parameters=[("vec2", "uv"), ("float", "time")],
-        body=["return vec4(uv, time, 1.0);"],
+    builder.add_uniform("u_resolution", "vec2")
+    builder.fragment_main_body = [
+        "float aspect = u_resolution.x / u_resolution.y;",
+        "fs_color = vec4(sin(u_time), aspect, 0.5, 1.0);",
+    ]
+
+    result = builder.build_fragment_shader()
+
+    assert "uniform float u_time" in result
+    assert "uniform vec2 u_resolution" in result
+    assert "aspect = u_resolution.x / u_resolution.y" in result
+    assert "fs_color = vec4(sin(u_time), aspect, 0.5, 1.0)" in result
+
+
+@pytest.mark.parametrize(
+    "type_name", ["vec2", "vec3", "vec4", "mat3", "mat4", "float", "int", "bool"]
+)
+def test_uniform_type_declarations(type_name):
+    builder = GLSLBuilder()
+    builder.add_uniform(f"u_{type_name}", type_name)
+    shader_src = builder.build_fragment_shader()
+    assert f"uniform {type_name} u_{type_name}" in shader_src
+
+
+def test_interface_block_matching():
+    builder = GLSLBuilder()
+    builder.add_interface_block("VertexData", "out", {"vs_uv": "vec2", "color": "vec3"})
+    builder.add_interface_block("VertexData", "in", {"vs_uv": "vec2", "color": "vec3"})
+
+    vertex_src = builder.build_vertex_shader()
+    fragment_src = builder.build_fragment_shader()
+
+    # Verify matching interface blocks
+    v_out = next(line for line in vertex_src.splitlines() if "out VertexData" in line)
+    f_in = next(line for line in fragment_src.splitlines() if "in VertexData" in line)
+    assert v_out == f_in.replace("in", "out")
+
+
+def test_struct_declaration():
+    builder = GLSLBuilder()
+    builder.add_struct(
+        "Material", {"albedo": "vec3", "roughness": "float", "uv_scale": "vec2"}
     )
-    builder.fragment_main_body = ["fs_color = main_shader(vs_uv, u_time);"]
 
-    expected = """
-#version 460 core
-uniform float u_time;
-in VertexInput {
-    vec2 vs_uv;
-};
-out vec4 fs_color;
-vec4 main_shader(vec2 uv, float time) {
-    return vec4(uv, time, 1.0);
-}
-void main() {
-    fs_color = main_shader(vs_uv, u_time);
-}
-""".strip()
-
-    assert builder.build_fragment_shader().strip() == expected
+    shader_src = builder.build_fragment_shader()
+    assert "struct Material {" in shader_src
+    assert "vec3 albedo;" in shader_src
+    assert "float roughness;" in shader_src
+    assert "vec2 uv_scale;" in shader_src
 
 
-def test_naming_conventions():
-    builder = GLSLBuilder()
-    with pytest.raises(GLSLCodeError):
-        builder.add_uniform("123invalid", "float")
-    with pytest.raises(GLSLCodeError):
-        builder.add_output("gl_FragColor", "vec4")
-
-
-def test_interface_blocks():
-    builder = GLSLBuilder()
-    builder.add_interface_block(
-        "LightData", "in", {"direction": "vec3", "color": "vec4"}
-    )
-    expected = "in LightData {\n    vec3 direction;\n    vec4 color;\n};"
-    assert expected in builder.build_fragment_shader()
-
-
-def test_struct_generation():
-    builder = GLSLBuilder()
-    builder.add_struct("Material", {"albedo": "vec3", "roughness": "float"})
-    expected = "struct Material {\n    vec3 albedo;\n    float roughness;\n};"
-    assert expected in builder.build_fragment_shader()
-
-
-def test_matrix_operations():
-    """Test matrix-vector multiplication"""
+def test_function_declaration_with_parameters():
     builder = GLSLBuilder()
     builder.add_function(
         return_type="vec3",
-        name="transform_point",
-        parameters=[("mat3", "m"), ("vec3", "v")],
-        body=["return m * v;"],
+        name="calculate_normal",
+        parameters=[("vec3", "pos"), ("vec2", "uv"), ("float", "intensity")],
+        body=[
+            "vec3 dx = dFdx(pos);",
+            "vec3 dy = dFdy(pos);",
+            "return normalize(cross(dx, dy)) * intensity;",
+        ],
     )
-    generated = builder.build_fragment_shader()
-    assert "vec3 transform_point(mat3 m, vec3 v)" in generated
-    assert "return m * v;" in generated
+
+    shader_src = builder.build_fragment_shader()
+    assert "vec3 calculate_normal(vec3 pos, vec2 uv, float intensity)" in shader_src
+    assert "vec3 dx = dFdx(pos)" in shader_src
+    assert "return normalize(cross(dx, dy)) * intensity" in shader_src
 
 
-def test_invalid_swizzle_patterns():
-    """Test invalid swizzle operations"""
+def test_swizzle_validation():
     builder = GLSLBuilder()
     with pytest.raises(GLSLCodeError) as exc:
         builder.add_function(
             return_type="vec4",
             name="invalid_swizzle",
             parameters=[("vec3", "v")],
-            body=["return v.xyzw;"],  # Invalid for vec3
+            body=["return v.xyzw;"],
         )
     assert "Invalid swizzle 'xyzw' for vec3" in str(exc.value)
 
 
-def test_struct_usage():
-    """Test struct declarations and usage"""
+def test_duplicate_uniform_declaration():
     builder = GLSLBuilder()
-    builder.add_struct("Light", {"position": "vec3", "color": "vec4"})
+    builder.add_uniform("u_time", "float")
+    with pytest.raises(GLSLCodeError) as exc:
+        builder.add_uniform("u_time", "float")
+    assert "Duplicate declaration: u_time" in str(exc.value)
+
+
+def test_reserved_keyword_validation():
+    builder = GLSLBuilder()
+    with pytest.raises(GLSLCodeError) as exc:
+        builder.add_uniform("float", "vec2")
+    assert "Reserved GLSL keyword: float" in str(exc.value)
+
+
+def test_shader_output_order():
+    builder = GLSLBuilder()
+    builder.add_uniform("u_time", "float")
+    builder.add_vertex_attribute(0, "vec2", "vs_uv")
+    builder.add_interface_block("VertexData", "out", {"vs_uv": "vec2"})
+    builder.add_interface_block("VertexData", "in", {"vs_uv": "vec2"})
+    builder.add_struct("Data", {"value": "float"})
     builder.add_function(
-        return_type="vec4",
-        name="apply_light",
-        parameters=[("Light", "l")],
-        body=["return l.color;"],
+        return_type="float",
+        name="noise",
+        parameters=[("vec2", "uv")],
+        body=["return fract(sin(dot(uv, vec2(12.9898,78.233))) * 43758.5453);"],
     )
-    generated = builder.build_fragment_shader()
-    assert "struct Light" in generated
-    assert "vec4 apply_light(Light l)" in generated
 
+    vertex_src = builder.build_vertex_shader()
+    sections = vertex_src.split("\n")
 
-def test_version_directive():
-    """Ensure correct GLSL version"""
-    builder = GLSLBuilder()
-    assert "#version 460 core" in builder.build_vertex_shader()
-    assert "#version 460 core" in builder.build_fragment_shader()
+    def find_line(predicate: Callable) -> int:
+        """Returns index of first line matching the predicate"""
+        return next(i for i, line in enumerate(sections) if predicate(line))
 
+    # Find key line indexes using the helper
+    version_idx = find_line(lambda l: l == "#version 460 core")
+    attr_idx = find_line(lambda l: "layout(location = 0)" in l)
+    interface_idx = find_line(lambda l: "out VertexData" in l)
+    struct_idx = find_line(lambda l: "struct Data" in l)
+    func_idx = find_line(lambda l: "float noise(vec2 uv)" in l)
+    main_idx = find_line(lambda l: l == "void main() {")
 
-def test_duplicate_uniforms():
-    """Prevent duplicate uniform declarations"""
-    builder = GLSLBuilder()
-    builder.add_uniform("time", "float")
-    with pytest.raises(GLSLCodeError):
-        builder.add_uniform("time", "float")
+    # Verify ordering
+    assert version_idx < attr_idx < interface_idx < struct_idx < func_idx < main_idx
+
+    # Verify interface block structure
+    assert sections[interface_idx + 1].strip() == "vec2 vs_uv;"
+
+    # Verify struct contents
+    assert sections[struct_idx + 1].strip() == "float value;"

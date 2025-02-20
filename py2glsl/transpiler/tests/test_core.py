@@ -1,6 +1,6 @@
 import pytest
 
-from py2glsl.glsl.types import vec2, vec4
+from py2glsl.glsl.types import mat4, vec2, vec4
 from py2glsl.transpiler.core import GLSLTypeError, transpile
 from py2glsl.transpiler.glsl_builder import GLSLCodeError
 
@@ -153,7 +153,6 @@ def test_reserved_keyword_usage():
 
 def test_matrix_uniforms():
     """Test matrix uniform declaration and usage in shader operations"""
-    from py2glsl.glsl.types import vec4
 
     def shader(vs_uv: vec2, /, mvp: mat4) -> vec4:
         # Transform position using matrix
