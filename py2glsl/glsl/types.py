@@ -4,18 +4,18 @@ from typing import TypeVar, Union
 
 import numpy as np
 
-T = TypeVar("T", bound="GlslVector")
-GlslValue = Union[float, "GlslVector", "mat3", "mat4"]
+T = TypeVar("T", bound="GLSLVector")
+GLSLValue = Union[float, "GLSLVector", "mat3", "mat4"]
 
 
-class GlslVector:
+class GLSLVector:
     """Base class for GLSL vector types"""
 
     _size: int
     _fields: tuple
 
-    def __init__(self, *args: float | list | tuple | np.ndarray | GlslVector):
-        if len(args) == 1 and isinstance(args[0], GlslVector):
+    def __init__(self, *args: float | list | tuple | np.ndarray | GLSLVector):
+        if len(args) == 1 and isinstance(args[0], GLSLVector):
             self.data: np.ndarray = args[0].data.copy()
         else:
             if len(args) == 1 and isinstance(args[0], (int, float)):
@@ -38,24 +38,24 @@ class GlslVector:
         return f"{self.__class__.__name__}({vals})"
 
     # Operator overloading
-    def __add__(self: T, other: GlslValue) -> T:
+    def __add__(self: T, other: GLSLValue) -> T:
         return self._apply_op(other, lambda a, b: a + b)
 
-    def __sub__(self: T, other: GlslValue) -> T:
+    def __sub__(self: T, other: GLSLValue) -> T:
         return self._apply_op(other, lambda a, b: a - b)
 
-    def __mul__(self: T, other: GlslValue) -> T:
+    def __mul__(self: T, other: GLSLValue) -> T:
         return self._apply_op(other, lambda a, b: a * b)
 
-    def __rmul__(self: T, other: GlslValue) -> T:
+    def __rmul__(self: T, other: GLSLValue) -> T:
         return self.__mul__(other)
 
-    def __truediv__(self: T, other: GlslValue) -> T:
+    def __truediv__(self: T, other: GLSLValue) -> T:
         return self._apply_op(other, lambda a, b: a / b)
 
-    def _apply_op(self: T, other: GlslValue, op) -> T:
+    def _apply_op(self: T, other: GLSLValue, op) -> T:
         """Apply operation with scalar/vector broadcasting"""
-        if isinstance(other, GlslVector):
+        if isinstance(other, GLSLVector):
             if self._size != other._size:
                 raise ValueError("Vector size mismatch")
             return self.__class__(op(self.data, other.data))
@@ -97,17 +97,17 @@ class GlslVector:
         return self.data.copy()
 
 
-class vec2(GlslVector):
+class vec2(GLSLVector):
     _size = 2
     _fields = ("x", "y")
 
 
-class vec3(GlslVector):
+class vec3(GLSLVector):
     _size = 3
     _fields = ("x", "y", "z")
 
 
-class vec4(GlslVector):
+class vec4(GLSLVector):
     _size = 4
     _fields = ("x", "y", "z", "w")
 

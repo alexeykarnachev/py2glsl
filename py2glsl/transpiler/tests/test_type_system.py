@@ -3,7 +3,7 @@ from textwrap import dedent
 
 import pytest
 
-from py2glsl.transpiler.type_system import GlslTypeError, TypeInferer, TypeInfo
+from py2glsl.transpiler.type_system import GLSLTypeError, TypeInferer, TypeInfo
 
 
 def parse(source: str) -> ast.Module:
@@ -64,7 +64,7 @@ def test_type_mismatch():
     )
 
     inferer = TypeInferer()
-    with pytest.raises(GlslTypeError) as exc:
+    with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
     assert "Type mismatch: vec2 vs vec3" in str(exc.value)
@@ -135,7 +135,7 @@ def test_invalid_matrix():
     )
 
     inferer = TypeInferer()
-    with pytest.raises(GlslTypeError) as exc:
+    with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
     assert "Return type mismatch: mat4 vs mat3" in str(exc.value)
@@ -178,7 +178,7 @@ def test_invalid_swizzle():
     )
 
     inferer = TypeInferer()
-    with pytest.raises(GlslTypeError) as exc:
+    with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
     assert "Swizzle component 'w' out of bounds for vec3" in str(exc.value)
@@ -219,7 +219,7 @@ def test_invalid_matrix_mult():
     )
 
     inferer = TypeInferer()
-    with pytest.raises(GlslTypeError) as exc:
+    with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
     assert "Matrix-vector dimension mismatch" in str(exc.value)
@@ -276,7 +276,7 @@ def test_invalid_subscript():
     )
 
     inferer = TypeInferer()
-    with pytest.raises(GlslTypeError) as exc:
+    with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
     assert "Subscript on non-vector/matrix type" in str(exc.value)

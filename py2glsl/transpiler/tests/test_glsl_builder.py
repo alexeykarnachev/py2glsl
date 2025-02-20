@@ -9,7 +9,7 @@ def test_vertex_shader_generation():
     builder.add_interface_block("VertexOutput", "out", {"vs_uv": "vec2"})
 
     # Add these lines to populate the main function body
-    builder.main_body = [
+    builder.vertex_main_body = [
         "vs_uv = a_pos * 0.5 + 0.5;",
         "gl_Position = vec4(a_pos, 0.0, 1.0);",
     ]
@@ -36,10 +36,10 @@ def test_fragment_shader_generation():
     builder.add_function(
         return_type="vec4",
         name="main_shader",
-        parameters=["vec2 uv", "float time"],
+        parameters=[("vec2", "uv"), ("float", "time")],
         body=["return vec4(uv, time, 1.0);"],
     )
-    builder.main_body = ["fs_color = main_shader(vs_uv, u_time);"]
+    builder.fragment_main_body = ["fs_color = main_shader(vs_uv, u_time);"]
 
     expected = """
 #version 460 core
@@ -55,20 +55,16 @@ void main() {
     fs_color = main_shader(vs_uv, u_time);
 }
 """.strip()
-    assert builder.build_fragment_shader(entry_point="main_shader").strip() == expected
+
+    assert builder.build_fragment_shader().strip() == expected
 
 
 def test_naming_conventions():
     builder = GLSLBuilder()
-
     with pytest.raises(GLSLCodeError):
-        builder.add_uniform("time", "float")
-
+        builder.add_uniform("123invalid", "float")
     with pytest.raises(GLSLCodeError):
-        builder.add_vertex_attribute(0, "vec2", "position")
-
-    with pytest.raises(GLSLCodeError):
-        builder.add_output("color", "vec4")
+        builder.add_output("gl_FragColor", "vec4")
 
 
 def test_interface_blocks():
@@ -76,22 +72,12 @@ def test_interface_blocks():
     builder.add_interface_block(
         "LightData", "in", {"direction": "vec3", "color": "vec4"}
     )
-
-    expected = """
-in LightData {
-    vec3 direction;
-    vec4 color;
-};""".strip()
-    assert expected in builder.build_fragment_shader(entry_point="main")
+    expected = "in LightData {\n    vec3 direction;\n    vec4 color;\n};"
+    assert expected in builder.build_fragment_shader()
 
 
 def test_struct_generation():
     builder = GLSLBuilder()
     builder.add_struct("Material", {"albedo": "vec3", "roughness": "float"})
-
-    expected = """
-struct Material {
-    vec3 albedo;
-    float roughness;
-};""".strip()
-    assert expected in builder.build_fragment_shader(entry_point="main")
+    expected = "struct Material {\n    vec3 albedo;\n    float roughness;\n};"
+    assert expected in builder.build_fragment_shader()

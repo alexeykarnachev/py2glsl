@@ -1,143 +1,152 @@
-from dataclasses import dataclass
-from typing import Dict, List
+import keyword
+from typing import Dict, List, Tuple
 
 
 class GLSLCodeError(ValueError):
     pass
 
 
-@dataclass
-class GLSLInterfaceBlock:
-    name: str
-    qualifier: str
-    fields: Dict[str, str]
-
-
-@dataclass
-class GLSLFunction:
-    return_type: str
-    name: str
-    parameters: List[str]
-    body: List[str]
-
-
-@dataclass
-class GLSLStruct:
-    name: str
-    fields: Dict[str, str]
-
-
 class GLSLBuilder:
     def __init__(self):
-        self.version = "#version 460 core"
-        self.uniforms: Dict[str, str] = {}
-        self.structs: Dict[str, GLSLStruct] = {}
-        self.interfaces: Dict[str, GLSLInterfaceBlock] = {}
-        self.functions: List[GLSLFunction] = []
-        self.vertex_attributes: Dict[int, tuple[str, str]] = {}
-        self.outputs: Dict[str, str] = {}
-        self.main_body: List[str] = []
+        self.uniforms: List[str] = []
+        self.vertex_interface: List[str] = []
+        self.fragment_interface: List[str] = []
+        self.outputs: List[str] = []
+        self.structs: List[str] = []
+        self.functions: List[str] = []
+        self.vertex_attributes: List[str] = []
+        self.vertex_main_body: List[str] = []
+        self.fragment_main_body: List[str] = []
+
+    def _validate_identifier(self, name: str):
+        if not name:
+            raise GLSLCodeError("Identifier cannot be empty")
+        if keyword.iskeyword(name):
+            raise GLSLCodeError(f"Reserved keyword cannot be used: {name}")
+        if not (name[0].isalpha() or name[0] == "_"):
+            raise GLSLCodeError(f"Identifier must start with letter/underscore: {name}")
+        if not all(c.isalnum() or c == "_" for c in name):
+            raise GLSLCodeError(f"Invalid characters in identifier: {name}")
+        if name.startswith("gl_"):
+            raise GLSLCodeError(f"Reserved GLSL prefix 'gl_' in identifier: {name}")
 
     def add_uniform(self, name: str, type_: str):
-        self._validate_identifier(name, "uniform")
-        if not name.startswith("u_"):
-            raise GLSLCodeError(f"Uniform name '{name}' must start with 'u_'")
-        self.uniforms[name] = type_
-
-    def add_struct(self, name: str, fields: Dict[str, str]):
-        if name in self.structs:
-            raise GLSLCodeError(f"Struct {name} already defined")
-        self.structs[name] = GLSLStruct(name, fields)
-
-    def add_interface_block(self, name: str, qualifier: str, fields: Dict[str, str]):
-        self._validate_identifier(name, "interface block")
-        self.interfaces[name] = GLSLInterfaceBlock(name, qualifier, fields)
-
-    def add_function(
-        self, return_type: str, name: str, parameters: List[str], body: List[str]
-    ):
-        self._validate_identifier(name, "function")
-        self.functions.append(GLSLFunction(return_type, name, parameters, body))
+        self._validate_identifier(name)
+        self.uniforms.append(f"uniform {type_} {name};")
 
     def add_vertex_attribute(self, location: int, type_: str, name: str):
-        self._validate_identifier(name, "attribute")
-        if not name.startswith("a_"):
-            raise GLSLCodeError(f"Attribute name '{name}' must start with 'a_'")
-        self.vertex_attributes[location] = (type_, name)
+        self._validate_identifier(name)
+        self.vertex_attributes.append(
+            f"layout(location = {location}) in {type_} {name};"
+        )
+
+    def add_interface_block(
+        self, block_name: str, qualifier: str, members: Dict[str, str]
+    ):
+        self._validate_identifier(block_name)
+        members_str = "\n    ".join(
+            [f"{type_} {name};" for name, type_ in members.items()]
+        )
+        block = f"{qualifier} {block_name} {{\n    {members_str}\n}};"
+
+        if qualifier == "out":
+            self.vertex_interface.append(block)
+        elif qualifier == "in":
+            self.fragment_interface.append(block)
+        else:
+            raise GLSLCodeError(f"Invalid interface qualifier: {qualifier}")
 
     def add_output(self, name: str, type_: str):
-        self._validate_identifier(name, "output")
-        if not name.startswith("fs_"):
-            raise GLSLCodeError(f"Fragment output name '{name}' must start with 'fs_'")
-        self.outputs[name] = type_
+        self._validate_identifier(name)
+        self.outputs.append(f"out {type_} {name};")
 
-    def _validate_identifier(self, name: str, context: str):
-        if not name.isidentifier():
-            raise GLSLCodeError(f"Invalid {context} name: '{name}'")
+    def add_struct(self, name: str, members: Dict[str, str]):
+        self._validate_identifier(name)
+        members_str = "\n    ".join(
+            [f"{type_} {name};" for name, type_ in members.items()]
+        )
+        self.structs.append(f"struct {name} {{\n    {members_str}\n}};")
 
-        # Only enforce lowercase for specific contexts
-        if context in {"uniform", "attribute", "output", "function"}:
-            if any(c.isupper() for c in name):
-                raise GLSLCodeError(
-                    f"{context.capitalize()} name '{name}' must be lowercase"
-                )
+    def add_function(
+        self,
+        return_type: str,
+        name: str,
+        parameters: List[Tuple[str, str]],
+        body: List[str],
+    ):
+        self._validate_identifier(name)
+        params = ", ".join([f"{type_} {name}" for type_, name in parameters])
+        body_str = "\n    ".join(body)
+        self.functions.append(f"{return_type} {name}({params}) {{\n    {body_str}\n}}")
+
+    def configure_shader_transpiler(
+        self,
+        uniforms: Dict[str, str],
+        attributes: Dict[str, str],
+        func_name: str,
+        shader_body: List[str],
+    ):
+        # Add vertex attributes
+        for idx, (name, type_) in enumerate(attributes.items()):
+            self.add_vertex_attribute(idx, type_, name)
+
+        # Create interface blocks
+        self.add_interface_block("VertexData", "out", attributes)
+        self.add_interface_block("VertexData", "in", attributes)
+        self.add_output("fs_color", "vec4")
+
+        # Add uniforms
+        for name, type_ in uniforms.items():
+            self.add_uniform(name, type_)
+
+        # Build shader function
+        params = [(type_, name) for name, type_ in attributes.items()] + [
+            (type_, name) for name, type_ in uniforms.items()
+        ]
+
+        self.add_function(
+            return_type="vec4", name=func_name, parameters=params, body=shader_body
+        )
+
+        # Vertex main
+        self.vertex_main_body = [
+            *[f"VertexData.{name} = {name};" for name in attributes],
+            (
+                "gl_Position = vec4(VertexData.vs_uv, 0.0, 1.0);"
+                if "vs_uv" in attributes
+                else "gl_Position = vec4(0.0);"
+            ),
+        ]
+
+        # Fragment main
+        args = [f"VertexData.{name}" for name in attributes] + [
+            name for name in uniforms
+        ]
+        self.fragment_main_body = [f"fs_color = {func_name}({', '.join(args)});"]
 
     def build_vertex_shader(self) -> str:
-        code = [self.version]
+        components = [
+            "#version 460 core",
+            *self.vertex_attributes,
+            *self.vertex_interface,
+            *self.structs,
+            *self.functions,
+            "void main() {",
+            *[f"    {line}" for line in self.vertex_main_body],
+            "}",
+        ]
+        return "\n".join(components)
 
-        # Vertex attributes
-        for loc, (type_, name) in sorted(self.vertex_attributes.items()):
-            code.append(f"layout(location = {loc}) in {type_} {name};")
-
-        # Interfaces
-        for block in self.interfaces.values():
-            code.append(f"out {block.name} {{")
-            for field, ftype in block.fields.items():
-                code.append(f"    {ftype} {field};")
-            code.append("};")
-
-        # Main function
-        code.append("void main() {")
-        code.extend(f"    {line}" for line in self.main_body)
-        code.append("}")
-
-        return "\n".join(code)
-
-    def build_fragment_shader(self, entry_point: str) -> str:
-        code = [self.version]
-
-        # Structs
-        for struct in self.structs.values():
-            code.append(f"struct {struct.name} {{")
-            for field, ftype in struct.fields.items():
-                code.append(f"    {ftype} {field};")
-            code.append("};")
-
-        # Uniforms
-        for name, type_ in self.uniforms.items():
-            code.append(f"uniform {type_} {name};")
-
-        # Interfaces
-        for block in self.interfaces.values():
-            code.append(f"{block.qualifier} {block.name} {{")
-            for field, ftype in block.fields.items():
-                code.append(f"    {ftype} {field};")
-            code.append("};")
-
-        # Outputs
-        for name, type_ in self.outputs.items():
-            code.append(f"out {type_} {name};")
-
-        # Functions
-        for func in self.functions:
-            params = ", ".join(func.parameters)
-            code.append(f"{func.return_type} {func.name}({params}) {{")
-            code.extend(f"    {line}" for line in func.body)
-            code.append("}")
-
-        # Main function
-        code.append("void main() {")
-        code.extend(f"    {line}" for line in self.main_body)
-        code.append("}")
-
-        return "\n".join(code)
+    def build_fragment_shader(self) -> str:
+        components = [
+            "#version 460 core",
+            *self.uniforms,
+            *self.fragment_interface,
+            *self.outputs,
+            *self.structs,
+            *self.functions,
+            "void main() {",
+            *[f"    {line}" for line in self.fragment_main_body],
+            "}",
+        ]
+        return "\n".join(components)
