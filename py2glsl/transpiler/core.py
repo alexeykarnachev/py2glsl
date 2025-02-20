@@ -1,9 +1,10 @@
 import inspect
+import re
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import Callable, Dict, List, Tuple
 
-from py2glsl.glsl.types import vec2, vec4
+from py2glsl.glsl.types import mat3, mat4, vec2, vec3, vec4
 from py2glsl.transpiler.glsl_builder import GLSLBuilder, GLSLCodeError
 
 
@@ -31,10 +32,25 @@ def transpile(func: Callable) -> TranspilerResult:
         shader_body=extract_function_body(func),
     )
 
-    return TranspilerResult(
+    result = TranspilerResult(
         vertex_src=builder.build_vertex_shader(),
         fragment_src=builder.build_fragment_shader(),
     )
+
+    if "VertexData" in result.vertex_src and "VertexData" in result.fragment_src:
+        vert_fields = re.search(
+            r"out VertexData {([^}]+)}", result.vertex_src, re.DOTALL
+        )
+        frag_fields = re.search(
+            r"in VertexData {([^}]+)}", result.fragment_src, re.DOTALL
+        )
+
+        if vert_fields and frag_fields:
+            vert_members = vert_fields.group(1).strip()
+            frag_members = frag_fields.group(1).strip()
+            if vert_members != frag_members:
+                raise GLSLCodeError("Vertex/fragment interface mismatch")
+    return result
 
 
 def validate_function_signature(func: Callable) -> None:
@@ -65,7 +81,16 @@ def detect_interface(func: Callable) -> Tuple[Dict[str, str], Dict[str, str]]:
 
 def get_glsl_type(py_type: type) -> str:
     """Map Python type to GLSL type string"""
-    type_map = {vec2: "vec2", vec4: "vec4", float: "float", int: "int", bool: "bool"}
+    type_map = {
+        vec2: "vec2",
+        vec3: "vec3",
+        vec4: "vec4",
+        mat3: "mat3",
+        mat4: "mat4",
+        float: "float",
+        int: "int",
+        bool: "bool",
+    }
     if py_type not in type_map:
         raise GLSLTypeError(f"Unsupported type: {py_type.__name__}")
     return type_map[py_type]

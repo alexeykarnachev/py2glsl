@@ -322,12 +322,14 @@ class TypeInferer(NodeVisitor):
             raise GLSLTypeError(node, f"Swizzle on non-vector type {base_type}")
 
         swizzle = node.attr
-        max_components = base_type.size[0]
+        if not all(c in "xyzw" for c in swizzle):
+            raise GLSLTypeError(node, f"Invalid swizzle characters: {swizzle}")
 
         if len(swizzle) < 1 or len(swizzle) > 4:
             raise GLSLTypeError(node, f"Invalid swizzle length {len(swizzle)}")
 
         # Validate component indices
+        max_components = base_type.size[0]
         component_map = {"x": 0, "y": 1, "z": 2, "w": 3}
         for c in swizzle:
             if component_map.get(c, -1) >= max_components:

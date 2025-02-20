@@ -81,3 +81,59 @@ def test_struct_generation():
     builder.add_struct("Material", {"albedo": "vec3", "roughness": "float"})
     expected = "struct Material {\n    vec3 albedo;\n    float roughness;\n};"
     assert expected in builder.build_fragment_shader()
+
+
+def test_matrix_operations():
+    """Test matrix-vector multiplication"""
+    builder = GLSLBuilder()
+    builder.add_function(
+        return_type="vec3",
+        name="transform_point",
+        parameters=[("mat3", "m"), ("vec3", "v")],
+        body=["return m * v;"],
+    )
+    generated = builder.build_fragment_shader()
+    assert "vec3 transform_point(mat3 m, vec3 v)" in generated
+    assert "return m * v;" in generated
+
+
+def test_invalid_swizzle_patterns():
+    """Test invalid swizzle operations"""
+    builder = GLSLBuilder()
+    with pytest.raises(GLSLCodeError):
+        builder.add_function(
+            return_type="vec4",
+            name="invalid_swizzle",
+            parameters=[("vec3", "v")],
+            body=["return v.xyzw;"],  # Invalid for vec3
+        )
+
+
+def test_struct_usage():
+    """Test struct declarations and usage"""
+    builder = GLSLBuilder()
+    builder.add_struct("Light", {"position": "vec3", "color": "vec4"})
+    builder.add_function(
+        return_type="vec4",
+        name="apply_light",
+        parameters=[("Light", "l")],
+        body=["return l.color;"],
+    )
+    generated = builder.build_fragment_shader()
+    assert "struct Light" in generated
+    assert "vec4 apply_light(Light l)" in generated
+
+
+def test_version_directive():
+    """Ensure correct GLSL version"""
+    builder = GLSLBuilder()
+    assert "#version 460 core" in builder.build_vertex_shader()
+    assert "#version 460 core" in builder.build_fragment_shader()
+
+
+def test_duplicate_uniforms():
+    """Prevent duplicate uniform declarations"""
+    builder = GLSLBuilder()
+    builder.add_uniform("time", "float")
+    with pytest.raises(GLSLCodeError):
+        builder.add_uniform("time", "float")

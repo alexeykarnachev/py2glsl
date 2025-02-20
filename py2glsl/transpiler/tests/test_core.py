@@ -1,6 +1,6 @@
 import pytest
 
-from py2glsl.glsl.types import vec2, vec4
+from py2glsl.glsl.types import mat4, vec2, vec4
 from py2glsl.transpiler.core import GLSLTypeError, TranspilerResult, transpile
 from py2glsl.transpiler.glsl_builder import GLSLCodeError
 
@@ -119,3 +119,65 @@ def test_complex_shader():
         "fs_color = complex_shader(VertexData.vs_uv, u_time, u_res)"
         in result.fragment_src
     )
+
+
+def test_invalid_uniform_types():
+    """Test unsupported uniform types"""
+    with pytest.raises(GLSLTypeError):
+
+        def shader(vs_uv: vec2, /, invalid: list) -> vec4:  # list is invalid
+            return vec4(0)
+
+        transpile(shader)
+
+
+def test_multiple_positional_parameters():
+    """Should reject multiple positional-only params"""
+    with pytest.raises(GLSLTypeError):
+
+        def shader(pos: vec2, uv: vec2, /) -> vec4:
+            return vec4(0)
+
+        transpile(shader)
+
+
+def test_reserved_keyword_usage():
+    """Should prevent using GLSL reserved keywords"""
+    with pytest.raises(GLSLCodeError):
+
+        def shader(vs_uv: vec2, /, float: float) -> vec4:  # 'float' is reserved
+            return vec4(0)
+
+        transpile(shader)
+
+
+def test_interface_block_member_mismatch():
+    """Test vertex/fragment interface mismatch detection"""
+
+    def shader(vs_uv: vec2, /, res: vec2) -> vec4:
+        return vec4(vs_uv, 0, 1)
+
+    with pytest.raises(GLSLCodeError):
+        # Intentionally corrupt the interface
+        result = transpile(shader)
+        result.fragment_src = result.fragment_src.replace("vec2 vs_uv", "vec3 vs_uv")
+
+
+def test_matrix_uniforms():
+    """Test matrix uniform declaration and usage in shader operations"""
+    from py2glsl.glsl.types import mat4, vec4
+
+    def shader(vs_uv: vec2, /, mvp: mat4) -> vec4:
+        # Transform position using matrix
+        pos = mvp * vec4(vs_uv, 0.0, 1.0)
+        return pos * 0.5 + 0.5  # Simple biasing operation
+
+    result = transpile(shader)
+
+    # Verify uniform declaration
+    assert "uniform mat4 mvp" in result.fragment_src
+
+    # Verify matrix operations in generated code
+    assert "mvp * vec4(vs_uv, 0.0, 1.0)" in result.fragment_src
+    assert "pos * 0.5 + 0.5" in result.fragment_src
+    assert "vec4 shader(vec2 vs_uv, mat4 mvp)" in result.fragment_src

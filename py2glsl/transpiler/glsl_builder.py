@@ -17,6 +17,7 @@ class GLSLBuilder:
         self.vertex_attributes: List[str] = []
         self.vertex_main_body: List[str] = []
         self.fragment_main_body: List[str] = []
+        self.declared_names = set()
 
     def _validate_identifier(self, name: str):
         if not name:
@@ -32,6 +33,13 @@ class GLSLBuilder:
 
     def add_uniform(self, name: str, type_: str):
         self._validate_identifier(name)
+        if name in {"float", "int", "vec2", "mat4"}:  # TODO: Add more reserved words
+            raise GLSLCodeError(f"Reserved GLSL keyword: {name}")
+
+        if name in self.declared_names:
+            raise GLSLCodeError(f"Duplicate declaration: {name}")
+        self.declared_names.add(name)
+
         self.uniforms.append(f"uniform {type_} {name};")
 
     def add_vertex_attribute(self, location: int, type_: str, name: str):
@@ -74,10 +82,40 @@ class GLSLBuilder:
         parameters: List[Tuple[str, str]],
         body: List[str],
     ):
+        """Add a GLSL function with validation"""
         self._validate_identifier(name)
-        params = ", ".join([f"{type_} {name}" for type_, name in parameters])
-        body_str = "\n    ".join(body)
-        self.functions.append(f"{return_type} {name}({params}) {{\n    {body_str}\n}}")
+        self._validate_swizzle_operations(parameters, body)
+
+        params = self._format_parameters(parameters)
+        body_str = self._format_body(body)
+        self.functions.append(f"{return_type} {name}({params}) {{\n{body_str}\n}}")
+
+    def _validate_swizzle_operations(
+        self, parameters: List[Tuple[str, str]], body: List[str]
+    ):
+        """Check for invalid swizzle patterns in function body"""
+        param_types = {name: type_ for type_, name in parameters}
+
+        for line in body:
+            if "." in line and any(c in "xyzw" for c in line.split(".")[1]):
+                var_name = line.split(".")[0].strip()
+                var_type = param_types.get(var_name, "")
+
+                if var_type.startswith("vec"):
+                    max_components = int(var_type[3])
+                    swizzle = line.split(".")[1].split()[0]  # Get swizzle components
+                    if any(ord(c) - ord("x") >= max_components for c in swizzle):
+                        raise GLSLCodeError(
+                            f"Invalid swizzle '{swizzle}' for {var_type}"
+                        )
+
+    def _format_parameters(self, parameters: List[Tuple[str, str]]) -> str:
+        """Format function parameters with type annotations"""
+        return ", ".join([f"{type_} {name}" for type_, name in parameters])
+
+    def _format_body(self, body: List[str]) -> str:
+        """Indent and join body lines"""
+        return "    " + "\n    ".join(body)
 
     def configure_shader_transpiler(
         self,
