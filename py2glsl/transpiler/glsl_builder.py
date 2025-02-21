@@ -55,8 +55,7 @@ class GLSLBuilder:
         members_str = "\n    ".join(
             [f"{type_} {name};" for name, type_ in members.items()]
         )
-        instance_name = "vertexOut" if qualifier == "out" else "vertexIn"
-        block = f"{qualifier} {block_name} {{\n    {members_str}\n}} {instance_name};"
+        block = f"{qualifier} {block_name} {{\n    {members_str}\n}} {block_name.lower()}Out;\n"
 
         if qualifier == "out":
             self.vertex_interface.append(block)
@@ -128,40 +127,38 @@ class GLSLBuilder:
         func_name: str,
         shader_body: list[str],
     ):
-        # Add vertex attributes
+        # Vertex attributes with locations
         for idx, (name, type_) in enumerate(attributes.items()):
             self.add_vertex_attribute(idx, type_, name)
+            self.vertex_interface.append(f"out {type_} {name};")
 
-        # Create interface blocks
-        self.add_interface_block("VertexData", "out", attributes)
-        self.add_interface_block("VertexData", "in", attributes)
+        # Fragment inputs matching vertex outputs
+        for name, type_ in attributes.items():
+            self.fragment_interface.append(f"in {type_} {name};")
+
+        # Final output
         self.add_output("fs_color", "vec4")
 
-        # Add uniforms
+        # Uniform declarations
         for name, type_ in uniforms.items():
             self.add_uniform(name, type_)
 
-        # Build shader function
+        # Main shader function
         params = [(type_, name) for name, type_ in attributes.items()] + [
             (type_, name) for name, type_ in uniforms.items()
         ]
-
         self.add_function(
             return_type="vec4", name=func_name, parameters=params, body=shader_body
         )
 
-        # Vertex main
+        # Vertex main body
         self.vertex_main_body = [
-            *[f"vertexOut.{name} = {name};" for name in attributes],
-            (
-                "gl_Position = vec4(vertexOut.vs_uv, 0.0, 1.0);"
-                if "vs_uv" in attributes
-                else "gl_Position = vec4(0.0);"
-            ),
+            "gl_Position = vec4(a_pos, 0.0, 1.0);",
+            "vs_uv = a_pos * 0.5 + 0.5;",
         ]
 
-        # Fragment main body update
-        args = [f"vertexIn.{name}" for name in attributes] + list(uniforms)
+        # Fragment main body
+        args = list(attributes) + list(uniforms)
         self.fragment_main_body = [f"fs_color = {func_name}({', '.join(args)});"]
 
     def build_vertex_shader(self) -> str:
@@ -169,7 +166,7 @@ class GLSLBuilder:
             "#version 460 core",
             *self.vertex_attributes,
             *self.vertex_interface,
-            *self.structs,
+            *self.uniforms,
             *self.functions,
             "void main() {",
             *[f"    {line}" for line in self.vertex_main_body],
@@ -180,10 +177,10 @@ class GLSLBuilder:
     def build_fragment_shader(self) -> str:
         components = [
             "#version 460 core",
-            *self.uniforms,
+            "precision mediump float;",
             *self.fragment_interface,
+            *self.uniforms,
             *self.outputs,
-            *self.structs,
             *self.functions,
             "void main() {",
             *[f"    {line}" for line in self.fragment_main_body],

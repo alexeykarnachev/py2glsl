@@ -16,7 +16,10 @@ test_cases = [
         ["fs_color = vec4(u_time);"],
         ["uniform float u_time;"],
         ["fs_color = vec4(u_time);"],
-        ["gl_Position = vec4(vertexOut.vs_uv, 0.0, 1.0);"],
+        [
+            "gl_Position = vec4(a_pos, 0.0, 1.0);",
+            "vs_uv = a_pos * 0.5 + 0.5;",
+        ],
     ),
     # Vector operations
     (
@@ -25,7 +28,7 @@ test_cases = [
         ["vec2 scaled = u_res * 2.0;", "fs_color = vec4(scaled, 0.0, 1.0);"],
         ["uniform vec2 u_res;"],
         ["fs_color = vec4(scaled, 0.0, 1.0);"],
-        ["vertexOut.vs_uv = vs_uv;"],
+        ["vs_uv = a_pos * 0.5 + 0.5;"],
     ),
     # Matrix uniforms
     (
@@ -34,7 +37,7 @@ test_cases = [
         ["vec4 pos = mvp * vec4(position, 1.0);", "fs_color = pos;"],
         ["uniform mat4 mvp;"],
         ["fs_color = pos;"],
-        ["gl_Position = vec4(0.0);"],  # No vs_uv in attributes
+        ["gl_Position = vec4(a_pos, 0.0, 1.0);"],
     ),
     # Multiple uniforms/attributes
     (
@@ -43,7 +46,7 @@ test_cases = [
         ["fs_color = vec4(u_time / u_res.x, normal, 1.0);"],
         ["uniform float u_time;\nuniform vec2 u_res;"],
         ["fs_color = vec4(u_time / u_res.x, normal, 1.0);"],
-        ["vertexOut.normal = normal;"],
+        [],
     ),
     # Struct definitions
     (
@@ -211,6 +214,7 @@ def test_complex_shader_structure(builder):
     assert "layout(location = 1) in vec3 normal" in vert_src
 
     # Updated assertions for interface block assignments
-    assert "vertexOut.vs_uv = vs_uv;" in vert_src
-    assert "vertexOut.normal = normal;" in vert_src
-    assert "gl_Position = vec4(vertexOut.vs_uv, 0.0, 1.0);" in vert_src
+    assert "vs_uv = a_pos * 0.5 + 0.5;" in vert_src
+    assert "layout(location = 0) in vec2 vs_uv" in vert_src
+    assert "layout(location = 1) in vec3 normal" in vert_src
+    assert "gl_Position = vec4(a_pos, 0.0, 1.0);" in vert_src

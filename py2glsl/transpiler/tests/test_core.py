@@ -61,7 +61,7 @@ valid_shader_cases = [
         shader_no_uniforms,
         ["vs_uv"],
         [],
-        ["fs_color = shader_no_uniforms(vertexIn.vs_uv)"],
+        ["fs_color = shader_no_uniforms(vs_uv)"],
         "No uniforms",
     ),
 ]
