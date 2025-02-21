@@ -76,14 +76,12 @@ class RenderContext:
 
     def release(self):
         """Clean up all GPU resources"""
-        if self.vao:
+        if hasattr(self, "vao") and self.vao:
             self.vao.release()
-        if self.program:
-            self.program.release()
-        if self.fbo:
-            self.fbo.release()
-        if self.vbo:
+        if hasattr(self, "vbo") and self.vbo:
             self.vbo.release()
+        if hasattr(self, "program") and self.program:
+            self.program.release()
         if self.window:
             glfw.destroy_window(self.window)
 

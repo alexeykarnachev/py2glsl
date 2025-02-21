@@ -55,7 +55,8 @@ class GLSLBuilder:
         members_str = "\n    ".join(
             [f"{type_} {name};" for name, type_ in members.items()]
         )
-        block = f"{qualifier} {block_name} {{\n    {members_str}\n}};"
+        instance_name = "vertexOut" if qualifier == "out" else "vertexIn"
+        block = f"{qualifier} {block_name} {{\n    {members_str}\n}} {instance_name};"
 
         if qualifier == "out":
             self.vertex_interface.append(block)
@@ -151,16 +152,16 @@ class GLSLBuilder:
 
         # Vertex main
         self.vertex_main_body = [
-            *[f"VertexData.{name} = {name};" for name in attributes],
+            *[f"vertexOut.{name} = {name};" for name in attributes],
             (
-                "gl_Position = vec4(VertexData.vs_uv, 0.0, 1.0);"
+                "gl_Position = vec4(vertexOut.vs_uv, 0.0, 1.0);"
                 if "vs_uv" in attributes
                 else "gl_Position = vec4(0.0);"
             ),
         ]
 
-        # Fragment main
-        args = [f"VertexData.{name}" for name in attributes] + list(uniforms)
+        # Fragment main body update
+        args = [f"vertexIn.{name}" for name in attributes] + list(uniforms)
         self.fragment_main_body = [f"fs_color = {func_name}({', '.join(args)});"]
 
     def build_vertex_shader(self) -> str:
