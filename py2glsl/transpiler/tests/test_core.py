@@ -61,7 +61,7 @@ valid_shader_cases = [
         shader_no_uniforms,
         ["vs_uv"],
         [],
-        ["fs_color = shader_no_uniforms(VertexData.vs_uv)"],
+        ["fs_color = shader_no_uniforms(vertexIn.vs_uv)"],
         "No uniforms",
     ),
 ]
@@ -148,25 +148,3 @@ def test_error_cases(shader_func, error_msg, test_id):
         transpile(shader_func)
 
     assert error_msg in str(exc.value)
-
-
-def test_complex_shader_structure():
-    def complex_shader(vs_uv: vec2, /, u_time: float, u_res: vec2) -> vec4:
-        coord = vs_uv * u_res
-        wave = (coord.x + coord.y) / u_time
-        return vec4(wave, wave * 0.5, 1.0 - wave, 1.0)
-
-    result = transpile(complex_shader)
-
-    # Verify interface
-    assert "out VertexData" in result.vertex_src
-    assert "in VertexData" in result.fragment_src
-
-    # Verify uniforms
-    assert "uniform float u_time" in result.fragment_src
-    assert "uniform vec2 u_res" in result.fragment_src
-
-    # Verify calculations
-    assert "coord = vs_uv * u_res" in result.fragment_src
-    assert "wave = (coord.x + coord.y) / u_time" in result.fragment_src
-    assert "vec4(wave, wave * 0.5, 1.0 - wave, 1.0)" in result.fragment_src

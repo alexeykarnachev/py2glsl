@@ -16,7 +16,7 @@ test_cases = [
         ["fs_color = vec4(u_time);"],
         ["uniform float u_time;"],
         ["fs_color = vec4(u_time);"],
-        ["gl_Position = vec4(VertexData.vs_uv, 0.0, 1.0);"],
+        ["gl_Position = vec4(vertexOut.vs_uv, 0.0, 1.0);"],
     ),
     # Vector operations
     (
@@ -25,7 +25,7 @@ test_cases = [
         ["vec2 scaled = u_res * 2.0;", "fs_color = vec4(scaled, 0.0, 1.0);"],
         ["uniform vec2 u_res;"],
         ["fs_color = vec4(scaled, 0.0, 1.0);"],
-        ["VertexData.vs_uv = vs_uv;"],
+        ["vertexOut.vs_uv = vs_uv;"],
     ),
     # Matrix uniforms
     (
@@ -43,7 +43,7 @@ test_cases = [
         ["fs_color = vec4(u_time / u_res.x, normal, 1.0);"],
         ["uniform float u_time;\nuniform vec2 u_res;"],
         ["fs_color = vec4(u_time / u_res.x, normal, 1.0);"],
-        ["VertexData.normal = normal;"],
+        ["vertexOut.normal = normal;"],
     ),
     # Struct definitions
     (
@@ -186,7 +186,7 @@ def test_error_cases(uniforms, attributes, body_lines, error_msg, test_id, build
 
 
 def test_complex_shader_structure(builder):
-    # Test full shader structure with multiple components
+    """Test full shader structure with multiple components"""
     builder.configure_shader_transpiler(
         uniforms={"u_time": "float", "u_res": "vec2"},
         attributes={"vs_uv": "vec2", "normal": "vec3"},
@@ -209,5 +209,8 @@ def test_complex_shader_structure(builder):
     # Verify vertex components
     assert "layout(location = 0) in vec2 vs_uv" in vert_src
     assert "layout(location = 1) in vec3 normal" in vert_src
-    assert "VertexData.vs_uv = vs_uv;" in vert_src
-    assert "VertexData.normal = normal;" in vert_src
+
+    # Updated assertions for interface block assignments
+    assert "vertexOut.vs_uv = vs_uv;" in vert_src
+    assert "vertexOut.normal = normal;" in vert_src
+    assert "gl_Position = vec4(vertexOut.vs_uv, 0.0, 1.0);" in vert_src
