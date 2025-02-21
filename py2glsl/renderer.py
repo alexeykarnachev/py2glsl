@@ -3,10 +3,10 @@ from typing import Callable, Tuple
 
 import glfw
 import imageio
+import moderngl
 import numpy as np
 from PIL import Image
 
-import moderngl
 from py2glsl.transpiler.core import transpile
 
 
@@ -253,7 +253,11 @@ def render_video(
         writer.close()
 
 
-def animate(shader_func: Callable, size: Tuple[int, int] = (800, 600), fps: int = 60):
+def animate(
+    shader_func: Callable,
+    size: Tuple[int, int] = (800, 600),
+    fps: int = 60,
+):
     """Start real-time animation window"""
     with AnimationWindow(size) as renderer:
         renderer.load_shader(shader_func)
