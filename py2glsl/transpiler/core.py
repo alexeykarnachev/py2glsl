@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import Callable, Dict, List, Tuple
 
+from loguru import logger
+
 from py2glsl.glsl.types import mat3, mat4, vec2, vec3, vec4
 from py2glsl.transpiler.glsl_builder import GLSLBuilder, GLSLCodeError
 
@@ -37,19 +39,10 @@ def transpile(func: Callable) -> TranspilerResult:
         fragment_src=builder.build_fragment_shader(),
     )
 
-    if "VertexData" in result.vertex_src and "VertexData" in result.fragment_src:
-        vert_fields = re.search(
-            r"out VertexData {([^}]+)}", result.vertex_src, re.DOTALL
-        )
-        frag_fields = re.search(
-            r"in VertexData {([^}]+)}", result.fragment_src, re.DOTALL
-        )
+    # Log generated shaders
+    logger.debug("Generated Vertex Shader:\n{}", result.vertex_src)
+    logger.debug("Generated Fragment Shader:\n{}", result.fragment_src)
 
-        if vert_fields and frag_fields:
-            vert_members = vert_fields.group(1).strip()
-            frag_members = frag_fields.group(1).strip()
-            if vert_members != frag_members:
-                raise GLSLCodeError("Vertex/fragment interface mismatch")
     return result
 
 
