@@ -1,4 +1,5 @@
 import ast
+import re
 from ast import AST, Constant, FunctionDef, Name, NodeVisitor, Return, Subscript
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -144,7 +145,7 @@ class TypeInferer(NodeVisitor):
         self.current_return = None
 
         # Process all parameters (including posonlyargs)
-        for param in node.args.posonlyargs + node.args.args:
+        for param in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
             self._process_parameter(param)
 
         # Process return type annotation
@@ -352,14 +353,64 @@ class TypeInferer(NodeVisitor):
             case _:
                 raise GLSLTypeError(node, f"Unsupported constant: {type(node.value)}")
 
-    def visit_Call(self, node: ast.Call) -> TypeInfo:  # noqa: N802
-        if isinstance(node.func, Name):
-            if node.func.id.startswith("vec"):
-                size = int(node.func.id[3:])
-                return getattr(TypeInfo, f"VEC{size}")
-            if node.func.id.startswith("mat"):
-                size = int(node.func.id[3:])
-                return getattr(TypeInfo, f"MAT{size}")
+    def visit_Call(self, node: ast.Call) -> TypeInfo:
+        if isinstance(node.func, ast.Name):
+            func_name = node.func.id
+            try:
+                # Get actual Python function from builtins
+                glsl_func = getattr(__import__("py2glsl.glsl.builtins"), func_name)
+                template = getattr(glsl_func, "__glsl_template__", None)
+
+                if not template:
+                    raise AttributeError()
+            except (AttributeError, ImportError):
+                # Fall back to constructor detection
+                if func_name.startswith("vec"):
+                    size = int(func_name[3:])
+                    return getattr(TypeInfo, f"VEC{size}")
+                if func_name.startswith("mat"):
+                    size = int(func_name[3:])
+                    return getattr(TypeInfo, f"MAT{size}")
+                raise GLSLTypeError(node, f"Undefined function: {func_name}")
+
+            # Parse template to get expected parameters and return type
+            arg_names = re.findall(r"{(\w+)}", template)
+            if len(node.args) != len(arg_names):
+                raise GLSLTypeError(
+                    node,
+                    f"{func_name}() expects {len(arg_names)} arguments, got {len(node.args)}",
+                )
+
+            # Validate argument types using template parameter names
+            arg_types = []
+            for arg, param_name in zip(node.args, arg_names):
+                arg_type = self.visit(arg)
+
+                # Handle special parameter names that imply types
+                if param_name in {"x", "y", "z", "w"}:
+                    if (
+                        not isinstance(arg_type, TypeInfo)
+                        or arg_type.kind != GLSLTypeKind.SCALAR
+                    ):
+                        raise GLSLTypeError(
+                            node,
+                            f"{func_name}() parameter '{param_name}' requires scalar, got {arg_type}",
+                        )
+
+                arg_types.append(arg_type)
+
+            # Determine return type from template patterns
+            if func_name.startswith(("vec", "mat")):
+                # Constructor functions
+                return getattr(TypeInfo, func_name.upper())
+            elif template.startswith(("length", "distance", "dot")):
+                return TypeInfo.FLOAT
+            elif template.startswith(("normalize", "reflect", "refract")):
+                return arg_types[0]  # Same type as first argument
+            else:
+                # For most math functions, return type matches input type
+                return arg_types[0] if arg_types else TypeInfo.FLOAT
+
         raise GLSLTypeError(node, f"Unsupported call: {ast.dump(node)}")
 
     def visit_Name(self, node: Name) -> TypeInfo:  # noqa: N802
