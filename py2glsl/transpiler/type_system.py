@@ -59,6 +59,22 @@ TypeInfo.VEC4 = TypeInfo(GLSLTypeKind.VECTOR, "vec4", (4,))
 TypeInfo.MAT3 = TypeInfo(GLSLTypeKind.MATRIX, "mat3", (3, 3))
 TypeInfo.MAT4 = TypeInfo(GLSLTypeKind.MATRIX, "mat4", (4, 4))
 
+FUNCTION_METADATA = {
+    # (function_name): (scalar_params, return_type)
+    "sin": ([0], "input"),
+    "cos": ([0], "input"),
+    "tan": ([0], "input"),
+    "max": ([], "input"),
+    "min": ([], "input"),
+    "mix": ([2], "interpolate"),
+    "dot": ([0, 1], "float"),
+    "length": ([], "float"),
+    "distance": ([0, 1], "float"),
+    "normalize": ([0], "input"),
+    "reflect": ([0, 1], "input"),
+    "refract": ([0, 1], "input"),
+}
+
 
 class GLSLTypeError(Exception):
     def __init__(self, node: AST, message: str):
@@ -344,75 +360,128 @@ class TypeInferer(NodeVisitor):
                 raise GLSLTypeError(node, f"Non-bool in boolean op: {value_type}")
         return TypeInfo.BOOL
 
-    def visit_Constant(self, node: Constant) -> TypeInfo:  # noqa: N802
+    def visit_Constant(self, node: Constant) -> TypeInfo:
         match node.value:
             case bool():
                 return TypeInfo.BOOL
             case int() | float():
                 return TypeInfo.FLOAT
+            case str():
+                return TypeInfo(GLSLTypeKind.VOID, "void")
             case _:
                 raise GLSLTypeError(node, f"Unsupported constant: {type(node.value)}")
 
     def visit_Call(self, node: ast.Call) -> TypeInfo:
-        if isinstance(node.func, ast.Name):
-            func_name = node.func.id
-            try:
-                # Get actual Python function from builtins
-                glsl_func = getattr(__import__("py2glsl.glsl.builtins"), func_name)
-                template = getattr(glsl_func, "__glsl_template__", None)
+        """Handle function calls with type-aware validation"""
+        if not isinstance(node.func, ast.Name):
+            raise GLSLTypeError(node, "Complex function calls not supported")
 
-                if not template:
-                    raise AttributeError()
-            except (AttributeError, ImportError):
-                # Fall back to constructor detection
-                if func_name.startswith("vec"):
-                    size = int(func_name[3:])
-                    return getattr(TypeInfo, f"VEC{size}")
-                if func_name.startswith("mat"):
-                    size = int(func_name[3:])
-                    return getattr(TypeInfo, f"MAT{size}")
-                raise GLSLTypeError(node, f"Undefined function: {func_name}")
+        func_name = node.func.id
 
-            # Parse template to get expected parameters and return type
+        try:
+            # Handle vector/matrix constructors
+            if func_name.startswith(("vec", "mat")):
+                return self._handle_constructor(func_name)
+
+            # Get GLSL function metadata
+            glsl_func, template = self._get_glsl_function(node, func_name)
             arg_names = re.findall(r"{(\w+)}", template)
+
             if len(node.args) != len(arg_names):
                 raise GLSLTypeError(
                     node,
-                    f"{func_name}() expects {len(arg_names)} arguments, got {len(node.args)}",
+                    f"{func_name}() expects {len(arg_names)} args, got {len(node.args)}",
                 )
 
-            # Validate argument types using template parameter names
+            # Process arguments with type validation
             arg_types = []
-            for arg, param_name in zip(node.args, arg_names):
+            for i, (arg, param_name) in enumerate(zip(node.args, arg_names)):
                 arg_type = self.visit(arg)
-
-                # Handle special parameter names that imply types
-                if param_name in {"x", "y", "z", "w"}:
-                    if (
-                        not isinstance(arg_type, TypeInfo)
-                        or arg_type.kind != GLSLTypeKind.SCALAR
-                    ):
-                        raise GLSLTypeError(
-                            node,
-                            f"{func_name}() parameter '{param_name}' requires scalar, got {arg_type}",
-                        )
-
+                self._validate_parameter(node, func_name, i, param_name, arg_type)
                 arg_types.append(arg_type)
 
-            # Determine return type from template patterns
-            if func_name.startswith(("vec", "mat")):
-                # Constructor functions
-                return getattr(TypeInfo, func_name.upper())
-            elif template.startswith(("length", "distance", "dot")):
+            return self._get_return_type(func_name, arg_types, template)
+
+        except AttributeError:
+            raise GLSLTypeError(node, f"Undefined function: {func_name}") from None
+
+    def _get_glsl_function(self, node: AST, func_name: str):
+        """Retrieve GLSL function and its template from builtins"""
+        try:
+            # Import the builtins module directly
+            from py2glsl.glsl import builtins
+
+            glsl_func = getattr(builtins, func_name)
+            template = getattr(glsl_func, "__glsl_template__", None)
+
+            if not template:
+                raise AttributeError(f"No template found for {func_name}")
+
+            return glsl_func, template
+
+        except AttributeError as e:
+            raise GLSLTypeError(node, f"Undefined GLSL function: {func_name}") from e
+
+    def _handle_constructor(self, func_name: str) -> TypeInfo:
+        """Handle vecN/matN constructors"""
+        if func_name.startswith("vec"):
+            size = int(func_name[3:])
+            return getattr(TypeInfo, f"VEC{size}")
+        if func_name.startswith("mat"):
+            size = int(func_name[3:])
+            return getattr(TypeInfo, f"MAT{size}")
+        raise ValueError(f"Unknown constructor: {func_name}")
+
+    def _validate_parameter(self, node, func_name, idx, param_name, arg_type):
+        """Apply parameter validation rules using metadata"""
+        if func_name not in FUNCTION_METADATA:
+            return
+
+        scalar_params, _ = FUNCTION_METADATA[func_name]
+
+        # Check if this parameter should be scalar
+        if idx in scalar_params:
+            if arg_type.kind != GLSLTypeKind.SCALAR:
+                raise GLSLTypeError(
+                    node,
+                    f"{func_name}() parameter {param_name} requires scalar, got {arg_type}",
+                )
+
+        # Special case: length() requires vector input
+        if func_name == "length":
+            if arg_type.kind not in (GLSLTypeKind.VECTOR, GLSLTypeKind.MATRIX):
+                raise GLSLTypeError(
+                    node, f"{func_name}() requires vector/matrix, got {arg_type}"
+                )
+
+        # Special case: mix() blend parameter
+        if func_name == "mix" and idx == 2:
+            if arg_type.kind != GLSLTypeKind.SCALAR:
+                raise GLSLTypeError(
+                    node,
+                    f"{func_name}() blend parameter must be scalar, got {arg_type}",
+                )
+
+    def _get_return_type(self, func_name, arg_types, template) -> TypeInfo:
+        """Determine return type using metadata and template analysis"""
+        if func_name in FUNCTION_METADATA:
+            _, return_type = FUNCTION_METADATA[func_name]
+            if return_type == "input":
+                return arg_types[0]
+            if return_type == "float":
                 return TypeInfo.FLOAT
-            elif template.startswith(("normalize", "reflect", "refract")):
-                return arg_types[0]  # Same type as first argument
-            else:
-                # For most math functions, return type matches input type
-                return arg_types[0] if arg_types else TypeInfo.FLOAT
+            if return_type == "interpolate":
+                return arg_types[0]  # Same type as first two args
 
-        raise GLSLTypeError(node, f"Unsupported call: {ast.dump(node)}")
+        # Fallback to template analysis
+        if "vec" in template:
+            return TypeInfo.VEC4  # Default vector size
+        if "mat" in template:
+            return TypeInfo.MAT4  # Default matrix size
 
+        return TypeInfo.FLOAT
+
+    # Properly indented visitor methods
     def visit_Name(self, node: Name) -> TypeInfo:  # noqa: N802
         if (t := self.symbols.get(node.id)) is None:
             raise GLSLTypeError(node, f"Undefined variable: {node.id}")
@@ -420,12 +489,10 @@ class TypeInferer(NodeVisitor):
 
     def visit_Subscript(self, node: Subscript) -> TypeInfo:  # noqa: N802
         value_type = self.visit(node.value)
-
         if value_type.kind not in (GLSLTypeKind.VECTOR, GLSLTypeKind.MATRIX):
             raise GLSLTypeError(
                 node, f"Subscript on non-vector/matrix type {value_type}"
             )
-
         return (
             TypeInfo.FLOAT if value_type.kind == GLSLTypeKind.VECTOR else TypeInfo.VEC3
         )
