@@ -43,6 +43,8 @@ class GLSLBuilder:
         self.uniforms.append(f"uniform {type_} {name};")
 
     def add_vertex_attribute(self, location: int, type_: str, name: str):
+        if name.startswith("gl_"):
+            raise GLSLCodeError(f"Reserved GLSL prefix 'gl_' in attribute: {name}")
         self._validate_identifier(name)
         self.vertex_attributes.append(
             f"layout(location = {location}) in {type_} {name};"
@@ -143,6 +145,7 @@ class GLSLBuilder:
 
         # Vertex outputs -> fragment inputs
         for name, type_ in attributes.items():
+            self._validate_identifier(name)
             self.vertex_interface.append(f"out {type_} {name};")
             self.fragment_interface.append(f"in {type_} {name};")
 

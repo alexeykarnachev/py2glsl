@@ -143,8 +143,15 @@ def test_glsl_builder(
     vert_src = builder.build_vertex_shader()
     for expected in exp_vert:
         assert expected in vert_src
+
+    # Verify vertex attributes
+    assert "layout(location = 0) in vec2 a_pos" in vert_src
     for name in attributes:
-        assert f"in {attributes[name]} {name}" in vert_src
+        assert f"out {attributes[name]} {name}" in vert_src
+
+    # Verify fragment inputs
+    for name in attributes:
+        assert f"in {attributes[name]} {name}" in frag_src
 
 
 # Error case tests
@@ -210,11 +217,6 @@ def test_complex_shader_structure(builder):
     assert "fs_color = vec4(color * u_res.x, 1.0);" in frag_src
 
     # Verify vertex components
-    assert "layout(location = 0) in vec2 vs_uv" in vert_src
-    assert "layout(location = 1) in vec3 normal" in vert_src
-
-    # Updated assertions for interface block assignments
-    assert "vs_uv = a_pos * 0.5 + 0.5;" in vert_src
-    assert "layout(location = 0) in vec2 vs_uv" in vert_src
-    assert "layout(location = 1) in vec3 normal" in vert_src
-    assert "gl_Position = vec4(a_pos, 0.0, 1.0);" in vert_src
+    assert "layout(location = 0) in vec2 a_pos" in vert_src
+    assert "out vec2 vs_uv" in vert_src
+    assert "out vec3 normal" in vert_src

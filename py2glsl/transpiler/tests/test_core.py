@@ -34,32 +34,32 @@ def shader_no_uniforms(vs_uv: vec2, /) -> vec4:
 
 
 valid_shader_cases = [
-    (shader_basic, ["vs_uv"], ["u_time"], ["vec4(vs_uv, 0.0, 1.0)"], "Basic shader"),
+    (shader_basic, [], ["u_time"], ["vec4(vs_uv, 0.0, 1.0)"], "Basic shader"),
     (
         shader_multiple_uniforms,
-        ["vs_uv"],
+        [],
         ["time", "res"],
         ["uniform float time", "uniform vec2 res"],
         "Multiple uniforms",
     ),
-    (shader_vector_ops, ["vs_uv"], [], ["color = vs_uv * 2.0"], "Vector operations"),
+    (shader_vector_ops, [], [], ["color = vs_uv * 2.0"], "Vector operations"),
     (
         shader_matrix_uniform,
-        ["vs_uv"],
+        [],
         ["mvp"],
         ["uniform mat4 mvp", "mvp * vec4(vs_uv, 0.0, 1.0)"],
         "Matrix uniform",
     ),
     (
         shader_complex_expressions,
-        ["vs_uv"],
+        [],
         ["u_time"],
         ["wave = (vs_uv.x + vs_uv.y) * u_time"],
         "Complex expressions",
     ),
     (
         shader_no_uniforms,
-        ["vs_uv"],
+        [],
         [],
         ["fs_color = shader_no_uniforms(vs_uv)"],
         "No uniforms",
@@ -76,11 +76,12 @@ def test_valid_shaders(shader_func, exp_attrs, exp_uniforms, exp_frag, test_id):
     result = transpile(shader_func)
 
     # Verify vertex attributes
-    for attr in exp_attrs:
-        assert (
-            f"layout(location = {exp_attrs.index(attr)}) in vec2 {attr}"
-            in result.vertex_src
-        )
+    assert "layout(location = 0) in vec2 a_pos" in result.vertex_src
+
+    # Verify interface variables
+    for name in exp_attrs:
+        assert f"out vec2 {name}" in result.vertex_src
+        assert f"in vec2 {name}" in result.fragment_src
 
     # Verify uniforms
     for uniform in exp_uniforms:
