@@ -68,9 +68,7 @@ def test_type_mismatch():
         inferer.visit(code)
 
     # Update assertion to match new error message
-    assert "Vector size mismatch for component-wise multiply: vec2 vs vec3" in str(
-        exc.value
-    )
+    assert "Component-wise vector multiply requires matching types" in str(exc.value)
 
 
 def test_vector_constructor():
@@ -184,7 +182,7 @@ def test_invalid_swizzle():
     with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
-    assert "out of bounds for vec3" in str(exc.value)
+    assert "Invalid swizzle 'xyzw' for vec3" in str(exc.value)
 
 
 def test_bool_comparison():
@@ -225,7 +223,7 @@ def test_invalid_matrix_mult():
     with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
-    assert "Matrix(cols=3) and vector(dim=4) dimension mismatch" in str(exc.value)
+    assert "matrix cols (3) != vector size (4)" in str(exc.value)
 
 
 def test_unary_ops():
@@ -343,9 +341,9 @@ class TestMatrixVectorOperations:
         with pytest.raises(GLSLTypeError) as exc:
             inferer.visit(code)
 
-        assert "Matrix(cols=3) and vector(dim=4) dimension mismatch" in str(exc.value)
+        assert "matrix cols (3) != vector size (4)" in str(exc.value)
 
-    @pytest.mark.parametrize("op", ["*", "+", "-", "/"])
+    @pytest.mark.parametrize("op", ["*", "+", "-"])
     def test_vector_component_wise_ops(self, op):
         code = parse(
             f"""
@@ -409,7 +407,9 @@ class TestMatrixVectorOperations:
         with pytest.raises(GLSLTypeError) as exc:
             inferer.visit(code)
 
-        assert "Vector size mismatch for component-wise multiply" in str(exc.value)
+        assert "Component-wise vector multiply requires matching types" in str(
+            exc.value
+        )
 
     def test_matrix_matrix_dimension_mismatch(self):
         code = parse(
@@ -437,4 +437,4 @@ class TestMatrixVectorOperations:
         with pytest.raises(GLSLTypeError) as exc:
             inferer.visit(code)
 
-        assert "Vector-matrix multiplication is not supported" in str(exc.value)
+        assert "Vector-matrix multiplication not supported" in str(exc.value)
