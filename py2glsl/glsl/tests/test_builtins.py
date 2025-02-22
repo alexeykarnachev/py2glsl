@@ -23,13 +23,14 @@ from py2glsl.glsl.builtins import (
     tan,
     transpose,
 )
-from py2glsl.glsl.types import mat4, vec2, vec3
+from py2glsl.glsl.types import mat4, vec2, vec3, vec4
+from py2glsl.transpiler.type_system import TypeInfo
 
 
 def test_template_metadata():
-    assert sin.__glsl_template__ == "sin({x})"
-    assert mix.__glsl_template__ == "mix({x}, {y}, {a})"
-    assert cross.__glsl_template__ == "cross({x}, {y})"
+    assert sin.__glsl_metadata__.template == "sin({x})"
+    assert mix.__glsl_metadata__.template == "mix({x}, {y}, {a})"
+    assert cross.__glsl_metadata__.template == "cross({x}, {y})"
 
 
 @pytest.mark.parametrize(
