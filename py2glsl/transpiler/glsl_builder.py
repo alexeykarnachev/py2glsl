@@ -89,15 +89,6 @@ class GLSLBuilder:
         params = self._format_parameters(parameters)
         body_str = self._format_body(body)
 
-        # Add semicolons to return statements
-        body_str = re.sub(
-            r"\breturn\b(.*?)(?=\n|$)",
-            lambda m: (
-                f"return {m.group(1).strip()};" if ";" not in m.group(0) else m.group(0)
-            ),
-            body_str,
-        )
-
         self.functions.append(f"{return_type} {name}({params}) {{\n{body_str}\n}}")
 
     def _validate_swizzle_operations(
@@ -128,7 +119,17 @@ class GLSLBuilder:
 
     def _format_body(self, body: list[str]) -> str:
         """Indent and join body lines"""
-        return "    " + "\n    ".join(body)
+        body_str = "    " + "\n    ".join(body)
+        # Add semicolons to return statements
+        body_str = re.sub(
+            r"\breturn\b(.*?)(?=\n|$)",
+            lambda m: (
+                f"return {m.group(1).strip()};" if ";" not in m.group(0) else m.group(0)
+            ),
+            body_str,
+        )
+
+        return body_str
 
     def configure_shader_transpiler(
         self,
