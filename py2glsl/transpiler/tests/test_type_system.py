@@ -57,7 +57,7 @@ def test_matrix_mult():
 def test_type_mismatch():
     code = parse(
         """
-    def test():
+    def test() -> vec2:
         a: vec2 = vec2(1.0)
         return a * vec3(1.0)
     """
@@ -162,7 +162,7 @@ def test_nested_swizzle():
     code = parse(
         """
     def test(v: vec4) -> vec2:
-        return v.xyz.yx
+        return v.xyz.yx  # vec3 -> vec2
     """
     )
 
@@ -176,7 +176,7 @@ def test_invalid_swizzle():
     code = parse(
         """
     def test(v: vec3) -> vec4:
-        return v.xyzw
+        return v.xyzw  # vec3 can't have 4 components
     """
     )
 
@@ -184,7 +184,7 @@ def test_invalid_swizzle():
     with pytest.raises(GLSLTypeError) as exc:
         inferer.visit(code)
 
-    assert "Swizzle component 'w' out of bounds for vec3" in str(exc.value)
+    assert "out of bounds for vec3" in str(exc.value)
 
 
 def test_bool_comparison():

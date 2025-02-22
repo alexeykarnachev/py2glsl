@@ -139,17 +139,19 @@ class TypeInferer(NodeVisitor):
             self.visit(stmt)
 
     def visit_FunctionDef(self, node: FunctionDef) -> None:
-        # Process return type annotation
-        self.current_return = (
-            TypeInfo.from_annotation(node.returns) if node.returns else None
-        )
-
         # Clear symbols for this function scope
         self.symbols.clear()
+        self.current_return = None
 
         # Process all parameters (including posonlyargs)
         for param in node.args.posonlyargs + node.args.args:
             self._process_parameter(param)
+
+        # Process return type annotation
+        if node.returns:
+            self.current_return = TypeInfo.from_annotation(node.returns)
+        else:
+            raise GLSLTypeError(node, "Function requires return type annotation")
 
         # Process function body
         for stmt in node.body:
@@ -400,29 +402,86 @@ class TypeInferer(NodeVisitor):
 
         return body_type
 
-    def visit_Attribute(self, node: ast.Attribute) -> TypeInfo:  # noqa: N802
-        base_type = self.visit(node.value)
-        if base_type.kind != GLSLTypeKind.VECTOR:
-            raise GLSLTypeError(node, f"Swizzle on non-vector type {base_type}")
+    def _process_parameter(self, param: ast.arg) -> None:
+        param_name = param.arg
+        if not param.annotation:
+            raise GLSLTypeError(
+                param, f"Parameter '{param_name}' requires type annotation"
+            )
 
-        swizzle = node.attr
-        if not all(c in "xyzw" for c in swizzle):
-            raise GLSLTypeError(node, f"Invalid swizzle characters: {swizzle}")
+        try:
+            param_type = TypeInfo.from_annotation(param.annotation)
+            self.symbols[param_name] = param_type
+        except ValueError as e:
+            raise GLSLTypeError(param, str(e)) from e
 
-        if len(swizzle) < 1 or len(swizzle) > 4:
-            raise GLSLTypeError(node, f"Invalid swizzle length {len(swizzle)}")
+    def visit_Attribute(self, node: ast.Attribute) -> TypeInfo:
+        self._current_type = None
+        base_type = self.visit(node.value) if isinstance(node.value, ast.AST) else None
 
-        # Validate component indices
-        max_components = base_type.size[0]
-        component_map = {"x": 0, "y": 1, "z": 2, "w": 3}
-        for c in swizzle:
-            if component_map.get(c, -1) >= max_components:
+        # Handle vector component swizzling
+        if base_type and base_type.kind == GLSLTypeKind.VECTOR:
+            components = node.attr
+            vec_size = base_type.size[0]
+
+            # Map component characters to indices
+            component_map = {
+                "x": 0,
+                "r": 0,
+                "s": 0,
+                "y": 1,
+                "g": 1,
+                "t": 1,
+                "z": 2,
+                "b": 2,
+                "p": 2,
+                "w": 3,
+                "a": 3,
+                "q": 3,
+            }
+
+            # Validate characters
+            invalid_chars = [c for c in components if c not in component_map]
+            if invalid_chars:
                 raise GLSLTypeError(
                     node,
-                    f"Swizzle component '{c}' out of bounds for {base_type.glsl_name}",
+                    f"Invalid swizzle component(s) '{''.join(invalid_chars)}' "
+                    f"in '{components}'",
                 )
 
-        return TypeInfo(GLSLTypeKind.VECTOR, f"vec{len(swizzle)}", (len(swizzle),))
+            # Convert to indices and validate bounds
+            try:
+                indices = [component_map[c] for c in components]
+            except KeyError:
+                raise GLSLTypeError(
+                    node, f"Invalid swizzle component in '{components}'"
+                )
+
+            if any(idx >= vec_size for idx in indices):
+                raise GLSLTypeError(
+                    node,
+                    f"Swizzle component(s) '{components}' out of bounds "
+                    f"for {base_type}",
+                )
+
+            # Determine result type
+            if len(components) == 1:
+                self._current_type = TypeInfo.FLOAT
+            else:
+                self._current_type = TypeInfo(
+                    GLSLTypeKind.VECTOR, f"vec{len(components)}", (len(components),)
+                )
+            return self._current_type
+
+        # Handle matrix component access
+        if base_type and base_type.kind == GLSLTypeKind.MATRIX:
+            raise GLSLTypeError(
+                node, f"Matrix component access not supported for {base_type}"
+            )
+
+        # Default case for other attributes
+        self.generic_visit(node)
+        return self._current_type or TypeInfo.UNKNOWN
 
     def visit_Compare(self, node: ast.Compare) -> TypeInfo:  # noqa: N802
         left_type = self.visit(node.left)
