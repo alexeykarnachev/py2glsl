@@ -138,23 +138,22 @@ class GLSLBuilder:
         func_name: str,
         shader_body: list[str],
     ):
-        # Vertex attributes with locations
-        for idx, (name, type_) in enumerate(attributes.items()):
-            self.add_vertex_attribute(idx, type_, name)
-            self.vertex_interface.append(f"out {type_} {name};")
+        # Fixed vertex attribute for position
+        self.add_vertex_attribute(0, "vec2", "a_pos")
 
-        # Fragment inputs matching vertex outputs
+        # Vertex outputs -> fragment inputs
         for name, type_ in attributes.items():
+            self.vertex_interface.append(f"out {type_} {name};")
             self.fragment_interface.append(f"in {type_} {name};")
-
-        # Final output
-        self.add_output("fs_color", "vec4")
 
         # Uniform declarations
         for name, type_ in uniforms.items():
             self.add_uniform(name, type_)
 
-        # Main shader function
+        # Final output
+        self.add_output("fs_color", "vec4")
+
+        # Main shader function parameters are just the outputs/inputs
         params = [(type_, name) for name, type_ in attributes.items()] + [
             (type_, name) for name, type_ in uniforms.items()
         ]
@@ -162,10 +161,10 @@ class GLSLBuilder:
             return_type="vec4", name=func_name, parameters=params, body=shader_body
         )
 
-        # Vertex main body
+        # Vertex main body - calculate outputs from a_pos
         self.vertex_main_body = [
             "gl_Position = vec4(a_pos, 0.0, 1.0);",
-            "vs_uv = a_pos * 0.5 + 0.5;",
+            *[f"{name} = a_pos * 0.5 + 0.5;" for name in attributes],
         ]
 
         # Fragment main body
