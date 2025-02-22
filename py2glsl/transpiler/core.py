@@ -1,13 +1,16 @@
+import ast
 import inspect
 import re
 from dataclasses import dataclass
 from inspect import Parameter, signature
+from textwrap import dedent
 from typing import Callable, Dict, List, Tuple
 
 from loguru import logger
 
 from py2glsl.glsl.types import mat3, mat4, vec2, vec3, vec4
 from py2glsl.transpiler.glsl_builder import GLSLBuilder, GLSLCodeError
+from py2glsl.transpiler.type_system import TypeInferer, TypeInfo
 
 
 class GLSLTypeError(Exception):
@@ -90,39 +93,32 @@ def get_glsl_type(py_type: type) -> str:
 
 
 def extract_function_body(func: Callable) -> List[str]:
-    """Extract and clean the function body lines"""
+    """Extract and clean the function body lines with type annotations"""
     source = inspect.getsource(func)
     lines = source.split("\n")
 
-    # Find function definition
-    try:
-        def_line = next(
-            i for i, line in enumerate(lines) if line.strip().startswith("def ")
-        )
-    except StopIteration:
-        raise GLSLCodeError("Function definition not found")
+    # Parse AST for type inference
+    tree = ast.parse(dedent(source))
+    inferer = TypeInferer()
+    inferer.visit(tree)
 
-    # Find body start
-    body_start = None
-    for i in range(def_line, len(lines)):
-        if "-> vec4:" in lines[i]:
-            body_start = i + 1
-            break
-    if body_start is None:
-        raise GLSLCodeError("Missing return type annotation '-> vec4'")
+    # Find function definition line
+    def_line = next(
+        i for i, line in enumerate(lines) if line.strip().startswith("def ")
+    )
 
-    # Determine indentation
-    indent = len(lines[body_start]) - len(lines[body_start].lstrip())
-    if indent == 0:
-        raise GLSLCodeError("Invalid indentation in function body")
+    # Process body lines with type annotations
+    processed = []
+    for node in tree.body[0].body:
+        if isinstance(node, ast.Assign):
+            target = node.targets[0].id
+            var_type = inferer.symbols.get(target, TypeInfo.FLOAT).glsl_name
+            value = ast.unparse(node.value).replace("\n", " ")
+            processed.append(f"{var_type} {target} = {value};")
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            processed.append(f"// {node.value.value}")
+        else:
+            code = ast.unparse(node).replace("\n", " ")
+            processed.append(code + ";")
 
-    # Extract body lines
-    body_lines = []
-    for line in lines[body_start:]:
-        clean_line = line[indent:]
-        if clean_line.lstrip().startswith("def "):
-            break
-        if clean_line.strip():
-            body_lines.append(clean_line.rstrip())
-
-    return body_lines
+    return processed

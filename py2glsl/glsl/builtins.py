@@ -63,13 +63,8 @@ def acos(x):
     return np.arccos(x)
 
 
-@glsl_template("atan({y_over_x})")
-def atan(y_over_x):
-    return np.arctan(y_over_x)
-
-
 @glsl_template("atan({y}, {x})")
-def atan2(y, x):
+def atan(y, x):
     return np.arctan2(y, x)
 
 

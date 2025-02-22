@@ -47,7 +47,11 @@ valid_shader_cases = [
         shader_matrix_uniform,
         [],
         ["mvp"],
-        ["uniform mat4 mvp", "mvp * vec4(vs_uv, 0.0, 1.0)"],
+        [
+            "uniform mat4 mvp",
+            "mvp * vec4(vs_uv, 0.0, 1.0)",
+            "return pos",
+        ],
         "Matrix uniform",
     ),
     (

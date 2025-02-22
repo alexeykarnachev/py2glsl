@@ -86,10 +86,23 @@ class GLSLBuilder:
     ):
         """Add a GLSL function with validation"""
         self._validate_identifier(name)
-        self._validate_swizzle_operations(parameters, body)
+
+        # Process body lines to convert Python-style comments to GLSL
+        processed_body = []
+        for line in body:
+            # Preserve indentation while converting comments
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                indent = line[: len(line) - len(stripped)]
+                glsl_comment = f"{indent}//{stripped[1:]}"
+                processed_body.append(glsl_comment)
+            else:
+                processed_body.append(line)
+
+        self._validate_swizzle_operations(parameters, processed_body)
 
         params = self._format_parameters(parameters)
-        body_str = self._format_body(body)
+        body_str = self._format_body(processed_body)
 
         self.functions.append(f"{return_type} {name}({params}) {{\n{body_str}\n}}")
 

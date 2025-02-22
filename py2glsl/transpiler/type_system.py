@@ -147,15 +147,9 @@ class TypeInferer(NodeVisitor):
         # Clear symbols for this function scope
         self.symbols.clear()
 
-        # Register all parameters (including posonlyargs)
+        # Process all parameters (including posonlyargs)
         for param in node.args.posonlyargs + node.args.args:
-            param_name = param.arg
-            if not param.annotation:
-                raise GLSLTypeError(
-                    param, f"Parameter '{param_name}' needs type annotation"
-                )
-            param_type = TypeInfo.from_annotation(param.annotation)
-            self.symbols[param_name] = param_type
+            self._process_parameter(param)
 
         # Process function body
         for stmt in node.body:
@@ -164,6 +158,19 @@ class TypeInferer(NodeVisitor):
         # Validate return type consistency
         if not self.current_return:
             raise GLSLTypeError(node, "Could not infer return type")
+
+    def _process_parameter(self, param: ast.arg) -> None:
+        param_name = param.arg
+        if not param.annotation:
+            raise GLSLTypeError(
+                param, f"Parameter '{param_name}' needs type annotation"
+            )
+
+        try:
+            param_type = TypeInfo.from_annotation(param.annotation)
+            self.symbols[param_name] = param_type
+        except ValueError as e:
+            raise GLSLTypeError(param, str(e)) from e
 
     def visit_Return(self, node: Return) -> None:  # noqa: N802
         ret_type = (
@@ -201,54 +208,131 @@ class TypeInferer(NodeVisitor):
         value_type = self.visit(node.value)
         self.symbols[target] = value_type
 
-    def visit_BinOp(self, node: ast.BinOp) -> TypeInfo:  # noqa: N802
+    def visit_BinOp(self, node: ast.BinOp) -> TypeInfo:
         left = self.visit(node.left)
         right = self.visit(node.right)
+        op_type = type(node.op)
 
-        # Vector-scalar operations
-        if left.kind == GLSLTypeKind.VECTOR and right.glsl_name == "float":
-            return left
-        if right.kind == GLSLTypeKind.VECTOR and left.glsl_name == "float":
-            return right
-
-        # Matrix multiplication
-        if isinstance(node.op, ast.MatMult):
-            # Matrix-matrix
+        # Handle matrix multiplication (@ operator)
+        if op_type == ast.MatMult:
+            # Matrix-matrix multiplication
             if left.kind == GLSLTypeKind.MATRIX and right.kind == GLSLTypeKind.MATRIX:
                 if left.size != right.size:
                     raise GLSLTypeError(
-                        node, f"Matrix size mismatch: {left} vs {right}"
+                        node,
+                        f"Matrix multiplication dimension mismatch: {left} vs {right}",
                     )
                 return left
 
-            # Matrix-vector
+            # Matrix-vector multiplication (matN * vecN)
             if left.kind == GLSLTypeKind.MATRIX and right.kind == GLSLTypeKind.VECTOR:
                 if left.size[1] != right.size[0]:
                     raise GLSLTypeError(
-                        node, f"Matrix-vector dimension mismatch: {left} vs {right}"
+                        node,
+                        f"Matrix(cols={left.size[1]}) and vector(dim={right.size[0]}) "
+                        "dimension mismatch for multiplication",
                     )
                 return TypeInfo(
                     GLSLTypeKind.VECTOR, f"vec{left.size[0]}", (left.size[0],)
                 )
 
-            # Vector-matrix
+            # Vector-matrix multiplication (vecN * matN) - invalid in GLSL
             if left.kind == GLSLTypeKind.VECTOR and right.kind == GLSLTypeKind.MATRIX:
-                if left.size[0] != right.size[1]:
-                    raise GLSLTypeError(
-                        node, f"Vector-matrix dimension mismatch: {left} vs {right}"
-                    )
-                return TypeInfo(
-                    GLSLTypeKind.VECTOR, f"vec{right.size[0]}", (right.size[0],)
+                raise GLSLTypeError(
+                    node,
+                    "Vector-matrix multiplication is not supported in GLSL. "
+                    "Use matrix-vector multiplication instead.",
                 )
 
-            raise GLSLTypeError(node, "Matrix multiply requires matrix/vector operands")
+            raise GLSLTypeError(
+                node,
+                "Matrix multiply (@) requires matrix-matrix or matrix-vector operands",
+            )
 
-        # Type promotion
+        # Handle component-wise multiplication (* operator)
+        if op_type == ast.Mult:
+            # First check for matrix/vector multiplication cases
+            if left.kind == GLSLTypeKind.MATRIX or right.kind == GLSLTypeKind.MATRIX:
+                # Matrix-scalar multiplication
+                if left.kind == GLSLTypeKind.MATRIX and right == TypeInfo.FLOAT:
+                    return left
+                if right.kind == GLSLTypeKind.MATRIX and left == TypeInfo.FLOAT:
+                    return right
+
+                # Matrix-vector component-wise multiplication (special case)
+                if (
+                    left.kind == GLSLTypeKind.MATRIX
+                    and right.kind == GLSLTypeKind.VECTOR
+                ):
+                    if left.size[1] != right.size[0]:
+                        raise GLSLTypeError(
+                            node,
+                            f"Matrix(cols={left.size[1]}) and vector(dim={right.size[0]}) "
+                            "dimension mismatch for component-wise multiplication",
+                        )
+                    return right
+
+                if (
+                    right.kind == GLSLTypeKind.MATRIX
+                    and left.kind == GLSLTypeKind.VECTOR
+                ):
+                    raise GLSLTypeError(
+                        node,
+                        "Vector-matrix component-wise multiplication not supported",
+                    )
+
+            # Component-wise vector operations
+            if left.kind == GLSLTypeKind.VECTOR and right.kind == GLSLTypeKind.VECTOR:
+                if left.size != right.size:
+                    raise GLSLTypeError(
+                        node,
+                        f"Vector size mismatch for component-wise multiply: {left} vs {right}",
+                    )
+                return left
+
+            # Scalar-vector broadcast
+            if left.kind == GLSLTypeKind.VECTOR and right == TypeInfo.FLOAT:
+                return left
+            if right.kind == GLSLTypeKind.VECTOR and left == TypeInfo.FLOAT:
+                return right
+
+            # Scalar multiplication
+            if left == TypeInfo.FLOAT and right == TypeInfo.FLOAT:
+                return TypeInfo.FLOAT
+
+        # Handle other arithmetic operations (+, -, /)
+        if op_type in {ast.Add, ast.Sub, ast.Div}:
+            # Vector-vector operations
+            if left.kind == GLSLTypeKind.VECTOR and right.kind == GLSLTypeKind.VECTOR:
+                if left.size != right.size:
+                    raise GLSLTypeError(
+                        node,
+                        f"Vector size mismatch for {op_type.__name__}: {left} vs {right}",
+                    )
+                return left
+
+            # Scalar-vector broadcast
+            if left.kind == GLSLTypeKind.VECTOR and right == TypeInfo.FLOAT:
+                return left
+            if right.kind == GLSLTypeKind.VECTOR and left == TypeInfo.FLOAT:
+                return right
+
+            # Scalar operations
+            if left == TypeInfo.FLOAT and right == TypeInfo.FLOAT:
+                return TypeInfo.FLOAT
+
+        # Type promotion (int -> float)
+        if left == TypeInfo.FLOAT and right == TypeInfo.FLOAT:
+            return TypeInfo.FLOAT
         if left.promotes_to(right):
             return right
         if right.promotes_to(left):
             return left
-        raise GLSLTypeError(node, f"Type mismatch: {left} vs {right}")
+
+        # Final error if no valid operation found
+        raise GLSLTypeError(
+            node, f"Invalid operation {op_type.__name__} for types {left} and {right}"
+        )
 
     def visit_BoolOp(self, node: ast.BoolOp) -> TypeInfo:  # noqa: N802
         for value in node.values:
