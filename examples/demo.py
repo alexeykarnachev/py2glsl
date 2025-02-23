@@ -1,21 +1,10 @@
 from py2glsl import animate, vec2, vec4
-from py2glsl.glsl.builtins import (
-    abs,
-    cos,
-    fract,
-    length,
-    mix,
-    sin,
-    smoothstep,
-    sqrt,
-    tan,
-)
+from py2glsl.glsl.builtins import abs, cos, fract, length, mix, sin, smoothstep, sqrt
 
 
 def psychedelic_plasma(
     vs_uv: vec2,
     /,
-    *,
     u_time: float,
     u_resolution: vec2,
     u_speed: float = 1.0,
