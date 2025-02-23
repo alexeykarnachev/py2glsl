@@ -21,7 +21,7 @@ def psychedelic_plasma(
     u_speed: float = 1.0,
     u_scale: float = 5.0,
     u_color_speed: float = 0.5,
-    u_mouse: vec2 = vec2(0.5),
+    u_mouse_uv: vec2 = vec2(0.5),
 ) -> vec4:
     """
     Enhanced plasma effect with multiple features:
@@ -31,7 +31,7 @@ def psychedelic_plasma(
     - Mouse interaction
     """
     # Normalize coordinates
-    uv = vs_uv * 2.0 - 1.0
+    uv = vs_uv
     uv.x *= u_resolution.x / u_resolution.y
 
     # Time variations
@@ -52,7 +52,7 @@ def psychedelic_plasma(
     layer2 = sin(hex_pattern * 10.0 - t * 2.0) * 0.5 + 0.5
 
     # Layer 3 - Mouse interaction
-    mouse_dist = length(uv - (u_mouse * 2.0 - 1.0))
+    mouse_dist = length(uv - u_mouse_uv)
     mouse_wave = sin(mouse_dist * 15.0 - t * 4.0) * 0.5 + 0.5
 
     # Combine layers

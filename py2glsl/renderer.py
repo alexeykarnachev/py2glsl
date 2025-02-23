@@ -115,6 +115,11 @@ class RenderContext:
             self.program["u_time"].value = time
         if "u_frame" in self.program:
             self.program["u_frame"].value = frame
+        if "u_mouse_uv" in self.program:
+            mx, my = getattr(self, "mouse_pos", (self.size[0] / 2, self.size[1] / 2))
+            x = mx / self.size[0]
+            y = 1.0 - (my / self.size[1])  # Flip Y for GL coordinates
+            self.program["u_mouse_uv"].value = (x, y)
 
 
 class ImageRenderer(RenderContext):
@@ -141,11 +146,16 @@ class AnimationWindow(RenderContext):
 
     def __init__(self, size: Tuple[int, int]):
         super().__init__(size, visible=True)
+        self.mouse_pos = (size[0] // 2, size[1] // 2)
         self._setup_callbacks()
 
     def _setup_callbacks(self):
         glfw.set_window_size_callback(self.window, self._on_resize)
         glfw.set_key_callback(self.window, self._on_key)
+        glfw.set_cursor_pos_callback(self.window, self._on_mouse_move)
+
+    def _on_mouse_move(self, window, xpos, ypos):
+        self.mouse_pos = (xpos, ypos)
 
     def _on_resize(self, window, width, height):
         self.size = (width, height)
