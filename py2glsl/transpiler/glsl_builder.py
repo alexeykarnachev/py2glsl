@@ -9,11 +9,12 @@ class GLSLCodeError(ValueError):
 class GLSLBuilder:
     def __init__(self):
         self.uniforms: list[str] = []
+        self.vertex_functions: list[str] = []
+        self.fragment_functions: list[str] = []
         self.vertex_interface: list[str] = []
         self.fragment_interface: list[str] = []
         self.outputs: list[str] = []
         self.structs: list[str] = []
-        self.functions: list[str] = []
         self.vertex_attributes: list[str] = []
         self.vertex_main_body: list[str] = []
         self.fragment_main_body: list[str] = []
@@ -83,6 +84,7 @@ class GLSLBuilder:
         name: str,
         parameters: list[tuple[str, str]],
         body: list[str],
+        shader_type: str,
     ):
         """Add a GLSL function with validation"""
         self._validate_identifier(name)
@@ -104,7 +106,13 @@ class GLSLBuilder:
         params = self._format_parameters(parameters)
         body_str = self._format_body(processed_body)
 
-        self.functions.append(f"{return_type} {name}({params}) {{\n{body_str}\n}}")
+        func_str = f"{return_type} {name}({params}) {{\n{body_str}\n}}"
+
+        # Store in appropriate list
+        if shader_type == "fragment":
+            self.fragment_functions.append(func_str)
+        else:
+            self.vertex_functions.append(func_str)
 
     def _validate_swizzle_operations(
         self, parameters: list[tuple[str, str]], body: list[str]
@@ -133,16 +141,17 @@ class GLSLBuilder:
         return ", ".join([f"{type_} {name}" for type_, name in parameters])
 
     def _format_body(self, body: list[str]) -> str:
-        """Indent and join body lines"""
+        """Indent and join body lines with proper GLSL semicolons"""
         body_str = "    " + "\n    ".join(body)
-        # Add semicolons to return statements
-        body_str = re.sub(
-            r"\breturn\b(.*?)(?=\n|$)",
-            lambda m: (
-                f"return {m.group(1).strip()};" if ";" not in m.group(0) else m.group(0)
-            ),
-            body_str,
-        )
+
+        # Convert Python ** to GLSL pow()
+        body_str = re.sub(r"(\w+)\s*\*\*\s*(\w+)", r"pow(\1, \2)", body_str)
+
+        # Add missing semicolons using more comprehensive regex
+        body_str = re.sub(r"(\w|\))(\s*(?=\n|//|$))", r"\1;", body_str)
+
+        # Fix any double semicolons
+        body_str = body_str.replace(";;", ";")
 
         return body_str
 
@@ -174,7 +183,11 @@ class GLSLBuilder:
             (type_, name) for name, type_ in uniforms.items()
         ]
         self.add_function(
-            return_type="vec4", name=func_name, parameters=params, body=shader_body
+            return_type="vec4",
+            name=func_name,
+            parameters=params,
+            body=shader_body,
+            shader_type="fragment",
         )
 
         # Vertex main body - calculate outputs from a_pos
@@ -193,7 +206,7 @@ class GLSLBuilder:
             *self.vertex_attributes,
             *self.vertex_interface,
             *self.uniforms,
-            *self.functions,
+            *self.vertex_functions,
             "void main() {",
             *[f"    {line}" for line in self.vertex_main_body],
             "}",
@@ -207,7 +220,7 @@ class GLSLBuilder:
             *self.fragment_interface,
             *self.uniforms,
             *self.outputs,
-            *self.functions,
+            *self.fragment_functions,
             "void main() {",
             *[f"    {line}" for line in self.fragment_main_body],
             "}",

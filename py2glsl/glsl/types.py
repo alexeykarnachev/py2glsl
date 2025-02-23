@@ -14,6 +14,11 @@ class GLSLVector:
     _size: int
     _fields: tuple
 
+    _component_map = {
+        'r': 'x', 'g': 'y', 'b': 'z', 'a': 'w',
+        's': 'x', 't': 'y', 'p': 'z', 'q': 'w'
+    }
+
     def __init__(self, *args: float | list | tuple | np.ndarray | GLSLVector):
         if len(args) == 1 and isinstance(args[0], GLSLVector):
             self.data: np.ndarray = args[0].data.copy()

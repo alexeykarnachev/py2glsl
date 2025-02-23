@@ -163,6 +163,17 @@ class GLSLTypeError(Exception):
 
 
 class TypeInferer(ast.NodeVisitor):
+    _component_map = {
+        "r": "x",
+        "g": "y",
+        "b": "z",
+        "a": "w",
+        "s": "x",
+        "t": "y",
+        "p": "z",
+        "q": "w",
+    }
+
     def __init__(self):
         # Predefined symbols and built-ins
         self.symbols = {
@@ -191,19 +202,35 @@ class TypeInferer(ast.NodeVisitor):
         self._size_stack: list[tuple[int, ...]] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
+        """Handle function definition with all parameter types"""
+        # Process parameters (positional, keyword-only, etc.)
+        all_params = [
+            *node.args.args,  # Positional params
+            *node.args.kwonlyargs,  # Keyword-only params
+            node.args.vararg,  # *args if present
+            node.args.kwarg,  # **kwargs if present
+        ]
+
+        # Filter out None values (for optional args)
+        all_params = [p for p in all_params if p is not None]
+
+        # Process parameter types
+        for param in all_params:
+            try:
+                param_type = self._resolve_annotation(param.annotation)
+                self.symbols[param.arg] = param_type
+            except GLSLTypeError as e:
+                raise GLSLTypeError(param, f"Invalid parameter type: {e.message}")
+
         # Process return type
-        self.current_return = TypeInfo.FLOAT  # Default
         if node.returns:
             self.current_return = self._resolve_annotation(node.returns)
         else:
-            raise GLSLTypeError(node, "Missing return type annotation")
+            raise GLSLTypeError(
+                node, "Shader function must have return type annotation"
+            )
 
-        # Process parameters
-        for arg in node.args.args:
-            arg_type = self._resolve_annotation(arg.annotation)
-            self.symbols[arg.arg] = arg_type
-
-        # Visit body
+        # Visit function body
         for stmt in node.body:
             self.visit(stmt)
 
@@ -257,7 +284,114 @@ class TypeInferer(ast.NodeVisitor):
         raise GLSLTypeError(node, f"Undefined variable '{node.id}'")
 
     def visit_Call(self, node: ast.Call):
+        # Handle GLSL built-in functions
+        if isinstance(node.func, ast.Name) and node.func.id == "mix":
+            return self._handle_mix_function(node)
+        elif isinstance(node.func, ast.Name):
+            try:
+                # Attempt to import from py2glsl.glsl.builtins
+                from py2glsl.glsl import builtins
+
+                func_obj = getattr(builtins, node.func.id, None)
+
+                if func_obj and hasattr(func_obj, "__glsl_metadata__"):
+                    return self._handle_builtin_function(node, func_obj)
+            except ImportError:
+                pass
+
+        # Handle constructors
         return self._handle_constructor(node)
+
+    def _handle_mix_function(self, node: ast.Call) -> TypeInfo:
+        if len(node.args) != 3:
+            raise GLSLTypeError(node, "mix() requires exactly 3 arguments")
+
+        a_type = self.visit(node.args[0])
+        b_type = self.visit(node.args[1])
+        t_type = self.visit(node.args[2])
+
+        # Validate matching types for a and b
+        if a_type != b_type:
+            raise GLSLTypeError(
+                node,
+                f"mix() arguments 0 and 1 must match: {a_type.glsl_name} vs {b_type.glsl_name}",
+            )
+
+        # Validate t type matches or is scalar
+        if not (t_type == a_type or t_type.is_scalar):
+            raise GLSLTypeError(
+                node,
+                f"mix() argument 2 must be scalar or match first arguments: {t_type.glsl_name}",
+            )
+
+        return a_type
+
+    def _handle_builtin_function(self, node: ast.Call, func_obj: Callable) -> TypeInfo:
+        """Handle GLSL built-in functions with list-type resolver support"""
+        meta = func_obj.__glsl_metadata__
+        args = [self.visit(arg) for arg in node.args]
+
+        # Validate argument count first
+        if len(args) != len(meta.arg_types):
+            raise GLSLTypeError(
+                node,
+                f"{func_obj.__name__} expects {len(meta.arg_types)} arguments, got {len(args)}",
+            )
+
+        resolved_arg_types = []
+        for i, resolver in enumerate(meta.arg_types):
+            # Resolve expected type with legacy list support
+            if callable(resolver):
+                resolved = resolver(args)  # Maintain original interface
+            else:
+                resolved = resolver
+
+            # Handle list returns from legacy resolvers
+            if isinstance(resolved, list):
+                if len(resolved) != len(args):
+                    raise GLSLTypeError(
+                        node,
+                        f"Type resolver for {func_obj.__name__} returned mismatched list "
+                        f"(expected {len(args)} types, got {len(resolved)})",
+                    )
+                expected = resolved[i]
+            else:
+                expected = resolved
+
+            # Validate type compatibility
+            if not self._is_type_compatible(args[i], expected):
+                raise GLSLTypeError(
+                    node.args[i],
+                    f"Argument {i+1} type mismatch in {func_obj.__name__}\n"
+                    f"Expected: {expected.glsl_name}\n"
+                    f"Actual: {args[i].glsl_name}",
+                )
+
+            resolved_arg_types.append(expected)
+
+        # Resolve return type
+        try:
+            if callable(meta.return_type):
+                return meta.return_type(resolved_arg_types)
+            return meta.return_type
+        except Exception as e:
+            raise GLSLTypeError(
+                node, f"Return type resolution failed for {func_obj.__name__}: {str(e)}"
+            ) from e
+
+    def _is_type_compatible(self, actual: TypeInfo, expected: TypeInfo) -> bool:
+        """Check if types match, handling polymorphic types and scalar promotion"""
+        if expected.is_polymorphic:
+            if expected.kind == GLSLTypeKind.VECTOR:
+                return actual.is_vector
+            if expected.kind == GLSLTypeKind.MATRIX:
+                return actual.is_matrix
+
+        # Allow scalar promotion to vectors/matrices
+        if (expected.is_vector or expected.is_matrix) and actual.is_scalar:
+            return True
+
+        return actual == expected
 
     def _handle_constructor(self, node: ast.Call) -> TypeInfo:
         name = node.func.id
@@ -294,6 +428,8 @@ class TypeInferer(ast.NodeVisitor):
 
         if op == ast.MatMult:
             return self._handle_matrix_mult(left, right)
+        elif op == ast.Pow:
+            return self._handle_pow(left, right, node)
 
         handler = {
             ast.Add: self._handle_add,
@@ -306,6 +442,39 @@ class TypeInferer(ast.NodeVisitor):
             return handler(left, right)
 
         raise GLSLTypeError(node, f"Unsupported operator {op.__name__}")
+
+    def _handle_pow(
+        self, base: TypeInfo, exponent: TypeInfo, node: ast.AST
+    ) -> TypeInfo:
+        """Handle power operator (converted to GLSL pow() function)"""
+        # Both operands must be float or matching vectors
+        if not (base.is_scalar or base.is_vector):
+            raise GLSLTypeError(
+                node,
+                f"Power operator requires scalar/vector base, got {base.glsl_name}",
+            )
+
+        if not (exponent.is_scalar or exponent.is_vector):
+            raise GLSLTypeError(
+                node,
+                f"Power operator requires scalar/vector exponent, got {exponent.glsl_name}",
+            )
+
+        # Handle vector-scalar combinations
+        if base.is_vector and exponent.is_scalar:
+            return base
+        if base.is_scalar and exponent.is_vector:
+            return exponent
+        if base.is_vector and exponent.is_vector:
+            if base != exponent:
+                raise GLSLTypeError(
+                    node,
+                    f"Vector power requires matching types: {base.glsl_name} vs {exponent.glsl_name}",
+                )
+            return base
+
+        # Default to float for scalar-scalar
+        return TypeInfo.FLOAT
 
     def _resolve_operation_size(
         self, a: TypeInfo, b: TypeInfo, node: ast.AST
@@ -439,6 +608,9 @@ class TypeInferer(ast.NodeVisitor):
         base_type = self.visit(node.value)
         components = node.attr
 
+        # Convert rgba/stpq to xyzw
+        components = "".join([self._component_map.get(c, c) for c in components])
+
         # Validate swizzle pattern
         if len(components) > 4 or any(c not in "xyzw" for c in components):
             raise GLSLTypeError(node, f"Invalid swizzle pattern '{components}'")
@@ -447,7 +619,9 @@ class TypeInferer(ast.NodeVisitor):
         max_component = len("xyzw"[: base_type.vector_size])
         if any(ord(c) - ord("x") >= max_component for c in components):
             raise GLSLTypeError(
-                node, f"Swizzle out of bounds for {base_type.glsl_name}"
+                node,
+                f"Swizzle out of bounds for {base_type.glsl_name} "
+                f"(valid: 'xyzw'[:{max_component}] or 'rgba'[:{max_component}])",
             )
 
         return TypeInfo.from_swizzle(base_type, components)
@@ -472,6 +646,9 @@ class TypeInferer(ast.NodeVisitor):
             return TypeInfo.FLOAT
         if isinstance(node.value, bool):
             return TypeInfo.BOOL
+        if isinstance(node.value, str):
+            # Treat string literals as comments (no type needed)
+            return TypeInfo.FLOAT
         raise GLSLTypeError(node, f"Unsupported constant type {type(node.value)}")
 
     def visit_BoolOp(self, node: ast.BoolOp) -> TypeInfo:

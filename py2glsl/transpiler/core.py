@@ -37,6 +37,11 @@ def transpile(func: Callable) -> TranspilerResult:
         shader_body=extract_function_body(func),
     )
 
+    # Explicitly remove main shader function from vertex stage
+    builder.vertex_functions = [
+        f for f in builder.vertex_functions if not f.startswith(f"vec4 {func.__name__}")
+    ]
+
     result = TranspilerResult(
         vertex_src=builder.build_vertex_shader(),
         fragment_src=builder.build_fragment_shader(),
@@ -69,8 +74,13 @@ def detect_interface(func: Callable) -> Tuple[Dict[str, str], Dict[str, str]]:
     attributes = {}
 
     for param in sig.parameters.values():
-        target = attributes if param.kind == Parameter.POSITIONAL_ONLY else uniforms
-        target[param.name] = get_glsl_type(param.annotation)
+        # Handle parameters with default values
+        if param.default != Parameter.empty:
+            uniforms[param.name] = get_glsl_type(param.annotation)
+        elif param.kind == Parameter.POSITIONAL_ONLY:
+            attributes[param.name] = get_glsl_type(param.annotation)
+        else:
+            uniforms[param.name] = get_glsl_type(param.annotation)
 
     return uniforms, attributes
 
@@ -92,33 +102,32 @@ def get_glsl_type(py_type: type) -> str:
     return type_map[py_type]
 
 
-def extract_function_body(func: Callable) -> List[str]:
-    """Extract and clean the function body lines with type annotations"""
+def extract_function_body(func: Callable) -> list[str]:
+    """Extract function body with proper GLSL type declarations"""
     source = inspect.getsource(func)
-    lines = source.split("\n")
-
-    # Parse AST for type inference
     tree = ast.parse(dedent(source))
+
+    # Run type inference first
     inferer = TypeInferer()
     inferer.visit(tree)
 
-    # Find function definition line
-    def_line = next(
-        i for i, line in enumerate(lines) if line.strip().startswith("def ")
-    )
-
-    # Process body lines with type annotations
     processed = []
     for node in tree.body[0].body:
-        if isinstance(node, ast.Assign):
+        if isinstance(node, ast.AnnAssign):
+            # Handle typed assignments: "var: type = value"
+            decl = f"{inferer.symbols[node.target.id].glsl_name} {ast.unparse(node)}"
+            processed.append(decl.replace("=", "="))
+        elif isinstance(node, ast.Assign):
+            # Handle regular assignments with type inference
             target = node.targets[0].id
             var_type = inferer.symbols.get(target, TypeInfo.FLOAT).glsl_name
-            value = ast.unparse(node.value).replace("\n", " ")
+            value = ast.unparse(node.value)
             processed.append(f"{var_type} {target} = {value};")
-        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
-            processed.append(f"// {node.value.value}")
+        elif isinstance(node, ast.Expr):
+            # Skip comments/docstrings
+            continue
         else:
-            code = ast.unparse(node).replace("\n", " ")
-            processed.append(code + ";")
+            # Preserve other statements
+            processed.append(ast.unparse(node))
 
     return processed
