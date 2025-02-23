@@ -1,5 +1,20 @@
+import ast
+import inspect
 import keyword
 import re
+from dataclasses import dataclass
+from typing import Callable
+
+from py2glsl.glsl.types import mat3, mat4, vec2, vec3, vec4
+from py2glsl.transpiler.type_system import TypeInferer
+
+from .utils import extract_function_body
+
+
+@dataclass
+class TranspilerResult:
+    vertex_src: str
+    fragment_src: str
 
 
 class GLSLCodeError(ValueError):
@@ -45,8 +60,12 @@ class GLSLBuilder:
 
     def add_vertex_attribute(self, location: int, type_: str, name: str):
         if name.startswith("gl_"):
-            raise GLSLCodeError(f"Reserved GLSL prefix 'gl_' in attribute: {name}")
+            raise GLSLCodeError(f"Reserved GLSL prefix 'gl_' in attribute '{name}'")
         self._validate_identifier(name)
+        if name in self.declared_names:
+            raise GLSLCodeError(f"Duplicate attribute: {name}")
+        self.declared_names.add(name)
+
         self.vertex_attributes.append(
             f"layout(location = {location}) in {type_} {name};"
         )
@@ -161,8 +180,10 @@ class GLSLBuilder:
         attributes: dict[str, str],
         func_name: str,
         shader_body: list[str],
+        extra_functions: list[Callable] | None = None,
     ):
-        # Fixed vertex attribute for position
+        """Configure the builder for shader transpilation with dependencies."""
+        # Add vertex attribute for position
         self.add_vertex_attribute(0, "vec2", "a_pos")
 
         # Vertex outputs -> fragment inputs
@@ -178,10 +199,15 @@ class GLSLBuilder:
         # Final output
         self.add_output("fs_color", "vec4")
 
-        # Main shader function parameters are just the outputs/inputs
-        params = [(type_, name) for name, type_ in attributes.items()] + [
-            (type_, name) for name, type_ in uniforms.items()
-        ]
+        # Add dependent functions first
+        for func in extra_functions or []:
+            self._add_function_from_callable(func)
+
+        # Main shader function parameters
+        params = [(type_, name) for name, type_ in attributes.items()]
+        params += [(type_, name) for name, type_ in uniforms.items()]
+
+        # Add main shader function
         self.add_function(
             return_type="vec4",
             name=func_name,
@@ -190,15 +216,64 @@ class GLSLBuilder:
             shader_type="fragment",
         )
 
-        # Vertex main body - calculate outputs from a_pos
+        # Vertex main body
         self.vertex_main_body = [
             "gl_Position = vec4(a_pos, 0.0, 1.0);",
             *[f"{name} = a_pos * 0.5 + 0.5;" for name in attributes],
         ]
 
         # Fragment main body
-        args = list(attributes) + list(uniforms)
+        args = list(attributes.keys()) + list(uniforms.keys())
         self.fragment_main_body = [f"fs_color = {func_name}({', '.join(args)});"]
+
+    def _add_function_from_callable(self, func: Callable):
+        """Add a function from Python callable to GLSL builder."""
+        sig = inspect.signature(func)
+
+        # Get return type
+        return_type = sig.return_annotation.__name__
+
+        # Process parameters
+        params = []
+        for param in sig.parameters.values():
+            param_type = param.annotation.__name__
+            params.append((param_type, param.name))
+
+        # Get typed function body
+        body = extract_function_body(func)
+        processed_body = []
+        inferer = TypeInferer()
+
+        for line in body:
+            try:
+                tree = ast.parse(line)
+                inferer.visit(tree)
+
+                if isinstance(tree.body[0], ast.AnnAssign):
+                    # Convert Python type hints to GLSL declarations
+                    ann = tree.body[0].annotation
+                    target = tree.body[0].target.id
+                    glsl_type = self._pytype_to_glsl(inferer._resolve_annotation(ann))
+                    value = ast.unparse(tree.body[0].value)
+                    processed_body.append(f"{glsl_type} {target} = {value};")
+                else:
+                    processed_body.append(line)
+            except:
+                processed_body.append(line)
+
+        self.add_function(
+            return_type=return_type,
+            name=func.__name__,
+            parameters=params,
+            body=processed_body,
+            shader_type="fragment",
+        )
+
+    def _pytype_to_glsl(self, py_type: type) -> str:
+        """Get GLSL type name from Python type using __name__ attribute"""
+        if py_type in (float, int, bool):
+            return py_type.__name__
+        return getattr(py_type, "__name__", "float")
 
     def build_vertex_shader(self) -> str:
         components = [
@@ -226,3 +301,9 @@ class GLSLBuilder:
             "}",
         ]
         return "\n".join(components)
+
+    def build(self) -> TranspilerResult:
+        return TranspilerResult(
+            vertex_src=self.build_vertex_shader(),
+            fragment_src=self.build_fragment_shader(),
+        )
