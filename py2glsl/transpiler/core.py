@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from textwrap import dedent
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 from loguru import logger
 
@@ -26,15 +26,14 @@ def transpile(func: Callable) -> TranspilerResult:
     source = inspect.getsource(func)
     tree = ast.parse(dedent(source))
     func_node = tree.body[0]
-    func_body_ast = func_node.body
 
+    # Pass the entire function node instead of just its body
     called_functions = _find_called_functions(
-        func_body_ast,
+        func_node,
         func.__globals__,
         func.__name__,
     )
 
-    # Remove the hex_grid validation check
     logger.debug(f"Final called functions: {list(called_functions.keys())}")
 
     type_inferer = TypeInferer(called_functions=called_functions)
@@ -53,27 +52,121 @@ def transpile(func: Callable) -> TranspilerResult:
 
 
 def _find_called_functions(
-    body: list[ast.stmt],
-    globals_dict: dict,
-    entry_point: str,
-) -> dict[str, Callable]:
-    visitor = FunctionCallVisitor(globals_dict)
-    visitor.visit(ast.Module(body=body))
+    node: ast.AST,
+    global_scope: Dict[str, Any],
+    current_func: str,
+    visited: Set[str] | None = None,
+    depth: int = 0,
+) -> Dict[str, ast.FunctionDef]:
+    """Recursively find all called functions in the AST with call graph analysis."""
+    visited = visited or set()
+    called_funcs = {}
+    indent = "  " * depth
 
-    ordered = []
-    seen = set()
+    logger.debug(
+        f"{indent}🚀 Analyzing calls in {current_func} (node type: {type(node).__name__})"
+    )
 
-    def process(name: str):
-        if name in seen or name not in visitor.valid_functions:
-            return
-        seen.add(name)
-        # Process dependencies first
-        for dep in visitor.call_graph.get(name, []):
-            process(dep)
-        ordered.append(visitor.valid_functions[name])
+    class CallVisitor(ast.NodeVisitor):
+        def __init__(self):
+            self.calls: List[str] = []
+            self._current_node = None
 
-    process(entry_point)
-    return {f.__name__: f for f in ordered}
+        def visit_Call(self, node: ast.Call):
+            self._current_node = node
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+                self.calls.append(func_name)
+                logger.debug(
+                    f"{indent}🔍 Found function call: {func_name} (line {node.lineno})"
+                )
+            elif isinstance(node.func, ast.Attribute):
+                logger.debug(
+                    f"{indent}⚠️  Skipping method call: {ast.unparse(node.func)}"
+                )
+            self.generic_visit(node)
+
+    def process_function(func_node: ast.FunctionDef) -> Dict[str, ast.FunctionDef]:
+        nonlocal depth
+        func_name = func_node.name
+        if func_name in visited:
+            logger.debug(f"{indent}⏩ Already visited {func_name}, skipping")
+            return {}
+        visited.add(func_name)
+
+        logger.debug(f"{indent}📖 Processing function: {func_name} (depth {depth})")
+        visitor = CallVisitor()
+        visitor.visit(func_node)
+
+        functions_found = {}
+        for call in visitor.calls:
+            logger.debug(f"{indent}🔗 Resolving call to {call} in {func_name}")
+
+            if call not in global_scope:
+                logger.warning(
+                    f"{indent}⚠️  Undefined function {call} called in {func_name}"
+                )
+                continue
+
+            target_func = global_scope[call]
+            if not inspect.isfunction(target_func):
+                logger.debug(
+                    f"{indent}⏩ Skipping non-function {call} ({type(target_func)})"
+                )
+                continue
+
+            try:
+                logger.debug(f"{indent}📦 Fetching source for {call}")
+                source = inspect.getsource(target_func)
+                child_tree = ast.parse(dedent(source))
+
+                if not child_tree.body or not isinstance(
+                    child_tree.body[0], ast.FunctionDef
+                ):
+                    logger.error(f"{indent}❌ Invalid function source for {call}")
+                    continue
+
+                child_func = child_tree.body[0]
+                logger.debug(
+                    f"{indent}🌳 Parsed AST for {call}:\n{ast.dump(child_func, indent=2)}"
+                )
+
+                logger.debug(f"{indent}🔄 Recursing into {call}'s dependencies")
+                nested_calls = _find_called_functions(
+                    child_func, global_scope, call, visited, depth + 1
+                )
+                functions_found.update(nested_calls)
+                functions_found[call] = child_func
+                logger.debug(f"{indent}✅ Finished processing {call}")
+
+            except Exception as e:
+                logger.error(f"{indent}❌ Failed to process {call}: {str(e)}")
+                raise GLSLCodeError(f"Error in {call} dependency: {str(e)}") from e
+
+        return functions_found
+
+    # Handle function definition nodes
+    if isinstance(node, ast.FunctionDef):
+        return process_function(node)
+
+    # Handle other nodes and child nodes
+    logger.debug(f"{indent}🔎 Scanning children of {type(node).__name__} node")
+    for child in ast.iter_child_nodes(node):
+        child_funcs = {}
+
+        if isinstance(child, ast.FunctionDef):
+            child_funcs.update(process_function(child))
+        else:
+            child_funcs.update(
+                _find_called_functions(
+                    child, global_scope, current_func, visited, depth
+                )
+            )
+
+        called_funcs.update(child_funcs)
+
+    logger.debug(f"{indent}🏁 Completed analysis of {current_func}")
+    return called_funcs
 
 
 def detect_interface(
