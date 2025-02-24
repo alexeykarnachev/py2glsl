@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Callable, ClassVar, Optional, Union, get_type_hints
 
 import numpy as np
+from loguru import logger
 
 from py2glsl.glsl.types import mat3, mat4, vec2, vec3, vec4
 
@@ -258,44 +259,50 @@ class TypeInferer(ast.NodeVisitor):
         raise GLSLTypeError(node, f"Undefined variable '{node.id}'")
 
     def visit_Call(self, node: ast.Call) -> TypeInfo:
-        # Handle user-defined functions
-        if isinstance(node.func, ast.Name) and node.func.id in self.called_functions:
-            func = self.called_functions[node.func.id]
-            sig = inspect.signature(func)
+        # Check user functions first
+        if isinstance(node.func, ast.Name):
+            func_name = node.func.id
+            logger.debug(f"Processing call to {func_name}")
 
-            # Argument validation
-            if len(node.args) != len(sig.parameters):
+            if func_name in self.called_functions:
+                logger.success(f"Recognized user function: {func_name}")
+                return self._handle_user_function(node)
+
+        # Handle builtins/constructors
+        if isinstance(node.func, ast.Attribute):
+            return self._handle_builtin_function(node)
+
+        return self._handle_constructor(node)
+
+    def _handle_user_function(self, node: ast.Call) -> TypeInfo:
+        func_name = node.func.id
+        py_func = self.called_functions[func_name]
+        sig = inspect.signature(py_func)
+
+        logger.debug(
+            f"Validating {func_name} args: {len(node.args)} vs {len(sig.parameters)}"
+        )
+
+        if len(node.args) != len(sig.parameters):
+            raise GLSLTypeError(
+                node,
+                f"Argument count mismatch for {func_name}. "
+                f"Expected {len(sig.parameters)}, got {len(node.args)}",
+            )
+
+        for arg, param in zip(node.args, sig.parameters.values()):
+            arg_type = self.visit(arg)
+            expected_type = TypeInfo.from_pytype(param.annotation)
+            if arg_type != expected_type:
                 raise GLSLTypeError(
-                    node,
-                    f"Argument count mismatch for {func.__name__}: "
-                    f"expected {len(sig.parameters)}, got {len(node.args)}",
+                    arg,
+                    f"Type mismatch in {func_name} argument {param.name}. "
+                    f"Expected {expected_type}, got {arg_type}",
                 )
 
-            for i, (arg, param) in enumerate(zip(node.args, sig.parameters.values())):
-                arg_type = self.visit(arg)
-                param_type = TypeInfo.from_pytype(param.annotation)
-                if arg_type != param_type:
-                    raise GLSLTypeError(
-                        arg,
-                        f"Parameter '{param.name}' type mismatch: "
-                        f"expected {param_type.glsl_name}, got {arg_type.glsl_name}",
-                    )
-
-            return TypeInfo.from_pytype(sig.return_annotation)
-
-        # Handle built-in functions
-        try:
-            from py2glsl.glsl import builtins
-
-            if isinstance(node.func, ast.Name):
-                func = getattr(builtins, node.func.id, None)
-                if func and hasattr(func, "__glsl_metadata__"):
-                    return self._handle_builtin_function(node, func)
-        except ImportError:
-            pass
-
-        # Handle constructors
-        return self._handle_constructor(node)
+        return_type = TypeInfo.from_pytype(sig.return_annotation)
+        logger.debug(f"{func_name} returns {return_type}")
+        return return_type
 
     def _handle_builtin_function(self, node: ast.Call, func: Callable) -> TypeInfo:
         meta = func.__glsl_metadata__
@@ -329,33 +336,69 @@ class TypeInferer(ast.NodeVisitor):
         return actual == expected
 
     def _handle_constructor(self, node: ast.Call) -> TypeInfo:
+        if not isinstance(node.func, ast.Name):
+            raise GLSLTypeError(node, "Complex constructor expressions not supported")
+
         name = node.func.id
         args = [self.visit(arg) for arg in node.args]
 
+        logger.debug(f"Handling constructor: {name} with {len(args)} args")
+
+        # Handle vector constructors (vec2, vec3, vec4)
         if name.startswith("vec"):
-            size = int(name[3:])
-            # Handle GLSL vector constructor rules
-            if len(args) == 1 and args[0].is_scalar:
-                # Single scalar initializes all components - valid in GLSL
-                pass
-            else:
-                total_components = sum(
-                    arg.vector_size if arg.is_vector else 1 for arg in args
+            try:
+                size = int(name[3:])
+                if size not in {2, 3, 4}:
+                    raise ValueError
+            except ValueError:
+                raise GLSLTypeError(node, f"Invalid vector type {name}")
+
+            # Validate component count
+            total_components = sum(
+                arg.vector_size if arg.is_vector else 1 for arg in args
+            )
+
+            if total_components != size:
+                # Allow single scalar to initialize all components
+                if len(args) == 1 and args[0].is_scalar:
+                    return self._type_registry[name]
+
+                raise GLSLTypeError(
+                    node,
+                    f"{name} constructor needs {size} components, got {total_components}",
                 )
-                if total_components != size:
-                    raise GLSLTypeError(
-                        node,
-                        f"vec{size} constructor needs {size} components, got {total_components}",
-                    )
+
             return self._type_registry[name]
 
+        # Handle matrix constructors (mat3, mat4)
         if name.startswith("mat"):
-            size = int(name[3:])
-            if not all(a.is_scalar for a in args):
-                raise GLSLTypeError(node, "Matrix components must be scalars")
-            return TypeInfo(GLSLTypeKind.MATRIX, name, (size, size))
+            try:
+                size = int(name[3:])
+                if size not in {3, 4}:
+                    raise ValueError
+            except ValueError:
+                raise GLSLTypeError(node, f"Invalid matrix type {name}")
 
-        raise GLSLTypeError(node, f"Unknown constructor {name}")
+            # Validate matrix components
+            if not all(arg.is_scalar for arg in args):
+                raise GLSLTypeError(node, "Matrix components must be scalars")
+
+            expected_components = size * size
+            if len(args) not in {1, expected_components}:
+                raise GLSLTypeError(
+                    node,
+                    f"{name} constructor needs 1 or {expected_components} scalars, "
+                    f"got {len(args)}",
+                )
+
+            return self._type_registry[name]
+
+        # Handle invalid constructors
+        raise GLSLTypeError(
+            node,
+            f"Unknown constructor '{name}'. "
+            f"Did you forget to add a type hint or import the function?",
+        )
 
     def visit_BinOp(self, node: ast.BinOp):
         left = self.visit(node.left)

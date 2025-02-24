@@ -28,23 +28,19 @@ def transpile(func: Callable) -> TranspilerResult:
     func_node = tree.body[0]
     func_body_ast = func_node.body
 
-    # 1. Find all called functions
     called_functions = _find_called_functions(
         func_body_ast,
         func.__globals__,
         func.__name__,
     )
 
-    # 2. Create type inferer with dependency info
+    # Remove the hex_grid validation check
+    logger.debug(f"Final called functions: {list(called_functions.keys())}")
+
     type_inferer = TypeInferer(called_functions=called_functions)
-
-    # 3. Detect interface and populate type info
     uniforms, attributes = detect_interface(func, type_inferer)
-
-    # 4. Generate GLSL body with full type info
     glsl_body = extract_function_body(func_node, type_inferer)
 
-    # 5. Build final shader code
     builder = GLSLBuilder()
     builder.configure_shader_transpiler(
         uniforms=uniforms,
@@ -62,24 +58,22 @@ def _find_called_functions(
     entry_point: str,
 ) -> dict[str, Callable]:
     visitor = FunctionCallVisitor(globals_dict)
-    for node in body:
-        visitor.visit(node)
+    visitor.visit(ast.Module(body=body))
 
     ordered = []
     seen = set()
 
-    def add_func(name: str):
+    def process(name: str):
         if name in seen or name not in visitor.valid_functions:
             return
         seen.add(name)
+        # Process dependencies first
         for dep in visitor.call_graph.get(name, []):
-            add_func(dep)
+            process(dep)
         ordered.append(visitor.valid_functions[name])
 
-    # Start with the entry point function
-    add_func(entry_point)
-
-    return {func.__name__: func for func in ordered}
+    process(entry_point)
+    return {f.__name__: f for f in ordered}
 
 
 def detect_interface(
@@ -112,36 +106,62 @@ class FunctionCallVisitor(ast.NodeVisitor):
         self.call_graph: dict[str, list[str]] = {}
         self.top_level_calls: set[str] = set()
         self.current_func: str | None = None
+        self.called_functions = {}
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         prev_func = self.current_func
         self.current_func = node.name
-        self.generic_visit(node)
-        self.current_func = prev_func
+        try:
+            if node.name not in self.valid_functions:
+                self._process_call(node.name)
+            self.generic_visit(node)
+        finally:
+            self.current_func = prev_func
 
     def visit_Call(self, node: ast.Call):
+        # Process all function calls
         if isinstance(node.func, ast.Name):
-            self._process_call(node.func.id)
+            func_name = node.func.id
+            self._process_call(func_name)
+
+            # Track dependencies between functions
+            if self.current_func and func_name in self.valid_functions:
+                self.call_graph.setdefault(self.current_func, []).append(func_name)
+
         self.generic_visit(node)
 
     def _process_call(self, func_name: str):
+        if func_name in self.valid_functions:
+            return
+
         func = self.globals.get(func_name)
         if not func or not inspect.isfunction(func):
             return
 
         try:
-            # Get full function AST instead of splitting lines
+            logger.debug(f"Registering function: {func_name}")
+            self.valid_functions[func_name] = func
             func_ast = ast.parse(inspect.getsource(func))
-            func_node = func_ast.body[0]
-
-            # Process the function body nodes directly
-            for stmt in func_node.body:
-                self.visit(stmt)
-
-        except IndentationError as e:
-            raise GLSLCodeError(f"Indentation error in {func_name}: {str(e)}")
+            self.visit(func_ast)  # Process nested calls
         except Exception as e:
-            raise GLSLCodeError(f"Error processing {func_name}: {str(e)}")
+            logger.error(f"Error processing {func_name}: {str(e)}")
+            raise GLSLCodeError(f"Failed to process {func_name}: {str(e)}")
+
+    def _track_dependency(self, callee: str):
+        if self.current_func:
+            self.call_graph.setdefault(self.current_func, []).append(callee)
+
+    def _handle_user_function(self, node: ast.Call) -> TypeInfo:
+        func_name = node.func.id
+        func = self.called_functions[func_name]
+
+        # Verify argument count matches
+        if len(node.args) != len(inspect.signature(func).parameters):
+            raise GLSLTypeError(node, f"Argument count mismatch for {func_name}")
+
+        # Return the function's annotated return type
+        return_type = inspect.signature(func).return_annotation
+        return TypeInfo.from_pytype(return_type)
 
 
 @dataclass
