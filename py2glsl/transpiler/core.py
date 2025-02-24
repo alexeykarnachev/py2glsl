@@ -127,9 +127,6 @@ def _find_called_functions(
                     continue
 
                 child_func = child_tree.body[0]
-                logger.debug(
-                    f"{indent}🌳 Parsed AST for {call}:\n{ast.dump(child_func, indent=2)}"
-                )
 
                 logger.debug(f"{indent}🔄 Recursing into {call}'s dependencies")
                 nested_calls = _find_called_functions(
