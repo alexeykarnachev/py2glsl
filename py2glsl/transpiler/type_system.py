@@ -159,7 +159,8 @@ class TypeInferer(ast.NodeVisitor):
         "q": "w",
     }
 
-    def __init__(self):
+    def __init__(self, called_functions: dict[str, Callable] | None = None):
+        self.called_functions = called_functions or {}
         self.symbols = {
             "gl_Position": TypeInfo.VEC4,
             "gl_FragCoord": TypeInfo.VEC4,
@@ -256,47 +257,44 @@ class TypeInferer(ast.NodeVisitor):
             return self.symbols[node.id]
         raise GLSLTypeError(node, f"Undefined variable '{node.id}'")
 
-    def visit_Call(self, node: ast.Call):
-        if isinstance(node.func, ast.Name):
-            func_name = node.func.id
-            if func_name in self.symbols and inspect.isfunction(
-                self.symbols[func_name]
-            ):
-                func = self.symbols[func_name]
-                sig = inspect.signature(func)
-                arg_types = [self.visit(arg) for arg in node.args]
-                param_types = [
-                    self._resolve_annotation(p.annotation)
-                    for p in sig.parameters.values()
-                ]
+    def visit_Call(self, node: ast.Call) -> TypeInfo:
+        # Handle user-defined functions
+        if isinstance(node.func, ast.Name) and node.func.id in self.called_functions:
+            func = self.called_functions[node.func.id]
+            sig = inspect.signature(func)
 
-                if len(arg_types) != len(param_types):
+            # Argument validation
+            if len(node.args) != len(sig.parameters):
+                raise GLSLTypeError(
+                    node,
+                    f"Argument count mismatch for {func.__name__}: "
+                    f"expected {len(sig.parameters)}, got {len(node.args)}",
+                )
+
+            for i, (arg, param) in enumerate(zip(node.args, sig.parameters.values())):
+                arg_type = self.visit(arg)
+                param_type = TypeInfo.from_pytype(param.annotation)
+                if arg_type != param_type:
                     raise GLSLTypeError(
-                        node,
-                        f"Argument count mismatch for {func_name}: "
-                        f"expected {len(param_types)}, got {len(arg_types)}",
+                        arg,
+                        f"Parameter '{param.name}' type mismatch: "
+                        f"expected {param_type.glsl_name}, got {arg_type.glsl_name}",
                     )
 
-                for i, (arg_t, param_t) in enumerate(zip(arg_types, param_types)):
-                    if arg_t != param_t:
-                        raise GLSLTypeError(
-                            node.args[i],
-                            f"Type mismatch in {func_name} argument {i+1}: "
-                            f"expected {param_t.glsl_name}, got {arg_t.glsl_name}",
-                        )
+            return TypeInfo.from_pytype(sig.return_annotation)
 
-                return self._resolve_annotation(sig.return_annotation)
+        # Handle built-in functions
+        try:
+            from py2glsl.glsl import builtins
 
-        if isinstance(node.func, ast.Name):
-            try:
-                from py2glsl.glsl import builtins
-
+            if isinstance(node.func, ast.Name):
                 func = getattr(builtins, node.func.id, None)
                 if func and hasattr(func, "__glsl_metadata__"):
                     return self._handle_builtin_function(node, func)
-            except ImportError:
-                pass
+        except ImportError:
+            pass
 
+        # Handle constructors
         return self._handle_constructor(node)
 
     def _handle_builtin_function(self, node: ast.Call, func: Callable) -> TypeInfo:

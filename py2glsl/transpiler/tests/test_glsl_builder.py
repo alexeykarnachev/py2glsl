@@ -132,6 +132,7 @@ def test_glsl_builder(
         attributes=attributes,
         func_name="main_shader",
         shader_body=body_lines,
+        called_functions={},
     )
 
     # Verify fragment shader
@@ -190,6 +191,7 @@ def test_error_cases(uniforms, attributes, body_lines, error_msg, test_id, build
             attributes=attributes,
             func_name="main_shader",
             shader_body=body_lines,
+            called_functions={},
         )
 
     assert error_msg in str(exc.value)
@@ -205,6 +207,7 @@ def test_complex_shader_structure(builder):
             "vec3 color = vec3(vs_uv, u_time);",
             "fs_color = vec4(color * u_res.x, 1.0);",
         ],
+        called_functions={},
     )
 
     frag_src = builder.build_fragment_shader()

@@ -180,9 +180,13 @@ class GLSLBuilder:
         attributes: dict[str, str],
         func_name: str,
         shader_body: list[str],
-        extra_functions: list[Callable] | None = None,
+        called_functions: dict[str, Callable],
     ):
         """Configure the builder for shader transpilation with dependencies."""
+        # Add dependent functions first
+        for func in called_functions.values():
+            self._add_function_from_callable(func)
+
         # Add vertex attribute for position
         self.add_vertex_attribute(0, "vec2", "a_pos")
 
@@ -198,10 +202,6 @@ class GLSLBuilder:
 
         # Final output
         self.add_output("fs_color", "vec4")
-
-        # Add dependent functions first
-        for func in extra_functions or []:
-            self._add_function_from_callable(func)
 
         # Main shader function parameters
         params = [(type_, name) for name, type_ in attributes.items()]

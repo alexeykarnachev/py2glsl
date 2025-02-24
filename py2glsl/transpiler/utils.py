@@ -1,24 +1,35 @@
 import ast
 import inspect
+import re
 from textwrap import dedent
 from typing import Callable
 
 from py2glsl.transpiler.type_system import TypeInferer, TypeInfo
 
 
-def extract_function_body(func_body_ast: list, inferer: TypeInferer) -> list[str]:
-    """Convert Python function AST to GLSL code using provided type information"""
-    processed = []
-    for node in func_body_ast:
-        inferer.visit(node)
+def extract_function_body(
+    func_def: ast.FunctionDef,
+    type_inferer: TypeInferer,
+) -> list[str]:
+    """Convert Python function AST to GLSL code with type annotations"""
+    body = []
+    for stmt in func_def.body:  # Now accessing .body of FunctionDef
+        type_inferer.visit(stmt)
 
-        if isinstance(node, ast.AnnAssign):
-            target_type = inferer.symbols[node.target.id].glsl_name
-            processed.append(
-                f"{target_type} {ast.unparse(node.target)} = {ast.unparse(node.value)};"
-            )
-        elif isinstance(node, ast.Return):
-            processed.append(f"return {ast.unparse(node.value)};")
+        if isinstance(stmt, ast.AnnAssign):
+            target = ast.unparse(stmt.target)
+            value = ast.unparse(stmt.value)
+            target_type = type_inferer.symbols[stmt.target.id].glsl_name
+            body.append(f"{target_type} {target} = {value};")
+
+        elif isinstance(stmt, ast.Return):
+            value = ast.unparse(stmt.value)
+            body.append(f"return {value};")
+
         else:
-            processed.append(ast.unparse(node) + ";")
-    return processed
+            line = ast.unparse(stmt).replace("\n", " ")
+            if not line.endswith("}"):
+                line += ";"
+            body.append(line)
+
+    return body

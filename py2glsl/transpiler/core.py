@@ -28,26 +28,39 @@ def transpile(func: Callable) -> TranspilerResult:
     func_node = tree.body[0]
     func_body_ast = func_node.body
 
-    # Get type inferer with parameter info
-    uniforms, attributes, type_inferer = detect_interface(func)
+    # 1. Find all called functions
+    called_functions = _find_called_functions(
+        func_body_ast,
+        func.__globals__,
+        func.__name__,
+    )
 
-    called_functions = _find_called_functions(func_body_ast, func.__globals__)
+    # 2. Create type inferer with dependency info
+    type_inferer = TypeInferer(called_functions=called_functions)
+
+    # 3. Detect interface and populate type info
+    uniforms, attributes = detect_interface(func, type_inferer)
+
+    # 4. Generate GLSL body with full type info
+    glsl_body = extract_function_body(func_node, type_inferer)
+
+    # 5. Build final shader code
     builder = GLSLBuilder()
-
-    # Use the shared type inferer
-    glsl_body = extract_function_body(func_body_ast, type_inferer)
-
     builder.configure_shader_transpiler(
         uniforms=uniforms,
         attributes=attributes,
         func_name=func.__name__,
         shader_body=glsl_body,
-        extra_functions=called_functions,
+        called_functions=called_functions,
     )
     return builder.build()
 
 
-def _find_called_functions(body: list[ast.stmt], globals_dict: dict) -> list[Callable]:
+def _find_called_functions(
+    body: list[ast.stmt],
+    globals_dict: dict,
+    entry_point: str,
+) -> dict[str, Callable]:
     visitor = FunctionCallVisitor(globals_dict)
     for node in body:
         visitor.visit(node)
@@ -63,22 +76,21 @@ def _find_called_functions(body: list[ast.stmt], globals_dict: dict) -> list[Cal
             add_func(dep)
         ordered.append(visitor.valid_functions[name])
 
-    for name in visitor.top_level_calls:
-        add_func(name)
+    # Start with the entry point function
+    add_func(entry_point)
 
-    return ordered
+    return {func.__name__: func for func in ordered}
 
 
 def detect_interface(
-    func: Callable,
-) -> Tuple[Dict[str, str], Dict[str, str], TypeInferer]:
-    """Returns (uniforms, attributes, type_inferer)"""
+    func: Callable, inferer: TypeInferer
+) -> Tuple[Dict[str, str], Dict[str, str]]:
     sig = signature(func)
     uniforms = {}
     attributes = {}
-    inferer = TypeInferer()
 
     for param in sig.parameters.values():
+        # Parameter classification logic
         if param.default != Parameter.empty:
             uniforms[param.name] = get_glsl_type(param.annotation)
         elif param.kind == Parameter.POSITIONAL_ONLY:
@@ -86,18 +98,11 @@ def detect_interface(
         else:
             uniforms[param.name] = get_glsl_type(param.annotation)
 
-    # Populate type inferer with parameter types
-    for name in uniforms:
-        param = next(p for p in sig.parameters.values() if p.name == name)
+        # Populate type inferer
         py_type = param.annotation
-        inferer.symbols[name] = TypeInfo.from_pytype(py_type)
+        inferer.symbols[param.name] = TypeInfo.from_pytype(py_type)
 
-    for name in attributes:
-        param = next(p for p in sig.parameters.values() if p.name == name)
-        py_type = param.annotation
-        inferer.symbols[name] = TypeInfo.from_pytype(py_type)
-
-    return uniforms, attributes, inferer
+    return uniforms, attributes
 
 
 class FunctionCallVisitor(ast.NodeVisitor):
@@ -124,19 +129,53 @@ class FunctionCallVisitor(ast.NodeVisitor):
         if not func or not inspect.isfunction(func):
             return
 
-        sig = inspect.signature(func)
-        if sig.return_annotation not in (vec2, vec3, vec4, float):
-            return
+        try:
+            # Get full function AST instead of splitting lines
+            func_ast = ast.parse(inspect.getsource(func))
+            func_node = func_ast.body[0]
 
-        self.valid_functions[func_name] = func
-        if self.current_func:
-            self.call_graph.setdefault(self.current_func, []).append(func_name)
-        else:
-            self.top_level_calls.add(func_name)
+            # Process the function body nodes directly
+            for stmt in func_node.body:
+                self.visit(stmt)
 
-        # Process dependencies
-        source = inspect.getsource(func).split("\n")[1:]
-        self.visit(ast.parse("\n".join(source)))
+        except IndentationError as e:
+            raise GLSLCodeError(f"Indentation error in {func_name}: {str(e)}")
+        except Exception as e:
+            raise GLSLCodeError(f"Error processing {func_name}: {str(e)}")
+
+
+@dataclass
+class FunctionRegistry:
+    functions: dict[str, Callable]
+    dependencies: dict[str, list[str]]
+
+    @classmethod
+    def from_ast(cls, body: list[ast.stmt], globals_dict: dict) -> "FunctionRegistry":
+        visitor = FunctionCallVisitor(globals_dict)
+        for node in body:
+            visitor.visit(node)
+
+        ordered = []
+        seen = set()
+
+        def add_func(name: str):
+            if name in seen or name not in visitor.valid_functions:
+                return
+            seen.add(name)
+            for dep in visitor.call_graph.get(name, []):
+                add_func(dep)
+            ordered.append(visitor.valid_functions[name])
+
+        for name in visitor.top_level_calls:
+            add_func(name)
+
+        return cls(
+            functions={f.__name__: f for f in ordered}, dependencies=visitor.call_graph
+        )
+
+    def get_return_type(self, func_name: str) -> TypeInfo:
+        func = self.functions[func_name]
+        return TypeInfo.from_pytype(func.return_annotation)
 
 
 def validate_function_signature(func: Callable) -> None:
