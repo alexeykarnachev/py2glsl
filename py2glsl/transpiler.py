@@ -973,12 +973,20 @@ def transpile(
     for arg in main_func_node.args.posonlyargs + main_func_node.args.args:
         param_name = arg.arg
         if param_name == "vs_uv":
-            main_params.append("gl_FragCoord.xy / u_resolution")
+            # Use the vs_uv from vertex shader directly, not gl_FragCoord
+            main_params.append("vs_uv")
         elif param_name in used_uniforms:
+            main_params.append(param_name)
+
+    # Add keyword-only parameters as well
+    for arg in main_func_node.args.kwonlyargs:
+        param_name = arg.arg
+        if param_name in used_uniforms:
             main_params.append(param_name)
 
     main_code = (
         """
+in vec2 vs_uv;
 out vec4 fragColor;
 
 void main() {
