@@ -2,7 +2,7 @@ import ast
 
 import pytest
 
-from py2glsl.main import GLSLGenerator, builtins, transpile
+from py2glsl.transpiler import GLSLGenerator, builtins, transpile
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_binop_vec2_float(generator, symbols):
     node = ast.parse("uv * 2.0", mode="eval").body
     code = generator.generate_expr(node, symbols)
     expr_type = generator.get_expr_type(node, symbols)
-    assert code == "(uv * 2.0)"
+    assert code == "uv * 2.0"
     assert expr_type == "vec2"
 
 
@@ -115,7 +115,7 @@ def test_binop_vec4_vec4_addition(generator, symbols):
     node = ast.parse("color + color", mode="eval").body
     code = generator.generate_expr(node, symbols)
     expr_type = generator.get_expr_type(node, symbols)
-    assert code == "(color + color)"
+    assert code == "color + color"
     assert expr_type == "vec4"
 
 
@@ -202,8 +202,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return color
 """
     glsl_code, _ = transpile(shader_code)
-    assert "uv = (vs_uv * 2.0)" in glsl_code
-    assert "sin((uv.x + u_time))" in glsl_code
+    assert "uv = vs_uv * 2.0" in glsl_code
+    assert "sin(uv.x + u_time)" in glsl_code
 
 
 def test_unsupported_binop_raises_error(generator, symbols):
@@ -248,7 +248,7 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(uv, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
-    assert "uv = (uv * 2.0)" in glsl_code
+    assert "uv = uv * 2.0" in glsl_code
 
 
 def test_struct_definition():
@@ -280,7 +280,7 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 """
     glsl_code, _ = transpile(shader_code)
     assert "while (i < 10)" in glsl_code
-    assert "i = (i + 1)" in glsl_code
+    assert "i = i + 1;" in glsl_code
 
 
 def test_attribute_assignment():
@@ -296,7 +296,7 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(test.y, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
-    assert "test.y = (vs_uv * 2.0)" in glsl_code
+    assert "test.y = vs_uv * 2.0" in glsl_code
 
 
 def test_if_statement():
@@ -312,9 +312,9 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 """
     glsl_code, _ = transpile(shader_code)
     assert "if (u_time > 1.0)" in glsl_code
+    assert "color = vec3(1.0, 0.0, 0.0);" in glsl_code
     assert "else" in glsl_code
-    assert "color = vec3(1.0, 0.0, 0.0)" in glsl_code
-    assert "color = vec3(0.0, 1.0, 0.0)" in glsl_code
+    assert "color = vec3(0.0, 1.0, 0.0);" in glsl_code
 
 
 def test_break_in_loop():
@@ -357,7 +357,7 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(float(i) * 0.1, 0.0, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
-    assert "while ((i < 10) || (u_time > 1.0))" in glsl_code
+    assert "while (i < 10 || u_time > 1.0)" in glsl_code
 
 
 def test_global_variables():
@@ -372,7 +372,7 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     glsl_code, _ = transpile(shader_code)
     assert "float PI = 3.141592;" in glsl_code
     assert "int MAX_STEPS = 10;" in glsl_code
-    assert "sin((PI * u_time))" in glsl_code
+    assert "sin(PI * u_time)" in glsl_code
 
 
 def test_default_uniforms_included():
