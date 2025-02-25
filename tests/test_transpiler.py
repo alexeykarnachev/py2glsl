@@ -1,7 +1,9 @@
 import ast
+from dataclasses import dataclass
 
 import pytest
 
+from py2glsl.builtins import cos, normalize, sin, vec2, vec3, vec4
 from py2glsl.transpiler import (
     FunctionCollector,
     GLSLGenerator,
@@ -424,3 +426,224 @@ def main_shader(vs_uv: 'vec2', u_time: 'float', u_custom: 'float') -> 'vec4':
     assert "uniform float u_time;" in glsl_code
     assert "uniform float u_custom;" in glsl_code
     assert used_uniforms == {"u_time", "u_custom"}
+
+
+# Your original test
+def test_struct_definition():
+    shader_code = """
+from dataclasses import dataclass
+
+@dataclass
+class Test:
+    x: 'float'
+    y: 'vec2'
+
+def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+    test: 'Test' = Test(1.0, vs_uv)
+    return vec4(test.y, 0.0, 1.0)
+"""
+    glsl_code, _ = transpile(shader_code)
+    assert "struct Test {" in glsl_code
+    assert "float x;" in glsl_code
+    assert "vec2 y;" in glsl_code
+    assert "Test test = Test(1.0, vs_uv);" in glsl_code
+
+
+# Basic struct initialization with keyword arguments
+def test_struct_initialization_keywords():
+    @dataclass
+    class SimpleStruct:
+        x: float
+        y: vec3
+        z: int
+
+    def shader(vs_uv: vec2) -> vec4:
+        s = SimpleStruct(x=1.0, y=vec3(2.0, 3.0, 4.0), z=5)
+        return vec4(s.y, s.x)
+
+    glsl_code, _ = transpile(shader)
+    assert "SimpleStruct s = SimpleStruct(1.0, vec3(2.0, 3.0, 4.0), 5);" in glsl_code
+    assert "return vec4(s.y, s.x);" in glsl_code
+
+
+# Struct with defaults and partial initialization
+def test_struct_partial_init_with_defaults():
+    @dataclass
+    class DefaultStruct:
+        a: float = 0.0
+        b: vec3 = vec3(1.0, 1.0, 1.0)
+        c: int = 42
+
+    def shader(vs_uv: vec2) -> vec4:
+        s = DefaultStruct(b=vec3(2.0, 3.0, 4.0))
+        return vec4(s.b, s.a)
+
+    glsl_code, _ = transpile(shader)
+    assert "DefaultStruct s = DefaultStruct(0.0, vec3(2.0, 3.0, 4.0), 42);" in glsl_code
+
+
+# Uniform declaration and usage
+def test_uniform_declaration_and_usage():
+    def shader(vs_uv: vec2, u_time: float, u_scale: float) -> vec4:
+        pos = vec3(sin(u_time) * u_scale, cos(u_time), 0.0)
+        return vec4(pos, 1.0)
+
+    glsl_code, used_uniforms = transpile(shader)
+    assert "uniform float u_time;" in glsl_code
+    assert "uniform float u_scale;" in glsl_code
+    assert "u_time" in used_uniforms and "u_scale" in used_uniforms
+
+
+# Unused uniforms
+def test_unused_uniforms():
+    def shader(vs_uv: vec2, u_unused: float) -> vec4:
+        return vec4(vs_uv.x, vs_uv.y, 0.0, 1.0)
+
+    glsl_code, used_uniforms = transpile(shader)
+    assert "uniform float u_unused;" in glsl_code
+    assert "u_unused" in used_uniforms
+
+
+# Basic arithmetic and builtins
+def test_arithmetic_and_builtins():
+    def shader(vs_uv: vec2) -> vec4:
+        v = vec3(vs_uv.x + 1.0, vs_uv.y * 2.0, sin(vs_uv.x))
+        return vec4(normalize(v), 1.0)
+
+    glsl_code, _ = transpile(shader)
+    assert "vec3 v = vec3(vs_uv.x + 1.0, vs_uv.y * 2.0, sin(vs_uv.x));" in glsl_code
+    assert "return vec4(normalize(v), 1.0);" in glsl_code
+
+
+# Loop with struct modification
+def test_loop_with_struct():
+    @dataclass
+    class LoopStruct:
+        count: int
+        value: float
+
+    def shader(vs_uv: vec2) -> vec4:
+        s = LoopStruct(count=0, value=vs_uv.x)
+        for i in range(5):
+            s.count = i
+            s.value = s.value + 1.0
+        return vec4(s.value, 0.0, 0.0, 1.0)
+
+    glsl_code, _ = transpile(shader)
+    assert "LoopStruct s = LoopStruct(0, vs_uv.x);" in glsl_code
+    assert "for (int i = 0; i < 5; i += 1) {" in glsl_code
+    assert "s.count = i;" in glsl_code
+    assert "s.value = s.value + 1.0;" in glsl_code
+
+
+# Conditional struct usage
+def test_conditional_struct():
+    @dataclass
+    class CondStruct:
+        flag: bool
+        color: vec3
+
+    def shader(vs_uv: vec2) -> vec4:
+        s = CondStruct(flag=vs_uv.x > 0.5, color=vec3(1.0, 0.0, 0.0))
+        if s.flag:
+            s.color = vec3(0.0, 1.0, 0.0)
+        return vec4(s.color, 1.0)
+
+    glsl_code, _ = transpile(shader)
+    assert "CondStruct s = CondStruct(vs_uv.x > 0.5, vec3(1.0, 0.0, 0.0));" in glsl_code
+    assert "if (s.flag) {" in glsl_code
+    assert "s.color = vec3(0.0, 1.0, 0.0);" in glsl_code
+
+
+# Error on missing required fields
+def test_missing_required_fields():
+    @dataclass
+    class RequiredStruct:
+        x: float
+        y: vec3
+
+    def shader(vs_uv: vec2) -> vec4:
+        s = RequiredStruct(x=1.0)  # Missing y
+        return vec4(s.y, 1.0)
+
+    with pytest.raises(
+        TranspilerError, match="Wrong number of arguments for struct RequiredStruct"
+    ):
+        transpile(shader)
+
+
+# Error on invalid field name
+def test_invalid_field_name():
+    @dataclass
+    class ValidStruct:
+        a: int
+        b: vec3
+
+    def shader(vs_uv: vec2) -> vec4:
+        s = ValidStruct(a=1, z=vec3(1.0, 2.0, 3.0))  # 'z' is invalid
+        return vec4(s.b, 1.0)
+
+    with pytest.raises(
+        TranspilerError, match="Unknown field 'z' in struct 'ValidStruct'"
+    ):
+        transpile(shader)
+
+
+# Nested structs
+def test_nested_structs():
+    @dataclass
+    class InnerStruct:
+        v: vec2
+
+    @dataclass
+    class OuterStruct:
+        inner: InnerStruct
+        scale: float
+
+    def shader(vs_uv: vec2) -> vec4:
+        inner = InnerStruct(v=vs_uv)
+        outer = OuterStruct(inner=inner, scale=2.0)
+        return vec4(outer.inner.v.x * outer.scale, outer.inner.v.y, 0.0, 1.0)
+
+    glsl_code, _ = transpile(shader)
+    assert "InnerStruct inner = InnerStruct(vs_uv);" in glsl_code
+    assert "OuterStruct outer = OuterStruct(inner, 2.0);" in glsl_code
+    assert (
+        "return vec4(outer.inner.v.x * outer.scale, outer.inner.v.y, 0.0, 1.0);"
+        in glsl_code
+    )
+
+
+# NaN prevention in computations
+def test_nan_prevention():
+    @dataclass
+    class SafeStruct:
+        pos: vec3
+        speed: float
+
+    def shader(vs_uv: vec2) -> vec4:
+        s = SafeStruct(pos=vec3(vs_uv.x, vs_uv.y, 0.0), speed=1.0)
+        s.pos = s.pos + vec3(s.speed, 0.0, 0.0)
+        return vec4(s.pos, 1.0)
+
+    glsl_code, _ = transpile(shader)
+    assert "SafeStruct s = SafeStruct(vec3(vs_uv.x, vs_uv.y, 0.0), 1.0);" in glsl_code
+    assert "s.pos = s.pos + vec3(s.speed, 0.0, 0.0);" in glsl_code
+
+
+# Multiple uniforms with struct
+def test_multi_uniform_struct():
+    @dataclass
+    class UniStruct:
+        offset: vec3
+        active: bool
+
+    def shader(vs_uv: vec2, u_time: float, u_offset: vec3) -> vec4:
+        s = UniStruct(offset=u_offset, active=sin(u_time) > 0.0)
+        return vec4(s.offset, 1.0) if s.active else vec4(0.0, 0.0, 0.0, 1.0)
+
+    glsl_code, used_uniforms = transpile(shader)
+    assert "uniform float u_time;" in glsl_code
+    assert "uniform vec3 u_offset;" in glsl_code
+    assert "UniStruct s = UniStruct(u_offset, sin(u_time) > 0.0);" in glsl_code
+    assert "u_time" in used_uniforms and "u_offset" in used_uniforms

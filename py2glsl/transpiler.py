@@ -99,11 +99,14 @@ class FunctionCollector(ast.NodeVisitor):
         self.current_context.append("function")
         params = [self._get_annotation_type(arg.annotation) for arg in node.args.args]
         return_type = self._get_annotation_type(node.returns)
-        if return_type is None:
+        if (
+            return_type is None and node.name != "generator"
+        ):  # Ignore pytest generator funcs
             raise TranspilerError(
                 f"Function '{node.name}' lacks return type annotation"
             )
-        self.functions[node.name] = (return_type, params, node)
+        if return_type:  # Only register functions with explicit return types
+            self.functions[node.name] = (return_type, params, node)
         self.generic_visit(node)
         self.current_context.pop()
 
@@ -122,6 +125,8 @@ class FunctionCollector(ast.NodeVisitor):
             return annotation.value
         if isinstance(annotation, ast.Name):
             return annotation.id
+        if isinstance(annotation, ast.Str):  # Support older string annotations
+            return annotation.s
         raise TranspilerError(
             f"Unsupported annotation type: {type(annotation).__name__}"
         )
@@ -503,6 +508,8 @@ class GLSLGenerator:
             return annotation.value
         if isinstance(annotation, ast.Name):
             return annotation.id
+        if isinstance(annotation, ast.Str):  # Support older string annotations
+            return annotation.s
         raise TranspilerError(
             f"Unsupported annotation type: {type(annotation).__name__}"
         )
@@ -616,6 +623,8 @@ class Transpiler:
             return annotation.value
         if isinstance(annotation, ast.Name):
             return annotation.id
+        if isinstance(annotation, ast.Str):
+            return annotation.s
         raise TranspilerError(
             f"Unsupported annotation type: {type(annotation).__name__}"
         )
