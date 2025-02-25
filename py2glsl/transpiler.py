@@ -49,9 +49,9 @@ class TranspilerError(Exception):
 class StructDefinition:
     """Represents a GLSL struct derived from a Python dataclass."""
 
-    def __init__(self, name: str, fields: List[Tuple[str, str]]):
+    def __init__(self, name: str, fields: List[Tuple[str, str, str | None]]):
         self.name = name
-        self.fields = fields  # List of (field_name, field_type) tuples
+        self.fields = fields  # List of (field_name, field_type, default_value) tuples
 
 
 ### Enums ###
@@ -101,7 +101,10 @@ class FunctionCollector(ast.NodeVisitor):
                 ):
                     field_type = self._get_annotation_type(stmt.annotation)
                     if field_type:
-                        fields.append((stmt.target.id, field_type))
+                        default_value = None
+                        if stmt.value:
+                            default_value = self._generate_simple_expr(stmt.value)
+                        fields.append((stmt.target.id, field_type, default_value))
             self.structs[node.name] = StructDefinition(node.name, fields)
         self.generic_visit(node)
         self.current_context.pop()
@@ -223,9 +226,24 @@ class GLSLGenerator:
                 if isinstance(stmt.targets[0], ast.Name):
                     target = stmt.targets[0].id
                     expr = self._generate_expr(stmt.value, symbols, 0)
-                    if target not in symbols:
-                        symbols[target] = self._get_expr_type(stmt.value, symbols)
-                        code += f"{self.indent()}{symbols[target]} {target} = {expr};\n"
+                    expr_type = self._get_expr_type(stmt.value, symbols)
+                    if (
+                        expr_type in self.collector.structs
+                        and isinstance(stmt.value, ast.Call)
+                        and len(stmt.value.args) == 0
+                    ):
+                        # Handle struct default initialization using dataclass defaults
+                        struct_def = self.collector.structs[expr_type]
+                        code += f"{self.indent()}{expr_type} {target};\n"
+                        for field_name, field_type, default_value in struct_def.fields:
+                            if default_value is None:
+                                raise TranspilerError(
+                                    f"Field '{field_name}' in struct '{expr_type}' lacks a default value in dataclass definition"
+                                )
+                            code += f"{self.indent()}{target}.{field_name} = {default_value};\n"
+                    elif target not in symbols:
+                        symbols[target] = expr_type
+                        code += f"{self.indent()}{expr_type} {target} = {expr};\n"
                     else:
                         code += f"{self.indent()}{target} = {expr};\n"
                 elif isinstance(stmt.targets[0], ast.Attribute):
@@ -394,11 +412,15 @@ class GLSLGenerator:
             else self._generate_expr(node.func, symbols, 0)
         )
         args = [self._generate_expr(arg, symbols, 0) for arg in node.args]
-        if (
-            func_name in self.builtins
-            or func_name in self.collector.functions
-            or func_name in self.collector.structs
-        ):
+        if func_name in self.collector.structs:
+            # Struct constructor with arguments
+            struct_def = self.collector.structs[func_name]
+            if len(args) != len(struct_def.fields):
+                raise TranspilerError(
+                    f"Wrong number of arguments for struct {func_name}: expected {len(struct_def.fields)}, got {len(args)}"
+                )
+            return f"{func_name}({', '.join(args)})"
+        elif func_name in self.builtins or func_name in self.collector.functions:
             return f"{func_name}({', '.join(args)})"
         raise TranspilerError(f"Unknown function call: {func_name}")
 
@@ -467,7 +489,7 @@ class GLSLGenerator:
     def _get_attribute_type(self, node: ast.Attribute, symbols: Dict[str, str]) -> str:
         value_type = self._get_expr_type(node.value, symbols)
         if value_type in self.collector.structs:
-            for fname, ftype in self.collector.structs[value_type].fields:
+            for fname, ftype, _ in self.collector.structs[value_type].fields:
                 if fname == node.attr:
                     return ftype
             raise TranspilerError(f"Invalid attribute access: {node.attr}")
@@ -547,7 +569,7 @@ class Transpiler:
         # Structs
         struct_code = "".join(
             f"struct {name} {{\n"
-            + "".join(f"    {ftype} {fname};\n" for fname, ftype in defn.fields)
+            + "".join(f"    {ftype} {fname};\n" for fname, ftype, _ in defn.fields)
             + "};\n\n"
             for name, defn in self.collector.structs.items()
         )
