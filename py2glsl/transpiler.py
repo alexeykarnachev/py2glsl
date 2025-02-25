@@ -80,16 +80,39 @@ class FunctionCollector(ast.NodeVisitor):
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Handle struct definitions via Python classes."""
         self.current_context.append("class")
-        if node.name.endswith("Struct"):
-            struct_name = node.name.replace("Struct", "")
+
+        # Check for @dataclass decorator
+        is_dataclass = False
+        for decorator in node.decorator_list:
+            if isinstance(decorator, ast.Name) and decorator.id == "dataclass":
+                is_dataclass = True
+                break
+            elif isinstance(decorator, ast.Attribute) and decorator.attr == "dataclass":
+                is_dataclass = True
+                break
+
+        # Handle both traditional structs and dataclasses
+        if node.name.endswith("Struct") or is_dataclass:
+            struct_name = node.name
+            if node.name.endswith("Struct"):
+                struct_name = node.name.replace("Struct", "")
+
             fields = []
             for stmt in node.body:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(
                     stmt.target, ast.Name
                 ):
+                    field_type = None
                     if isinstance(stmt.annotation, ast.Constant):
-                        fields.append((stmt.target.id, stmt.annotation.value))
+                        field_type = stmt.annotation.value
+                    elif hasattr(stmt.annotation, "id"):
+                        field_type = stmt.annotation.id
+
+                    if field_type:
+                        fields.append((stmt.target.id, field_type))
+
             self.structs[struct_name] = StructDefinition(struct_name, fields)
+
         self.generic_visit(node)
         self.current_context.pop()
 
@@ -316,13 +339,21 @@ class GLSLGenerator:
                 # Pass statements should raise an error in shader code
                 logger.error("Pass statements are not supported in GLSL")
                 raise ValueError("Unsupported statement type: Pass")
+            elif isinstance(stmt, ast.Expr):
+                # Skip standalone expressions (like docstrings or comments)
+                # These don't impact the GLSL output
+                logger.debug(f"Skipping expression statement: {ast.dump(stmt)}")
+                pass
             else:
                 logger.error(f"Unsupported statement type: {type(stmt)}")
                 raise ValueError(f"Unsupported statement type: {type(stmt).__name__}")
         return code
 
     def generate_expr(
-        self, node: ast.expr, symbols: Dict[str, str], parent_precedence: int = 0
+        self,
+        node: ast.expr,
+        symbols: Dict[str, str],
+        parent_precedence: int = 0,
     ) -> str:
         """
         Generate GLSL code for an expression with proper operator precedence.
@@ -538,6 +569,7 @@ class GLSLGenerator:
             elif func_name in self.functions:
                 return f"{func_name}({', '.join(args)})"
             elif func_name in self.structs:
+                # Direct struct constructor
                 struct_name = func_name
                 return f"{struct_name}({', '.join(args)})"
             elif func_name.endswith("Struct"):
@@ -549,6 +581,20 @@ class GLSLGenerator:
                     logger.error(f"Unknown struct: {struct_name}")
                     raise ValueError(f"Unknown struct: {struct_name}")
             else:
+                # Special handling for potential dataclass calls
+                # In GLSL, we treat dataclasses as structs
+                if func_name in symbols or any(
+                    s.startswith(func_name) for s in self.structs.keys()
+                ):
+                    # If we've seen this type in symbols or it looks like a struct name
+                    # Assume it's a struct constructor
+                    return f"{func_name}({', '.join(args)})"
+
+                # Check if this might be a struct type that we haven't processed yet
+                for struct_name in self.structs.keys():
+                    if struct_name.lower() == func_name.lower():
+                        return f"{struct_name}({', '.join(args)})"
+
                 logger.error(f"Unknown function: {func_name}")
                 raise ValueError(f"Unknown function: {func_name}")
 
@@ -684,6 +730,14 @@ class GLSLGenerator:
                     logger.error(f"Unknown struct: {struct_name}")
                     raise ValueError(f"Unknown struct: {struct_name}")
             else:
+                # Check if this might be a dataclass (struct) constructor
+                for struct_name in self.structs.keys():
+                    if struct_name == func_name:
+                        return struct_name
+                    # Try case-insensitive match for RayMarchResult -> RayMarchResult
+                    if struct_name.lower() == func_name.lower():
+                        return struct_name
+
                 logger.error(f"Unknown function: {func_name}")
                 raise ValueError(f"Unknown function: {func_name}")
         elif isinstance(node, ast.BinOp):
@@ -783,11 +837,19 @@ def transpile(
     Returns:
         Tuple of (GLSL code, set of used uniform names)
     """
-    # If a function object was passed, get its source code
+    # If a function object was passed, get its source code from the whole module
     if callable(shader_input):
         try:
-            shader_code = inspect.getsource(shader_input)
-            # If the function isn't the main one, we need to add its name
+            # Get the module where the function is defined
+            module = inspect.getmodule(shader_input)
+            if module is not None:
+                # Get the entire module source code to include all helper functions
+                shader_code = inspect.getsource(module)
+            else:
+                # Fallback to just the function source if module can't be determined
+                shader_code = inspect.getsource(shader_input)
+
+            # If the function isn't the main one, we need to set it as main_func
             if shader_input.__name__ != main_func:
                 main_func = shader_input.__name__
         except (TypeError, OSError) as e:
