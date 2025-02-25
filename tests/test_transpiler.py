@@ -2,20 +2,19 @@ import ast
 
 import pytest
 
-from py2glsl.transpiler import GLSLGenerator, builtins, transpile
+from py2glsl.transpiler import (
+    FunctionCollector,
+    GLSLGenerator,
+    TranspilerError,
+    transpile,
+)
 
 
 @pytest.fixture
 def generator():
-    """Fixture providing a fresh GLSLGenerator instance with default uniforms."""
-    default_uniforms = {
-        "u_time": "float",
-        "u_aspect": "float",
-        "u_resolution": "vec2",
-        "u_mouse_pos": "vec2",
-        "u_mouse_uv": "vec2",
-    }
-    return GLSLGenerator({}, {}, {}, builtins, default_uniforms)
+    """Fixture providing a fresh GLSLGenerator instance for testing."""
+    collector = FunctionCollector()
+    return GLSLGenerator(collector)
 
 
 @pytest.fixture
@@ -34,8 +33,8 @@ def symbols():
 def test_generate_vec2_attribute(generator, symbols):
     """Test generating and typing a vec2 attribute access."""
     node = ast.parse("hex_coord.x", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "hex_coord.x"
     assert expr_type == "float"
 
@@ -43,8 +42,8 @@ def test_generate_vec2_attribute(generator, symbols):
 def test_generate_vec4_rgb(generator, symbols):
     """Test generating and typing a vec4 rgb swizzle."""
     node = ast.parse("color.rgb", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "color.rgb"
     assert expr_type == "vec3"
 
@@ -52,19 +51,17 @@ def test_generate_vec4_rgb(generator, symbols):
 def test_binop_vec2_float(generator, symbols):
     """Test generating and typing a vec2 * float operation."""
     node = ast.parse("uv * 2.0", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "uv * 2.0"
     assert expr_type == "vec2"
 
 
 def test_invalid_attribute_raises_error(generator, symbols):
-    """Test that an invalid attribute access raises a ValueError."""
+    """Test that an invalid attribute access raises a TranspilerError."""
     node = ast.parse("hex_coord.z", mode="eval").body
-    with pytest.raises(
-        ValueError, match="Cannot infer type for attribute 'z' of 'vec2'"
-    ):
-        generator.get_expr_type(node, symbols)
+    with pytest.raises(TranspilerError, match="Invalid attribute access: z"):
+        generator._get_expr_type(node, symbols)
 
 
 def test_version_directive_first_line():
@@ -95,8 +92,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 def test_vec4_rgba_swizzle(generator, symbols):
     """Test generating and typing a vec4 rgba swizzle."""
     node = ast.parse("color.rgba", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "color.rgba"
     assert expr_type == "vec4"
 
@@ -104,8 +101,8 @@ def test_vec4_rgba_swizzle(generator, symbols):
 def test_vec4_xy_swizzle(generator, symbols):
     """Test generating and typing a vec4 xy swizzle."""
     node = ast.parse("color.xy", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "color.xy"
     assert expr_type == "vec2"
 
@@ -113,8 +110,8 @@ def test_vec4_xy_swizzle(generator, symbols):
 def test_binop_vec4_vec4_addition(generator, symbols):
     """Test generating and typing a vec4 + vec4 operation."""
     node = ast.parse("color + color", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "color + color"
     assert expr_type == "vec4"
 
@@ -123,8 +120,8 @@ def test_function_call_with_args(generator, symbols):
     """Test generating and typing a function call with arguments."""
     generator.functions = {"wave": ("float", ["vec2", "float"])}
     node = ast.parse("wave(uv, time)", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "wave(uv, time)"
     assert expr_type == "float"
 
@@ -133,21 +130,19 @@ def test_nested_function_call(generator, symbols):
     """Test generating and typing a nested function call."""
     generator.functions = {"sin": ("float", ["float"]), "length": ("float", ["vec2"])}
     node = ast.parse("sin(length(uv))", mode="eval").body
-    code = generator.generate_expr(node, symbols)
-    expr_type = generator.get_expr_type(node, symbols)
+    code = generator._generate_expr(node, symbols)
+    expr_type = generator._get_expr_type(node, symbols)
     assert code == "sin(length(uv))"
     assert expr_type == "float"
 
 
 def test_missing_main_shader_raises_error():
-    """Test that a missing main_shader raises a ValueError."""
+    """Test that a missing main_shader raises a TranspilerError."""
     shader_code = """
 def helper(uv: 'vec2') -> 'float':
     return sin(uv.x)
 """
-    with pytest.raises(
-        ValueError, match="Main shader function 'main_shader' not found"
-    ):
+    with pytest.raises(TranspilerError, match="Main function 'main_shader' not found"):
         transpile(shader_code)
 
 
@@ -182,13 +177,13 @@ def main_shader(vs_uv: 'vec2', u_time: 'float', u_scale: 'float') -> 'vec4':
 
 
 def test_no_return_type_raises_error():
-    """Test that a missing return type raises an error."""
+    """Test that a missing return type raises a TranspilerError."""
     shader_code = """
 def main_shader(vs_uv: 'vec2', u_time: 'float'):
     uv = vs_uv
 """
     with pytest.raises(
-        ValueError, match="Function 'main_shader' must have a return type annotation"
+        TranspilerError, match="Function 'main_shader' lacks return type annotation"
     ):
         transpile(shader_code)
 
@@ -207,35 +202,35 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_unsupported_binop_raises_error(generator, symbols):
-    """Test that an unsupported binary operation raises an error."""
+    """Test that an unsupported binary operation raises a TranspilerError."""
     node = ast.parse("uv % 2.0", mode="eval").body
-    with pytest.raises(ValueError, match="Unsupported expression type"):
-        generator.generate_expr(node, symbols)
+    with pytest.raises(TranspilerError, match="Modulo requires integer operands"):
+        generator._get_expr_type(node, symbols)
 
 
 def test_empty_shader_raises_error():
-    """Test that an empty shader raises an error."""
+    """Test that an empty shader raises a TranspilerError."""
     shader_code = ""
-    with pytest.raises(
-        ValueError, match="Main shader function 'main_shader' not found"
-    ):
+    with pytest.raises(TranspilerError, match="Main function 'main_shader' not found"):
         transpile(shader_code)
 
 
 def test_invalid_function_call_raises_error(generator, symbols):
-    """Test that an unknown function call raises an error."""
+    """Test that an unknown function call raises a TranspilerError."""
     node = ast.parse("unknown(uv)", mode="eval").body
-    with pytest.raises(ValueError, match="Unknown function: unknown"):
-        generator.get_expr_type(node, symbols)
+    with pytest.raises(TranspilerError, match="Unknown function: unknown"):
+        generator._get_expr_type(node, symbols)
 
 
 def test_shader_with_no_body_raises_error():
-    """Test that a main_shader with no body raises an error."""
+    """Test that a main_shader with no body raises a TranspilerError."""
     shader_code = """
 def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     pass
 """
-    with pytest.raises(ValueError, match="Unsupported statement type"):
+    with pytest.raises(
+        TranspilerError, match="Pass statements are not supported in GLSL"
+    ):
         transpile(shader_code)
 
 
@@ -254,12 +249,15 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 def test_struct_definition():
     """Test that a struct is correctly defined and used."""
     shader_code = """
-class TestStruct:
+from dataclasses import dataclass
+
+@dataclass
+class Test:
     x: 'float'
     y: 'vec2'
 
 def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
-    test: 'Test' = TestStruct(1.0, vs_uv)
+    test: 'Test' = Test(1.0, vs_uv)
     return vec4(test.y, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
@@ -286,12 +284,15 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 def test_attribute_assignment():
     """Test that attribute assignment is correctly transpiled."""
     shader_code = """
-class TestStruct:
+from dataclasses import dataclass
+
+@dataclass
+class Test:
     x: 'float'
     y: 'vec2'
 
 def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
-    test: 'Test' = TestStruct(1.0, vs_uv)
+    test: 'Test' = Test(1.0, vs_uv)
     test.y = vs_uv * 2.0
     return vec4(test.y, 0.0, 1.0)
 """
@@ -370,8 +371,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(sin(PI * u_time), 0.0, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
-    assert "float PI = 3.141592;" in glsl_code
-    assert "int MAX_STEPS = 10;" in glsl_code
+    assert "const float PI = 3.141592;" in glsl_code
+    assert "const int MAX_STEPS = 10;" in glsl_code
     assert "sin(PI * u_time)" in glsl_code
 
 
