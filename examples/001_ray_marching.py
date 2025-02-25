@@ -206,5 +206,11 @@ def main_shader(vs_uv: vec2, *, u_time: float, u_aspect: float) -> vec4:
 
 
 if __name__ == "__main__":
-    glsl_code, used_uniforms = transpile(main_shader)
-    animate(glsl_code, used_uniforms)
+    # Directly use animate with the shader function
+    animate(main_shader)
+
+    # Optional: For debugging, you can also transpile and print the code
+    # import inspect  # Only needed for debugging
+    # glsl_code, used_uniforms = transpile(main_shader)
+    # print("Generated GLSL code:")
+    # print(glsl_code)

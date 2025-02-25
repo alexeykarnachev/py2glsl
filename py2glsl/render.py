@@ -20,8 +20,26 @@ logger.opt(colors=True).info(
 )
 
 
-def animate(glsl_code, used_uniforms, size=(1200, 800)):
-    """Run the shader with an animation loop and FPS calculation."""
+def animate(shader_input, used_uniforms=None, size=(1200, 800)):
+    """Run the shader with an animation loop and FPS calculation.
+
+    Args:
+        shader_input: Either a shader function or GLSL code string
+        used_uniforms: Set of uniform names used by the shader (only needed if shader_input is GLSL code)
+        size: Window size as (width, height) tuple
+    """
+    if callable(shader_input):
+        # If a function is provided, transpile it to GLSL
+        from py2glsl.transpiler import transpile
+
+        glsl_code, used_uniforms = transpile(shader_input)
+    else:
+        # If GLSL code is provided directly, use it as-is
+        glsl_code = shader_input
+        if used_uniforms is None:
+            logger.warning("No uniform information provided with GLSL code")
+            used_uniforms = set()
+
     if not glfw.init():
         logger.error("Failed to initialize GLFW")
         raise RuntimeError("Failed to initialize GLFW")

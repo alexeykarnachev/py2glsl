@@ -1,7 +1,7 @@
 import ast
 import inspect
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set, Tuple, Union
+from typing import Callable, Dict, List, Set, Tuple, Union
 
 from loguru import logger
 
@@ -769,11 +769,32 @@ class GLSLGenerator:
 
 
 def transpile(
-    shader_code: str,
+    shader_input: Union[str, Callable],
     main_func: str = "main_shader",
     version: str = "460 core",
 ) -> Tuple[str, Set[str]]:
-    """Transpile Python shader code to GLSL."""
+    """Transpile Python shader code to GLSL.
+
+    Args:
+        shader_input: Either a string containing Python code or a callable function
+        main_func: Name of the main shader function (default: "main_shader")
+        version: GLSL version to use (default: "460 core")
+
+    Returns:
+        Tuple of (GLSL code, set of used uniform names)
+    """
+    # If a function object was passed, get its source code
+    if callable(shader_input):
+        try:
+            shader_code = inspect.getsource(shader_input)
+            # If the function isn't the main one, we need to add its name
+            if shader_input.__name__ != main_func:
+                main_func = shader_input.__name__
+        except (TypeError, OSError) as e:
+            raise ValueError(f"Could not extract source code from function: {e}")
+    else:
+        shader_code = shader_input
+
     if not shader_code.strip():
         logger.error("Empty shader code")
         raise ValueError(f"Main shader function '{main_func}' not found")
