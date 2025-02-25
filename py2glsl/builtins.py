@@ -190,19 +190,6 @@ class mat4:
             self.data = np.eye(4, dtype=np.float32)  # Identity matrix
 
 
-# Struct for raymarching
-class RayMarchResult(NamedTuple):
-    i: int
-    p: vec3
-    n: vec3
-    ro: vec3
-    rd: vec3
-    dist: float
-    sd_last: float
-    sd_min: float
-    sd_min_shape: float
-
-
 # GLSL built-in functions
 def sin(x: float) -> float:
     return np.sin(x)

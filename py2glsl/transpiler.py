@@ -5,14 +5,13 @@ from typing import Callable, Dict, List, Set, Tuple, Union
 
 from loguru import logger
 
-# Built-in GLSL functions and their signatures: (return_type, [param_types])
 BUILTINS = {
     "abs": ("float", ["float"]),
     "cos": ("float", ["float"]),
     "fract": ("vec2", ["vec2"]),
     "length": ("float", ["vec2"]),
     "sin": ("float", ["float"]),
-    "float": ("float", ["int"]),  # Added for type casting
+    "float": ("float", ["int"]),
     "sqrt": ("float", ["float"]),
     "tan": ("float", ["float"]),
     "radians": ("float", ["float"]),
@@ -28,7 +27,6 @@ BUILTINS = {
     "smoothstep": ("float", ["float", "float", "float"]),
 }
 
-# Default uniforms available to shaders
 DEFAULT_UNIFORMS = {
     "u_time": "float",
     "u_aspect": "float",
@@ -38,26 +36,17 @@ DEFAULT_UNIFORMS = {
 }
 
 
-### Exceptions ###
 class TranspilerError(Exception):
-    """Base exception for transpiler-related errors."""
-
     pass
 
 
-### Utility Classes ###
 class StructDefinition:
-    """Represents a GLSL struct derived from a Python dataclass."""
-
     def __init__(self, name: str, fields: List[Tuple[str, str, str | None]]):
         self.name = name
-        self.fields = fields  # List of (field_name, field_type, default_value) tuples
+        self.fields = fields
 
 
-### Enums ###
 class Operator(Enum):
-    """Enum for mapping Python operators to GLSL operators and their precedence."""
-
     ADD = ("+", 6)
     SUB = ("-", 6)
     MULT = ("*", 7)
@@ -73,14 +62,11 @@ class Operator(Enum):
     OR = ("||", 2)
 
 
-### Core Transpiler Components ###
 class FunctionCollector(ast.NodeVisitor):
-    """Collects functions, structs, and global constants from the Python AST."""
-
     def __init__(self):
         self.functions: Dict[str, Tuple[str, List[str], ast.FunctionDef]] = {}
         self.structs: Dict[str, StructDefinition] = {}
-        self.globals: Dict[str, Tuple[str, str]] = {}  # (type, value)
+        self.globals: Dict[str, Tuple[str, str]] = {}
         self.current_context: List[str] = []
 
     def visit_Module(self, node: ast.Module) -> None:
@@ -142,23 +128,33 @@ class FunctionCollector(ast.NodeVisitor):
 
     def _generate_simple_expr(self, node: ast.expr) -> str:
         if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool):
+                return "true" if node.value else "false"
             return str(node.value)
         elif isinstance(node, ast.Name):
             return node.id
         elif isinstance(node, ast.BinOp):
             left = self._generate_simple_expr(node.left)
             right = self._generate_simple_expr(node.right)
-            op_map = {
-                ast.Add: "+",
-                ast.Sub: "-",
-                ast.Mult: "*",
-                ast.Div: "/",
-            }
+            op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
             op = op_map.get(type(node.op))
             if op:
                 return f"({left} {op} {right})"
             raise TranspilerError(
                 f"Unsupported operator in global: {type(node.op).__name__}"
+            )
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in BUILTINS:
+                func_name = node.func.id
+                expected_args = len(BUILTINS[func_name][1])
+                if len(node.args) != expected_args:
+                    raise TranspilerError(
+                        f"Function '{func_name}' expects {expected_args} arguments, got {len(node.args)}"
+                    )
+                args = [self._generate_simple_expr(arg) for arg in node.args]
+                return f"{func_name}({', '.join(args)})"
+            raise TranspilerError(
+                f"Unsupported function call in default value: {node.func}"
             )
         raise TranspilerError(
             f"Unsupported expression in global: {type(node).__name__}"
@@ -166,8 +162,6 @@ class FunctionCollector(ast.NodeVisitor):
 
 
 class GLSLGenerator:
-    """Generates GLSL code from collected AST data."""
-
     OPERATOR_PRECEDENCE = {
         "=": 1,
         "||": 2,
@@ -225,26 +219,21 @@ class GLSLGenerator:
             elif isinstance(stmt, ast.Assign):
                 if isinstance(stmt.targets[0], ast.Name):
                     target = stmt.targets[0].id
-                    expr = self._generate_expr(stmt.value, symbols, 0)
                     expr_type = self._get_expr_type(stmt.value, symbols)
                     if (
-                        expr_type in self.collector.structs
-                        and isinstance(stmt.value, ast.Call)
-                        and len(stmt.value.args) == 0
+                        isinstance(stmt.value, ast.Call)
+                        and isinstance(stmt.value.func, ast.Name)
+                        and stmt.value.func.id in self.collector.structs
                     ):
-                        # Handle struct default initialization using dataclass defaults
-                        struct_def = self.collector.structs[expr_type]
-                        code += f"{self.indent()}{expr_type} {target};\n"
-                        for field_name, field_type, default_value in struct_def.fields:
-                            if default_value is None:
-                                raise TranspilerError(
-                                    f"Field '{field_name}' in struct '{expr_type}' lacks a default value in dataclass definition"
-                                )
-                            code += f"{self.indent()}{target}.{field_name} = {default_value};\n"
+                        struct_name = stmt.value.func.id
+                        expr = self._generate_expr(stmt.value, symbols, 0)
+                        code += f"{self.indent()}{struct_name} {target} = {expr};\n"
                     elif target not in symbols:
+                        expr = self._generate_expr(stmt.value, symbols, 0)
                         symbols[target] = expr_type
                         code += f"{self.indent()}{expr_type} {target} = {expr};\n"
                     else:
+                        expr = self._generate_expr(stmt.value, symbols, 0)
                         code += f"{self.indent()}{target} = {expr};\n"
                 elif isinstance(stmt.targets[0], ast.Attribute):
                     target = self._generate_expr(stmt.targets[0], symbols, 0)
@@ -253,12 +242,7 @@ class GLSLGenerator:
             elif isinstance(stmt, ast.AugAssign):
                 target = self._generate_expr(stmt.target, symbols, 0)
                 value = self._generate_expr(stmt.value, symbols, 0)
-                op_map = {
-                    ast.Add: "+",
-                    ast.Sub: "-",
-                    ast.Mult: "*",
-                    ast.Div: "/",
-                }
+                op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
                 op = op_map.get(type(stmt.op))
                 if op:
                     code += f"{self.indent()}{target} = {target} {op} {value};\n"
@@ -305,7 +289,7 @@ class GLSLGenerator:
             elif isinstance(stmt, ast.Pass):
                 raise TranspilerError("Pass statements are not supported in GLSL")
             elif isinstance(stmt, ast.Expr):
-                continue  # Skip docstrings or standalone expressions
+                continue
             else:
                 raise TranspilerError(f"Unsupported statement: {type(stmt).__name__}")
         return code
@@ -393,10 +377,7 @@ class GLSLGenerator:
     def _generate_boolop(
         self, node: ast.BoolOp, symbols: Dict[str, str], parent_precedence: int
     ) -> str:
-        op_map = {
-            ast.And: Operator.AND,
-            ast.Or: Operator.OR,
-        }
+        op_map = {ast.And: Operator.AND, ast.Or: Operator.OR}
         op = op_map.get(type(node.op))
         if not op:
             raise TranspilerError(f"Unsupported boolean op: {type(node.op).__name__}")
@@ -411,16 +392,25 @@ class GLSLGenerator:
             if isinstance(node.func, ast.Name)
             else self._generate_expr(node.func, symbols, 0)
         )
-        args = [self._generate_expr(arg, symbols, 0) for arg in node.args]
         if func_name in self.collector.structs:
-            # Struct constructor with arguments
             struct_def = self.collector.structs[func_name]
-            if len(args) != len(struct_def.fields):
-                raise TranspilerError(
-                    f"Wrong number of arguments for struct {func_name}: expected {len(struct_def.fields)}, got {len(args)}"
-                )
-            return f"{func_name}({', '.join(args)})"
-        elif func_name in self.builtins or func_name in self.collector.functions:
+            field_map = {f[0]: i for i, f in enumerate(struct_def.fields)}
+            values = ["0"] * len(
+                struct_def.fields
+            )  # Default to 0 for unspecified fields
+            for kw in node.keywords:
+                if kw.arg not in field_map:
+                    raise TranspilerError(
+                        f"Unknown field '{kw.arg}' in struct '{func_name}'"
+                    )
+                values[field_map[kw.arg]] = self._generate_expr(kw.value, symbols, 0)
+            # Fill in defaults for unspecified fields
+            for i, (field_name, _, default_value) in enumerate(struct_def.fields):
+                if values[i] == "0" and default_value is not None:
+                    values[i] = default_value
+            return f"{func_name}({', '.join(values)})"
+        args = [self._generate_expr(arg, symbols, 0) for arg in node.args]
+        if func_name in self.builtins or func_name in self.collector.functions:
             return f"{func_name}({', '.join(args)})"
         raise TranspilerError(f"Unknown function call: {func_name}")
 
@@ -494,15 +484,11 @@ class GLSLGenerator:
                     return ftype
             raise TranspilerError(f"Invalid attribute access: {node.attr}")
         if value_type.startswith("vec"):
-            vec_dim = int(value_type[-1])  # Extract dimension (2, 3, or 4)
+            vec_dim = int(value_type[-1])
             swizzle_len = len(node.attr)
             valid_lengths = {1: "float", 2: "vec2", 3: "vec3", 4: "vec4"}
             if swizzle_len in valid_lengths and swizzle_len <= vec_dim:
-                valid_components_map = {
-                    2: "xyrg",
-                    3: "xyzrgb",
-                    4: "xyzwrgba",
-                }
+                valid_components_map = {2: "xyrg", 3: "xyzrgb", 4: "xyzwrgba"}
                 valid_components = valid_components_map[vec_dim]
                 if all(c in valid_components for c in node.attr):
                     return valid_lengths[swizzle_len]
@@ -523,8 +509,6 @@ class GLSLGenerator:
 
 
 class Transpiler:
-    """Encapsulates the Python-to-GLSL transpilation process."""
-
     def __init__(
         self,
         shader_input: Union[str, Callable],
@@ -566,7 +550,6 @@ class Transpiler:
         if not self.generator:
             raise TranspilerError("Generator not initialized. Call collect() first.")
 
-        # Structs
         struct_code = "".join(
             f"struct {name} {{\n"
             + "".join(f"    {ftype} {fname};\n" for fname, ftype, _ in defn.fields)
@@ -574,13 +557,11 @@ class Transpiler:
             for name, defn in self.collector.structs.items()
         )
 
-        # Globals (as constants)
         global_code = "".join(
             f"const {type_name} {name} = {value};\n"
             for name, (type_name, value) in self.collector.globals.items()
         )
 
-        # Uniforms
         used_uniforms = set()
         main_node = self.collector.functions[self.main_func][2]
         main_params = []
@@ -611,11 +592,9 @@ class Transpiler:
             if arg.arg not in set(DEFAULT_UNIFORMS.keys()) | {"vs_uv"}
         )
 
-        # Functions
         for func_name, (_, _, node) in self.collector.functions.items():
             self.generator.generate_function(func_name, node)
 
-        # Main function
         main_code = (
             "in vec2 vs_uv;\nout vec4 fragColor;\n\n"
             f"void main() {{\n    fragColor = {self.main_func}({', '.join(main_params)});\n}}\n"
@@ -642,13 +621,11 @@ class Transpiler:
         )
 
 
-### Public API ###
 def transpile(
     shader_input: Union[str, Callable],
     main_func: str = "main_shader",
     version: str = "460 core",
     indent_size: int = 4,
 ) -> Tuple[str, Set[str]]:
-    """Transpiles Python shader code to GLSL."""
     transpiler = Transpiler(shader_input, main_func, version, indent_size)
     return transpiler.transpile()
