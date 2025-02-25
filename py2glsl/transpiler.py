@@ -34,7 +34,7 @@ class FunctionCollector(ast.NodeVisitor):
             return annotation.id
         if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
             return annotation.value
-        raise TranspilerError(f"Unsupported annotation type: {ast.dump(annotation)}")
+        return None
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Collect function details including return type, parameters, and AST node."""
@@ -80,9 +80,7 @@ class FunctionCollector(ast.NodeVisitor):
                 return str(node.value)
             elif isinstance(node.value, bool):
                 return "true" if node.value else "false"
-            elif isinstance(
-                node.value, str
-            ):  # Handle string literals like "vec3(1.0, 1.0, 1.0)"
+            elif isinstance(node.value, str):
                 return node.value
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id in {
@@ -373,7 +371,6 @@ class GLSLGenerator:
                             kw.value, symbols, 0
                         )
                         provided_fields.add(kw.arg)
-                    # Check if all required fields are provided
                     missing_fields = [
                         field_name
                         for field_name, _, default in struct_def.fields
@@ -559,6 +556,17 @@ def transpile(*args, main_func: str = None) -> Tuple[str, Set[str]]:
                 )
             context = {name: getattr(module, name) for name in module.__all__}
             return Transpiler(context, main_func=main_func).generate()
-    # Handle multiple items (structs, functions, etc.)
-    context = {item.__name__: item for item in args}
-    return Transpiler(context, main_func=main_func).generate()
+        else:
+            # Handle single callable with prefix check
+            main_item = args[0]
+            if main_item.__name__.startswith("test_"):
+                raise TranspilerError(
+                    f"Main function '{main_item.__name__}' excluded due to 'test_' prefix. "
+                    "Please rename it to avoid conflicts with test function naming conventions."
+                )
+            context = {main_item.__name__: main_item}
+            return Transpiler(context, main_func=main_func).generate()
+    else:
+        # Handle multiple items (structs, functions, etc.)
+        context = {item.__name__: item for item in args}
+        return Transpiler(context, main_func=main_func).generate()

@@ -729,3 +729,14 @@ def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
         in glsl_code
     )
     assert used_uniforms == {"u_time"}
+
+
+def test_shader_with_test_prefix():
+    def test_shader(vs_uv: "vec2") -> "vec4":
+        return vec4(1.0, 0.0, 0.0, 1.0)
+
+    with pytest.raises(
+        TranspilerError,
+        match="Main function 'test_shader' excluded due to 'test_' prefix",
+    ):
+        transpile(test_shader)
