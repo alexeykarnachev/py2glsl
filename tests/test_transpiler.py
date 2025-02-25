@@ -50,7 +50,7 @@ def shader(vs_uv: 'vec2', u_time: 'float'):
     assert "vec4 shader(vec2 vs_uv, float u_time) {" in glsl_code
     assert "return vec4(1.0, 0.0, 0.0, 1.0);" in glsl_code
     assert "void main() {" in glsl_code
-    assert "fragColor = shader(u_time, vs_uv);" in glsl_code
+    assert "fragColor = shader(vs_uv, u_time);" in glsl_code  # Matches definition order
     assert uniforms == {"u_time"}
 
 
@@ -97,7 +97,7 @@ def test_multi_uniform_struct():
         s = UniStruct(offset=u_offset, active=(sin(u_time) > 0.0))
         return vec4(s.offset, 1.0) if s.active else vec4(0.0, 0.0, 0.0, 1.0)
 
-    glsl_code, used_uniforms = transpile(shader)
+    glsl_code, used_uniforms = transpile(UniStruct, shader)
     assert "struct UniStruct {" in glsl_code
     assert "uniform float u_time;" in glsl_code
     assert "uniform vec3 u_offset;" in glsl_code
@@ -478,7 +478,7 @@ def test_struct_initialization_keywords():
         s = SimpleStruct(x=1.0, y=vec3(2.0, 3.0, 4.0), z=5)
         return vec4(s.y, s.x)
 
-    glsl_code, _ = transpile(shader)
+    glsl_code, _ = transpile(SimpleStruct, shader)
     assert "SimpleStruct s = SimpleStruct(1.0, vec3(2.0, 3.0, 4.0), 5);" in glsl_code
     assert "return vec4(s.y, s.x);" in glsl_code
 
@@ -487,14 +487,14 @@ def test_struct_partial_init_with_defaults():
     @dataclass
     class DefaultStruct:
         a: "float" = 0.0
-        b: "vec3" = vec3(1.0, 1.0, 1.0)
+        b: "vec3" = "vec3(1.0, 1.0, 1.0)"
         c: "int" = 42
 
     def shader(vs_uv: "vec2") -> "vec4":
         s = DefaultStruct(b=vec3(2.0, 3.0, 4.0))
         return vec4(s.b, s.a)
 
-    glsl_code, _ = transpile(shader)
+    glsl_code, _ = transpile(DefaultStruct, shader)
     assert "DefaultStruct s = DefaultStruct(0.0, vec3(2.0, 3.0, 4.0), 42);" in glsl_code
 
 
@@ -541,7 +541,7 @@ def test_loop_with_struct():
             s.value = s.value + 1.0
         return vec4(s.value, 0.0, 0.0, 1.0)
 
-    glsl_code, _ = transpile(shader)
+    glsl_code, _ = transpile(LoopStruct, shader)
     assert "LoopStruct s = LoopStruct(0, vs_uv.x);" in glsl_code
     assert "for (int i = 0; i < 5; i += 1) {" in glsl_code
     assert "s.count = i;" in glsl_code
@@ -560,7 +560,7 @@ def test_conditional_struct():
             s.color = vec3(0.0, 1.0, 0.0)
         return vec4(s.color, 1.0)
 
-    glsl_code, _ = transpile(shader)
+    glsl_code, _ = transpile(CondStruct, shader)
     assert "CondStruct s = CondStruct(vs_uv.x > 0.5, vec3(1.0, 0.0, 0.0));" in glsl_code
     assert "if (s.flag) {" in glsl_code
     assert "s.color = vec3(0.0, 1.0, 0.0);" in glsl_code
@@ -579,7 +579,7 @@ def test_missing_required_fields():
     with pytest.raises(
         TranspilerError, match="Wrong number of arguments for struct RequiredStruct"
     ):
-        transpile(shader)
+        transpile(RequiredStruct, shader)
 
 
 def test_invalid_field_name():
@@ -595,7 +595,7 @@ def test_invalid_field_name():
     with pytest.raises(
         TranspilerError, match="Unknown field 'z' in struct 'ValidStruct'"
     ):
-        transpile(shader)
+        transpile(ValidStruct, shader)
 
 
 def test_nested_structs():
@@ -613,7 +613,7 @@ def test_nested_structs():
         outer = OuterStruct(inner=inner, scale=2.0)
         return vec4(outer.inner.v.x * outer.scale, outer.inner.v.y, 0.0, 1.0)
 
-    glsl_code, _ = transpile(shader)
+    glsl_code, _ = transpile(InnerStruct, OuterStruct, shader)
     assert "InnerStruct inner = InnerStruct(vs_uv);" in glsl_code
     assert "OuterStruct outer = OuterStruct(inner, 2.0);" in glsl_code
     assert (
@@ -633,7 +633,7 @@ def test_nan_prevention():
         s.pos = s.pos + vec3(s.speed, 0.0, 0.0)
         return vec4(s.pos, 1.0)
 
-    glsl_code, _ = transpile(shader)
+    glsl_code, _ = transpile(SafeStruct, shader)
     assert "SafeStruct s = SafeStruct(vec3(vs_uv.x, vs_uv.y, 0.0), 1.0);" in glsl_code
     assert "s.pos = s.pos + vec3(s.speed, 0.0, 0.0);" in glsl_code
 
@@ -663,3 +663,69 @@ def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     glsl_code, _ = transpile(shader_code)
     assert "float x = sin(u_time) + 2.0 * vs_uv.x;" in glsl_code
     assert "return vec4(x, 0.0, 0.0, 1.0);" in glsl_code
+
+
+def test_helper_function_with_struct():
+    shader_code = """
+from dataclasses import dataclass
+
+@dataclass
+class Result:
+    value: 'float'
+    flag: 'bool'
+
+def helper(pos: 'vec2') -> 'Result':
+    return Result(length(pos), pos.x > 0.0)
+
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+    res = helper(vs_uv)
+    return vec4(res.value, 0.0, 0.0, 1.0) if res.flag else vec4(0.0, 0.0, 0.0, 1.0)
+"""
+    glsl_code, used_uniforms = transpile(shader_code)
+    assert "struct Result {" in glsl_code
+    assert "float value;" in glsl_code
+    assert "bool flag;" in glsl_code
+    assert "Result helper(vec2 pos) {" in glsl_code
+    assert "return Result(length(pos), pos.x > 0.0);" in glsl_code
+    assert "Result res = helper(vs_uv);" in glsl_code
+    assert (
+        "return (res.flag ? vec4(res.value, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0));"
+        in glsl_code
+    )
+    assert used_uniforms == {"u_time"}
+
+
+def test_ray_march_style_shader():
+    shader_code = """
+from dataclasses import dataclass
+
+@dataclass
+class MarchResult:
+    hit: 'bool'
+    distance: 'float'
+
+def march_step(start: 'vec2', step: 'float') -> 'MarchResult':
+    pos = start
+    dist = 0.0
+    for i in range(5):
+        dist = dist + step
+        pos = pos + vec2(step, 0.0)
+    return MarchResult(dist < 1.0, dist)
+
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+    result = march_step(vs_uv, u_time)
+    return vec4(result.distance, 0.0, 0.0, 1.0) if result.hit else vec4(0.0, 0.0, 0.0, 1.0)
+"""
+    glsl_code, used_uniforms = transpile(shader_code)
+    assert "struct MarchResult {" in glsl_code
+    assert "bool hit;" in glsl_code
+    assert "float distance;" in glsl_code
+    assert "MarchResult march_step(vec2 start, float step) {" in glsl_code
+    assert "for (int i = 0; i < 5; i += 1) {" in glsl_code
+    assert "return MarchResult(dist < 1.0, dist);" in glsl_code
+    assert "MarchResult result = march_step(vs_uv, u_time);" in glsl_code
+    assert (
+        "return (result.hit ? vec4(result.distance, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0));"
+        in glsl_code
+    )
+    assert used_uniforms == {"u_time"}

@@ -17,7 +17,6 @@ from py2glsl.builtins import (
     vec4,
 )
 from py2glsl.render import animate
-from py2glsl.transpiler import transpile
 
 # Global constants
 PI: float = 3.141592
@@ -210,7 +209,7 @@ if __name__ == "__main__":
     animate(main_shader)
 
     # Optional: For debugging, you can also transpile and print the code
-    # import inspect  # Only needed for debugging
+    # from py2glsl.transpiler import transpile
     # glsl_code, used_uniforms = transpile(main_shader)
     # print("Generated GLSL code:")
     # print(glsl_code)

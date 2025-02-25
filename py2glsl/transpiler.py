@@ -5,13 +5,13 @@ from typing import Callable, Dict, List, Set, Tuple, Union
 
 
 class TranspilerError(Exception):
-    """Custom exception for transpiler errors."""
+    """Custom exception for transpiler-related errors."""
 
     pass
 
 
 class StructDefinition:
-    """Represents a struct definition with its fields."""
+    """Represents a struct with its name and fields."""
 
     def __init__(self, name: str, fields: List[Tuple[str, str, str | None]]):
         self.name = name
@@ -19,7 +19,7 @@ class StructDefinition:
 
 
 class FunctionCollector(ast.NodeVisitor):
-    """Collects function definitions, type annotations, structs, and globals from Python AST."""
+    """AST visitor to collect function definitions, structs, and globals."""
 
     def __init__(self):
         self.functions: Dict[str, Tuple[str, List[str], ast.FunctionDef]] = {}
@@ -27,7 +27,7 @@ class FunctionCollector(ast.NodeVisitor):
         self.globals: Dict[str, Tuple[str, str]] = {}
 
     def _get_annotation_type(self, annotation: ast.AST) -> str:
-        """Extract type from an annotation."""
+        """Extract type string from an AST annotation."""
         if annotation is None:
             return None
         if isinstance(annotation, ast.Name):
@@ -37,12 +37,14 @@ class FunctionCollector(ast.NodeVisitor):
         raise TranspilerError(f"Unsupported annotation type: {ast.dump(annotation)}")
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Collect function details including return type, parameters, and AST node."""
         params = [self._get_annotation_type(arg.annotation) for arg in node.args.args]
         return_type = self._get_annotation_type(node.returns)
         self.functions[node.name] = (return_type, params, node)
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        """Collect dataclass definitions as structs."""
         is_dataclass = any(
             isinstance(d, ast.Name) and d.id == "dataclass" for d in node.decorator_list
         )
@@ -53,31 +55,35 @@ class FunctionCollector(ast.NodeVisitor):
                     stmt.target, ast.Name
                 ):
                     field_type = self._get_annotation_type(stmt.annotation)
-                    if field_type:
-                        default_value = None
-                        if stmt.value:
-                            default_value = self._generate_simple_expr(stmt.value)
-                        fields.append((stmt.target.id, field_type, default_value))
+                    default_value = None
+                    if stmt.value:
+                        default_value = self._generate_simple_expr(stmt.value)
+                    fields.append((stmt.target.id, field_type, default_value))
             self.structs[node.name] = StructDefinition(node.name, fields)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        """Collect global annotated assignments."""
         if isinstance(node.target, ast.Name) and node.value:
             expr_type = self._get_annotation_type(node.annotation)
             try:
                 value = self._generate_simple_expr(node.value)
                 self.globals[node.target.id] = (expr_type, value)
             except TranspilerError:
-                pass
+                pass  # Skip unsupported global expressions
         self.generic_visit(node)
 
     def _generate_simple_expr(self, node: ast.AST) -> str:
-        """Generate a simple expression for globals or defaults."""
+        """Generate GLSL-compatible string for simple expressions (globals/defaults)."""
         if isinstance(node, ast.Constant):
             if isinstance(node.value, (int, float)):
                 return str(node.value)
             elif isinstance(node.value, bool):
                 return "true" if node.value else "false"
+            elif isinstance(
+                node.value, str
+            ):  # Handle string literals like "vec3(1.0, 1.0, 1.0)"
+                return node.value
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id in {
                 "vec2",
@@ -90,7 +96,7 @@ class FunctionCollector(ast.NodeVisitor):
 
 
 class GLSLGenerator:
-    """Generates GLSL code from collected AST data."""
+    """Generates GLSL code from collected Python AST data."""
 
     def __init__(self, collector: FunctionCollector, indent_size: int = 4):
         self.collector = collector
@@ -133,12 +139,16 @@ class GLSLGenerator:
         }
 
     def generate(self, main_func: str) -> Tuple[str, Set[str]]:
+        """Generate complete GLSL code and return it with used uniforms."""
         lines = []
         used_uniforms = set()
 
+        main_func_node = self.collector.functions[main_func][2]
+        if not main_func_node.body or isinstance(main_func_node.body[0], ast.Pass):
+            raise TranspilerError("Pass statements are not supported in GLSL")
+
         lines.append("#version 460 core\n")
 
-        main_func_node = self.collector.functions[main_func][2]
         for arg in main_func_node.args.args:
             if arg.arg != "vs_uv":
                 param_type = self.collector.functions[main_func][1][
@@ -176,11 +186,7 @@ class GLSLGenerator:
             lines.append("}\n")
 
         lines.append("in vec2 vs_uv;\nout vec4 fragColor;\n\nvoid main() {")
-        main_call_args = [
-            arg.arg for arg in main_func_node.args.args if arg.arg != "vs_uv"
-        ]
-        if "vs_uv" in [arg.arg for arg in main_func_node.args.args]:
-            main_call_args.append("vs_uv")
+        main_call_args = [arg.arg for arg in main_func_node.args.args]
         main_call_str = ", ".join(main_call_args)
         lines.append(f"    fragColor = {main_func}({main_call_str});")
         lines.append("}")
@@ -188,6 +194,7 @@ class GLSLGenerator:
         return "\n".join(lines), used_uniforms
 
     def _generate_body(self, body: List[ast.AST], symbols: Dict[str, str]) -> str:
+        """Generate GLSL code for a function body."""
         code = []
         indent = "    "
         for stmt in body:
@@ -287,6 +294,7 @@ class GLSLGenerator:
     def _generate_expr(
         self, node: ast.AST, symbols: Dict[str, str], parent_precedence: int = 0
     ) -> str:
+        """Generate GLSL expression from an AST node with precedence handling."""
         if isinstance(node, ast.Name):
             return node.id if node.id in symbols else node.id
         elif isinstance(node, ast.Constant):
@@ -349,10 +357,13 @@ class GLSLGenerator:
             if func_name in self.collector.structs:
                 struct_def = self.collector.structs[func_name]
                 field_map = {f[0]: i for i, f in enumerate(struct_def.fields)}
+                required_fields = sum(
+                    1 for _, _, default in struct_def.fields if default is None
+                )
+
                 if node.keywords:
-                    values = [None] * len(
-                        struct_def.fields
-                    )  # Use None to track missing fields
+                    values = [None] * len(struct_def.fields)
+                    provided_fields = set()
                     for kw in node.keywords:
                         if kw.arg not in field_map:
                             raise TranspilerError(
@@ -361,16 +372,20 @@ class GLSLGenerator:
                         values[field_map[kw.arg]] = self._generate_expr(
                             kw.value, symbols, 0
                         )
-                    # Check for missing required fields (no default and not provided)
+                        provided_fields.add(kw.arg)
+                    # Check if all required fields are provided
+                    missing_fields = [
+                        field_name
+                        for field_name, _, default in struct_def.fields
+                        if default is None and field_name not in provided_fields
+                    ]
+                    if missing_fields:
+                        raise TranspilerError(
+                            f"Wrong number of arguments for struct {func_name}: expected {len(struct_def.fields)}, got {len(provided_fields)} (missing required fields: {', '.join(missing_fields)})"
+                        )
                     for i, (field_name, _, default) in enumerate(struct_def.fields):
-                        if values[i] is None and default is None:
-                            raise TranspilerError(
-                                f"Wrong number of arguments for struct {func_name}: missing required field '{field_name}'"
-                            )
-                        if values[i] is None and default is not None:
-                            values[i] = default
-                        elif values[i] is None:
-                            values[i] = "0.0"
+                        if values[i] is None:
+                            values[i] = default if default is not None else "0.0"
                     return f"{func_name}({', '.join(values)})"
                 elif node.args:
                     if len(node.args) != len(struct_def.fields):
@@ -396,11 +411,11 @@ class GLSLGenerator:
             true_expr = self._generate_expr(node.body, symbols, 3)
             false_expr = self._generate_expr(node.orelse, symbols, 3)
             expr = f"{condition} ? {true_expr} : {false_expr}"
-            # Always wrap ternaries in parentheses for top-level expressions
             return f"({expr})" if parent_precedence <= 3 else expr
         raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
 
     def _get_expr_type(self, node: ast.AST, symbols: Dict[str, str]) -> str:
+        """Infer the GLSL type of an expression."""
         if isinstance(node, ast.Name):
             if node.id in symbols:
                 return symbols[node.id]
@@ -466,74 +481,55 @@ class GLSLGenerator:
                     f"Ternary expression types mismatch: {true_type} vs {false_type}"
                 )
             return true_type
-        elif isinstance(node, ast.Compare):
-            return "bool"
-        elif isinstance(node, ast.BoolOp):
+        elif isinstance(node, ast.Compare) or isinstance(node, ast.BoolOp):
             return "bool"
         raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")
 
 
 class Transpiler:
-    def __init__(self, shader_input: Union[str, Callable], main_func: str = None):
+    """Main transpiler class to convert Python shader code to GLSL."""
+
+    def __init__(
+        self, shader_input: Union[str, Dict[str, Callable]], main_func: str = None
+    ):
         self.shader_input = shader_input
         self.main_func = main_func
         self.tree = None
         self.collector = FunctionCollector()
         self.generator = None
+        self.parse()
+        self.collect()
 
     def parse(self) -> None:
-        """Parse the input into an AST, capturing local context for callables."""
-        if callable(self.shader_input):
-            module = inspect.getmodule(self.shader_input)
-            if module is None:
-                raise TranspilerError("Cannot retrieve module for callable input")
-            try:
-                func_source = inspect.getsource(self.shader_input)
-                func_source = textwrap.dedent(func_source)
-                func_ast = ast.parse(func_source)
-            except (OSError, TypeError) as e:
-                raise TranspilerError(
-                    f"Failed to get source for {self.shader_input.__name__}: {e}"
-                )
-
-            if (
-                not isinstance(func_ast.body[0], ast.FunctionDef)
-                or func_ast.body[0].name != self.shader_input.__name__
-            ):
-                raise TranspilerError(
-                    f"Expected a function definition for '{self.shader_input.__name__}'"
-                )
-            target_func = func_ast.body[0]
-
-            module_source = inspect.getsource(module)
-            module_ast = ast.parse(module_source)
-
-            # Collect all relevant nodes
-            relevant_nodes = [target_func]
-            for node in ast.walk(module_ast):
-                if isinstance(node, ast.ClassDef) and any(
-                    isinstance(d, ast.Name) and d.id == "dataclass"
-                    for d in node.decorator_list
-                ):
-                    relevant_nodes.append(node)
-                elif (
-                    isinstance(node, ast.AnnAssign)
-                    and isinstance(node.target, ast.Name)
-                    and node.value
-                ):
-                    relevant_nodes.append(node)
-
+        """Parse input (string or context dictionary) into an AST."""
+        if isinstance(self.shader_input, dict):
+            relevant_nodes = []
+            for name, obj in self.shader_input.items():
+                try:
+                    source = textwrap.dedent(inspect.getsource(obj))
+                    tree = ast.parse(source)
+                    for node in tree.body:
+                        if isinstance(node, ast.FunctionDef):
+                            self.main_func = (
+                                node.name if not self.main_func else self.main_func
+                            )
+                        relevant_nodes.append(node)
+                except (OSError, TypeError) as e:
+                    raise TranspilerError(f"Failed to get source for {name}: {e}")
             self.tree = ast.Module(body=relevant_nodes, type_ignores=[])
-            self.main_func = self.shader_input.__name__
-        else:
-            shader_code = self.shader_input
-            if not self.main_func:
-                self.main_func = "shader"
-            if not shader_code.strip():
+
+        elif isinstance(self.shader_input, str):
+            shader_code = textwrap.dedent(self.shader_input)
+            if not shader_code:
                 raise TranspilerError("Empty shader code provided")
             self.tree = ast.parse(shader_code)
+            if not self.main_func:
+                self.main_func = "shader"
+        else:
+            raise TranspilerError("Shader input must be a string or context dictionary")
 
     def collect(self) -> None:
+        """Collect functions, structs, and globals from the AST."""
         if not self.tree:
             raise TranspilerError("AST not parsed. Call parse() first.")
         self.collector.visit(self.tree)
@@ -542,19 +538,27 @@ class Transpiler:
         self.generator = GLSLGenerator(self.collector)
 
     def generate(self) -> Tuple[str, Set[str]]:
+        """Generate GLSL code and return it with used uniforms."""
         if not self.generator:
-            raise TranspilerError("Functions not collected. Call collect() first.")
+            raise TranspilerError("Generator not initialized. Call collect() first.")
         return self.generator.generate(self.main_func)
 
 
-def transpile(
-    shader_input: Union[str, Callable], main_func: str = None
-) -> Tuple[str, Set[str]]:
-    if callable(shader_input):
-        main_func = shader_input.__name__
-    elif main_func is None:
-        main_func = "shader"
-    transpiler = Transpiler(shader_input, main_func=main_func)
-    transpiler.parse()
-    transpiler.collect()
-    return transpiler.generate()
+def transpile(*args, main_func: str = None) -> Tuple[str, Set[str]]:
+    """Transpile Python shader code to GLSL. Accepts a string, a module, or specific items."""
+    if len(args) == 1:
+        if isinstance(args[0], str):
+            # Handle string input directly
+            return Transpiler(args[0], main_func=main_func).generate()
+        elif inspect.ismodule(args[0]):
+            # Handle module input using __all__
+            module = args[0]
+            if not hasattr(module, "__all__"):
+                raise ValueError(
+                    "Module must define __all__ to specify transpilable items."
+                )
+            context = {name: getattr(module, name) for name in module.__all__}
+            return Transpiler(context, main_func=main_func).generate()
+    # Handle multiple items (structs, functions, etc.)
+    context = {item.__name__: item for item in args}
+    return Transpiler(context, main_func=main_func).generate()
