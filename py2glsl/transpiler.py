@@ -1,5 +1,6 @@
 import ast
 import inspect
+from enum import Enum
 from typing import Callable, Dict, List, Set, Tuple, Union
 
 from loguru import logger
@@ -11,6 +12,7 @@ BUILTINS = {
     "fract": ("vec2", ["vec2"]),
     "length": ("float", ["vec2"]),
     "sin": ("float", ["float"]),
+    "float": ("float", ["int"]),  # Added for type casting
     "sqrt": ("float", ["float"]),
     "tan": ("float", ["float"]),
     "radians": ("float", ["float"]),
@@ -52,6 +54,25 @@ class StructDefinition:
         self.fields = fields  # List of (field_name, field_type) tuples
 
 
+### Enums ###
+class Operator(Enum):
+    """Enum for mapping Python operators to GLSL operators and their precedence."""
+
+    ADD = ("+", 6)
+    SUB = ("-", 6)
+    MULT = ("*", 7)
+    DIV = ("/", 7)
+    MOD = ("%", 7)
+    EQ = ("==", 4)
+    NE = ("!=", 4)
+    LT = ("<", 5)
+    GT = (">", 5)
+    LE = ("<=", 5)
+    GE = (">=", 5)
+    AND = ("&&", 3)
+    OR = ("||", 2)
+
+
 ### Core Transpiler Components ###
 class FunctionCollector(ast.NodeVisitor):
     """Collects functions, structs, and global constants from the Python AST."""
@@ -60,9 +81,7 @@ class FunctionCollector(ast.NodeVisitor):
         self.functions: Dict[str, Tuple[str, List[str], ast.FunctionDef]] = {}
         self.structs: Dict[str, StructDefinition] = {}
         self.globals: Dict[str, Tuple[str, str]] = {}  # (type, value)
-        self.current_context: List[str] = (
-            []
-        )  # Tracks context: 'module', 'class', 'function'
+        self.current_context: List[str] = []
 
     def visit_Module(self, node: ast.Module) -> None:
         self.current_context.append("module")
@@ -112,12 +131,13 @@ class FunctionCollector(ast.NodeVisitor):
             return None
         if isinstance(annotation, ast.Constant):
             return annotation.value
-        if hasattr(annotation, "id"):
+        if isinstance(annotation, ast.Name):
             return annotation.id
-        return None
+        raise TranspilerError(
+            f"Unsupported annotation type: {type(annotation).__name__}"
+        )
 
     def _generate_simple_expr(self, node: ast.expr) -> str:
-        """Generates string for simple expressions (used in globals)."""
         if isinstance(node, ast.Constant):
             return str(node.value)
         elif isinstance(node, ast.Name):
@@ -125,7 +145,12 @@ class FunctionCollector(ast.NodeVisitor):
         elif isinstance(node, ast.BinOp):
             left = self._generate_simple_expr(node.left)
             right = self._generate_simple_expr(node.right)
-            op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
+            op_map = {
+                ast.Add: "+",
+                ast.Sub: "-",
+                ast.Mult: "*",
+                ast.Div: "/",
+            }
             op = op_map.get(type(node.op))
             if op:
                 return f"({left} {op} {right})"
@@ -140,7 +165,7 @@ class FunctionCollector(ast.NodeVisitor):
 class GLSLGenerator:
     """Generates GLSL code from collected AST data."""
 
-    PRECEDENCE = {
+    OPERATOR_PRECEDENCE = {
         "=": 1,
         "||": 2,
         "&&": 3,
@@ -160,12 +185,15 @@ class GLSLGenerator:
         "member": 9,
     }
 
-    def __init__(self, collector: FunctionCollector):
-        self.functions = collector.functions
-        self.structs = collector.structs
-        self.globals = collector.globals
+    def __init__(self, collector: FunctionCollector, indent_size: int = 4):
+        self.collector = collector
         self.builtins = BUILTINS
         self.code = ""
+        self.indent_level = 0
+        self.indent_size = indent_size
+
+    def indent(self) -> str:
+        return " " * (self.indent_level * self.indent_size)
 
     def generate_function(self, func_name: str, node: ast.FunctionDef) -> None:
         params = [
@@ -190,27 +218,32 @@ class GLSLGenerator:
                     self._generate_expr(stmt.value, symbols, 0) if stmt.value else None
                 )
                 symbols[target] = expr_type
-                code += f"    {expr_type} {target}{f' = {expr}' if expr else ''};\n"
+                code += f"{self.indent()}{expr_type} {target}{f' = {expr}' if expr else ''};\n"
             elif isinstance(stmt, ast.Assign):
                 if isinstance(stmt.targets[0], ast.Name):
                     target = stmt.targets[0].id
                     expr = self._generate_expr(stmt.value, symbols, 0)
                     if target not in symbols:
                         symbols[target] = self._get_expr_type(stmt.value, symbols)
-                        code += f"    {symbols[target]} {target} = {expr};\n"
+                        code += f"{self.indent()}{symbols[target]} {target} = {expr};\n"
                     else:
-                        code += f"    {target} = {expr};\n"
+                        code += f"{self.indent()}{target} = {expr};\n"
                 elif isinstance(stmt.targets[0], ast.Attribute):
                     target = self._generate_expr(stmt.targets[0], symbols, 0)
                     expr = self._generate_expr(stmt.value, symbols, 0)
-                    code += f"    {target} = {expr};\n"
+                    code += f"{self.indent()}{target} = {expr};\n"
             elif isinstance(stmt, ast.AugAssign):
                 target = self._generate_expr(stmt.target, symbols, 0)
                 value = self._generate_expr(stmt.value, symbols, 0)
-                op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
+                op_map = {
+                    ast.Add: "+",
+                    ast.Sub: "-",
+                    ast.Mult: "*",
+                    ast.Div: "/",
+                }
                 op = op_map.get(type(stmt.op))
                 if op:
-                    code += f"    {target} = {target} {op} {value};\n"
+                    code += f"{self.indent()}{target} = {target} {op} {value};\n"
                 else:
                     raise TranspilerError(
                         f"Unsupported augmented operator: {type(stmt.op).__name__}"
@@ -231,24 +264,26 @@ class GLSLGenerator:
                 )
                 symbols[target] = "int"
                 body_code = self._generate_body(stmt.body, symbols.copy())
-                code += f"    for (int {target} = {start}; {target} < {end}; {target} += {step}) {{\n{body_code}    }}\n"
+                code += f"{self.indent()}for (int {target} = {start}; {target} < {end}; {target} += {step}) {{\n{body_code}{self.indent()}}}\n"
             elif isinstance(stmt, ast.While):
                 condition = self._generate_expr(stmt.test, symbols, 0)
                 body_code = self._generate_body(stmt.body, symbols.copy())
-                code += f"    while ({condition}) {{\n{body_code}    }}\n"
+                code += f"{self.indent()}while ({condition}) {{\n{body_code}{self.indent()}}}\n"
             elif isinstance(stmt, ast.If):
                 condition = self._generate_expr(stmt.test, symbols, 0)
                 if_body = self._generate_body(stmt.body, symbols.copy())
-                code += f"    if ({condition}) {{\n{if_body}    }}"
+                code += (
+                    f"{self.indent()}if ({condition}) {{\n{if_body}{self.indent()}}}"
+                )
                 if stmt.orelse:
                     else_body = self._generate_body(stmt.orelse, symbols.copy())
-                    code += f" else {{\n{else_body}    }}"
+                    code += f" else {{\n{else_body}{self.indent()}}}"
                 code += "\n"
             elif isinstance(stmt, ast.Return):
                 expr = self._generate_expr(stmt.value, symbols, 0)
-                code += f"    return {expr};\n"
+                code += f"{self.indent()}return {expr};\n"
             elif isinstance(stmt, ast.Break):
-                code += "    break;\n"
+                code += f"{self.indent()}break;\n"
             elif isinstance(stmt, ast.Pass):
                 raise TranspilerError("Pass statements are not supported in GLSL")
             elif isinstance(stmt, ast.Expr):
@@ -261,151 +296,208 @@ class GLSLGenerator:
         self, node: ast.expr, symbols: Dict[str, str], parent_precedence: int = 0
     ) -> str:
         if isinstance(node, ast.Constant):
-            if isinstance(node.value, float):
-                return (
-                    f"{node.value:.1f}"
-                    if node.value == int(node.value)
-                    else str(node.value)
-                )
-            elif isinstance(node.value, bool):
-                return "true" if node.value else "false"
-            return str(node.value)
+            return self._generate_constant(node)
         elif isinstance(node, ast.Name):
-            return (
-                "true"
-                if node.id == "True"
-                else "false" if node.id == "False" else node.id
-            )
+            return self._generate_name(node)
         elif isinstance(node, ast.BinOp):
-            op_map = {
-                ast.Add: "+",
-                ast.Sub: "-",
-                ast.Mult: "*",
-                ast.Div: "/",
-                ast.Mod: "%",
-            }
-            op = op_map.get(type(node.op))
-            if not op:
-                raise TranspilerError(
-                    f"Unsupported binary op: {type(node.op).__name__}"
-                )
-            precedence = self.PRECEDENCE[op]
-            left = self._generate_expr(node.left, symbols, precedence)
-            right = self._generate_expr(node.right, symbols, precedence)
-            expr = f"{left} {op} {right}"
-            return f"({expr})" if precedence < parent_precedence else expr
-        elif isinstance(node, ast.Compare) and len(node.ops) == 1:
-            op_map = {
-                ast.Eq: "==",
-                ast.NotEq: "!=",
-                ast.Lt: "<",
-                ast.LtE: "<=",
-                ast.Gt: ">",
-                ast.GtE: ">=",
-            }
-            op = op_map.get(type(node.ops[0]))
-            if not op:
-                raise TranspilerError(
-                    f"Unsupported comparison: {type(node.ops[0]).__name__}"
-                )
-            precedence = self.PRECEDENCE[op]
-            left = self._generate_expr(node.left, symbols, precedence)
-            right = self._generate_expr(node.comparators[0], symbols, precedence)
-            expr = f"{left} {op} {right}"
-            return f"({expr})" if precedence < parent_precedence else expr
+            return self._generate_binop(node, symbols, parent_precedence)
+        elif isinstance(node, ast.Compare):
+            return self._generate_compare(node, symbols, parent_precedence)
         elif isinstance(node, ast.BoolOp):
-            op_map = {ast.And: "&&", ast.Or: "||"}
-            op = op_map.get(type(node.op))
-            if not op:
-                raise TranspilerError(
-                    f"Unsupported boolean op: {type(node.op).__name__}"
-                )
-            precedence = self.PRECEDENCE[op]
-            values = [
-                self._generate_expr(val, symbols, precedence) for val in node.values
-            ]
-            expr = f" {op} ".join(values)
-            return f"({expr})" if precedence < parent_precedence else expr
+            return self._generate_boolop(node, symbols, parent_precedence)
         elif isinstance(node, ast.Call):
-            func_name = (
-                node.func.id
-                if isinstance(node.func, ast.Name)
-                else self._generate_expr(node.func, symbols, 0)
-            )
-            args = [self._generate_expr(arg, symbols, 0) for arg in node.args]
-            if (
-                func_name in self.builtins
-                or func_name in self.functions
-                or func_name in self.structs
-            ):
-                return f"{func_name}({', '.join(args)})"
-            raise TranspilerError(f"Unknown function call: {func_name}")
+            return self._generate_call(node, symbols)
         elif isinstance(node, ast.Attribute):
-            value = self._generate_expr(node.value, symbols, self.PRECEDENCE["member"])
-            return f"{value}.{node.attr}"
+            return self._generate_attribute(node, symbols)
         raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
+
+    def _generate_constant(self, node: ast.Constant) -> str:
+        if isinstance(node.value, float):
+            return (
+                f"{node.value:.1f}"
+                if node.value == int(node.value)
+                else str(node.value)
+            )
+        elif isinstance(node.value, bool):
+            return "true" if node.value else "false"
+        return str(node.value)
+
+    def _generate_name(self, node: ast.Name) -> str:
+        if node.id == "True":
+            return "true"
+        elif node.id == "False":
+            return "false"
+        return node.id
+
+    def _generate_binop(
+        self, node: ast.BinOp, symbols: Dict[str, str], parent_precedence: int
+    ) -> str:
+        op_map = {
+            ast.Add: Operator.ADD,
+            ast.Sub: Operator.SUB,
+            ast.Mult: Operator.MULT,
+            ast.Div: Operator.DIV,
+            ast.Mod: Operator.MOD,
+        }
+        op = op_map.get(type(node.op))
+        if not op:
+            raise TranspilerError(f"Unsupported binary op: {type(node.op).__name__}")
+        precedence = op.value[1]
+        left = self._generate_expr(node.left, symbols, precedence)
+        right = self._generate_expr(node.right, symbols, precedence)
+        expr = f"{left} {op.value[0]} {right}"
+        return f"({expr})" if precedence < parent_precedence else expr
+
+    def _generate_compare(
+        self, node: ast.Compare, symbols: Dict[str, str], parent_precedence: int
+    ) -> str:
+        if len(node.ops) != 1:
+            raise TranspilerError("Only single comparisons are supported")
+        op_map = {
+            ast.Eq: Operator.EQ,
+            ast.NotEq: Operator.NE,
+            ast.Lt: Operator.LT,
+            ast.LtE: Operator.LE,
+            ast.Gt: Operator.GT,
+            ast.GtE: Operator.GE,
+        }
+        op = op_map.get(type(node.ops[0]))
+        if not op:
+            raise TranspilerError(
+                f"Unsupported comparison: {type(node.ops[0]).__name__}"
+            )
+        precedence = op.value[1]
+        left = self._generate_expr(node.left, symbols, precedence)
+        right = self._generate_expr(node.comparators[0], symbols, precedence)
+        expr = f"{left} {op.value[0]} {right}"
+        return f"({expr})" if precedence < parent_precedence else expr
+
+    def _generate_boolop(
+        self, node: ast.BoolOp, symbols: Dict[str, str], parent_precedence: int
+    ) -> str:
+        op_map = {
+            ast.And: Operator.AND,
+            ast.Or: Operator.OR,
+        }
+        op = op_map.get(type(node.op))
+        if not op:
+            raise TranspilerError(f"Unsupported boolean op: {type(node.op).__name__}")
+        precedence = op.value[1]
+        values = [self._generate_expr(val, symbols, precedence) for val in node.values]
+        expr = f" {op.value[0]} ".join(values)
+        return f"({expr})" if precedence < parent_precedence else expr
+
+    def _generate_call(self, node: ast.Call, symbols: Dict[str, str]) -> str:
+        func_name = (
+            node.func.id
+            if isinstance(node.func, ast.Name)
+            else self._generate_expr(node.func, symbols, 0)
+        )
+        args = [self._generate_expr(arg, symbols, 0) for arg in node.args]
+        if (
+            func_name in self.builtins
+            or func_name in self.collector.functions
+            or func_name in self.collector.structs
+        ):
+            return f"{func_name}({', '.join(args)})"
+        raise TranspilerError(f"Unknown function call: {func_name}")
+
+    def _generate_attribute(self, node: ast.Attribute, symbols: Dict[str, str]) -> str:
+        value = self._generate_expr(
+            node.value, symbols, self.OPERATOR_PRECEDENCE["member"]
+        )
+        return f"{value}.{node.attr}"
 
     def _get_expr_type(self, node: ast.expr, symbols: Dict[str, str]) -> str:
         if isinstance(node, ast.Constant):
-            return (
-                "float"
-                if isinstance(node.value, float)
-                else "int" if isinstance(node.value, int) else "bool"
-            )
+            return self._get_constant_type(node)
         elif isinstance(node, ast.Name):
-            if node.id in symbols:
-                return symbols[node.id]
-            elif node.id in self.globals:
-                return self.globals[node.id][0]
-            raise TranspilerError(f"Undefined variable: {node.id}")
+            return self._get_variable_type(node, symbols)
         elif isinstance(node, ast.Call):
-            func_name = node.func.id if isinstance(node.func, ast.Name) else None
-            if func_name in self.builtins:
-                return self.builtins[func_name][0]
-            elif func_name in self.functions:
-                return self.functions[func_name][0]
-            elif func_name in self.structs:
-                return func_name
-            raise TranspilerError(f"Unknown function: {func_name}")
+            return self._get_call_type(node, symbols)
         elif isinstance(node, ast.BinOp):
-            left_type = self._get_expr_type(node.left, symbols)
-            right_type = self._get_expr_type(node.right, symbols)
-            if isinstance(node.op, ast.Mod):
-                if left_type != "int" or right_type != "int":
-                    raise TranspilerError("Modulo requires integer operands")
-                return "int"
-            if left_type.startswith("vec") and right_type in ["float", "int"]:
-                return left_type
-            if right_type.startswith("vec") and left_type in ["float", "int"]:
-                return right_type
-            if left_type == right_type and left_type.startswith("vec"):
-                return left_type
-            if "float" in (left_type, right_type):
-                return "float"
-            return "int"
+            return self._get_binop_type(node, symbols)
         elif isinstance(node, ast.Attribute):
-            value_type = self._get_expr_type(node.value, symbols)
-            if value_type in self.structs:
-                for fname, ftype in self.structs[value_type].fields:
-                    if fname == node.attr:
-                        return ftype
-            if value_type.startswith("vec"):
-                swizzle_len = len(node.attr)
-                valid_lengths = {1: "float", 2: "vec2", 3: "vec3", 4: "vec4"}
-                if swizzle_len in valid_lengths:
+            return self._get_attribute_type(node, symbols)
+        raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")
+
+    def _get_constant_type(self, node: ast.Constant) -> str:
+        if isinstance(node.value, float):
+            return "float"
+        elif isinstance(node.value, int):
+            return "int"
+        elif isinstance(node.value, bool):
+            return "bool"
+        raise TranspilerError(f"Unsupported constant type: {type(node.value)}")
+
+    def _get_variable_type(self, node: ast.Name, symbols: Dict[str, str]) -> str:
+        if node.id in symbols:
+            return symbols[node.id]
+        elif node.id in self.collector.globals:
+            return self.collector.globals[node.id][0]
+        raise TranspilerError(f"Undefined variable: {node.id}")
+
+    def _get_call_type(self, node: ast.Call, symbols: Dict[str, str]) -> str:
+        func_name = node.func.id if isinstance(node.func, ast.Name) else None
+        if func_name in self.builtins:
+            return self.builtins[func_name][0]
+        elif func_name in self.collector.functions:
+            return self.collector.functions[func_name][0]
+        elif func_name in self.collector.structs:
+            return func_name
+        raise TranspilerError(f"Unknown function: {func_name}")
+
+    def _get_binop_type(self, node: ast.BinOp, symbols: Dict[str, str]) -> str:
+        left_type = self._get_expr_type(node.left, symbols)
+        right_type = self._get_expr_type(node.right, symbols)
+        if isinstance(node.op, ast.Mod):
+            if left_type != "int" or right_type != "int":
+                raise TranspilerError("Modulo requires integer operands")
+            return "int"
+        if left_type.startswith("vec") and right_type in ["float", "int"]:
+            return left_type
+        if right_type.startswith("vec") and left_type in ["float", "int"]:
+            return right_type
+        if left_type == right_type and left_type.startswith("vec"):
+            return left_type
+        if "float" in (left_type, right_type):
+            return "float"
+        return "int"
+
+    def _get_attribute_type(self, node: ast.Attribute, symbols: Dict[str, str]) -> str:
+        value_type = self._get_expr_type(node.value, symbols)
+        if value_type in self.collector.structs:
+            for fname, ftype in self.collector.structs[value_type].fields:
+                if fname == node.attr:
+                    return ftype
+            raise TranspilerError(f"Invalid attribute access: {node.attr}")
+        if value_type.startswith("vec"):
+            vec_dim = int(value_type[-1])  # Extract dimension (2, 3, or 4)
+            swizzle_len = len(node.attr)
+            valid_lengths = {1: "float", 2: "vec2", 3: "vec3", 4: "vec4"}
+            if swizzle_len in valid_lengths and swizzle_len <= vec_dim:
+                valid_components_map = {
+                    2: "xyrg",
+                    3: "xyzrgb",
+                    4: "xyzwrgba",
+                }
+                valid_components = valid_components_map[vec_dim]
+                if all(c in valid_components for c in node.attr):
                     return valid_lengths[swizzle_len]
                 raise TranspilerError(f"Invalid attribute access: {node.attr}")
             raise TranspilerError(f"Invalid attribute access: {node.attr}")
-        raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")
+        raise TranspilerError(f"Invalid attribute access: {node.attr}")
 
     def _get_annotation_type(self, annotation: ast.expr) -> str | None:
         if not annotation:
             return None
         if isinstance(annotation, ast.Constant):
             return annotation.value
-        if hasattr(annotation, "id"):
+        if isinstance(annotation, ast.Name):
             return annotation.id
-        raise TranspilerError(f"Invalid annotation type: {type(annotation).__name__}")
+        raise TranspilerError(
+            f"Unsupported annotation type: {type(annotation).__name__}"
+        )
 
 
 class Transpiler:
@@ -416,10 +508,12 @@ class Transpiler:
         shader_input: Union[str, Callable],
         main_func: str = "main_shader",
         version: str = "460 core",
+        indent_size: int = 4,
     ):
         self.shader_input = shader_input
         self.main_func = main_func
         self.version = version
+        self.indent_size = indent_size
         self.tree: ast.AST | None = None
         self.collector = FunctionCollector()
         self.generator: GLSLGenerator | None = None
@@ -444,7 +538,7 @@ class Transpiler:
             raise TranspilerError(f"Main function '{self.main_func}' not found")
         if not self.collector.functions[self.main_func][2].body:
             raise TranspilerError(f"Main function '{self.main_func}' has no body")
-        self.generator = GLSLGenerator(self.collector)
+        self.generator = GLSLGenerator(self.collector, indent_size=self.indent_size)
 
     def generate(self) -> Tuple[str, Set[str]]:
         if not self.generator:
@@ -519,9 +613,11 @@ class Transpiler:
             return None
         if isinstance(annotation, ast.Constant):
             return annotation.value
-        if hasattr(annotation, "id"):
+        if isinstance(annotation, ast.Name):
             return annotation.id
-        raise TranspilerError(f"Invalid annotation type: {type(annotation).__name__}")
+        raise TranspilerError(
+            f"Unsupported annotation type: {type(annotation).__name__}"
+        )
 
 
 ### Public API ###
@@ -529,7 +625,8 @@ def transpile(
     shader_input: Union[str, Callable],
     main_func: str = "main_shader",
     version: str = "460 core",
+    indent_size: int = 4,
 ) -> Tuple[str, Set[str]]:
     """Transpiles Python shader code to GLSL."""
-    transpiler = Transpiler(shader_input, main_func, version)
+    transpiler = Transpiler(shader_input, main_func, version, indent_size)
     return transpiler.transpile()

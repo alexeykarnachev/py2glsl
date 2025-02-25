@@ -118,12 +118,15 @@ def test_binop_vec4_vec4_addition(generator, symbols):
 
 def test_function_call_with_args(generator, symbols):
     """Test generating and typing a function call with arguments."""
-    generator.functions = {"wave": ("float", ["vec2", "float"])}
+    # Correctly set the function in the collector
+    dummy_node = ast.FunctionDef(
+        name="wave", args=ast.arguments(args=[]), body=[ast.Pass()]
+    )
+    generator.collector.functions["wave"] = ("float", ["vec2", "float"], dummy_node)
     node = ast.parse("wave(uv, time)", mode="eval").body
     code = generator._generate_expr(node, symbols)
-    expr_type = generator._get_expr_type(node, symbols)
     assert code == "wave(uv, time)"
-    assert expr_type == "float"
+    assert generator._get_expr_type(node, symbols) == "float"
 
 
 def test_nested_function_call(generator, symbols):
