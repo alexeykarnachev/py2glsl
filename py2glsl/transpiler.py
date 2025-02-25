@@ -405,9 +405,17 @@ class GLSLGenerator:
                     if node.value == int(node.value)
                     else str(node.value)
                 )
+            elif isinstance(node.value, bool):
+                # Convert Python booleans to GLSL booleans
+                return "true" if node.value else "false"
             return str(node.value)
 
         elif isinstance(node, ast.Name):
+            # Convert Python's True/False to GLSL's true/false
+            if node.id == "True":
+                return "true"
+            elif node.id == "False":
+                return "false"
             return node.id
 
         elif isinstance(node, ast.BinOp):
@@ -571,7 +579,30 @@ class GLSLGenerator:
             elif func_name in self.structs:
                 # Direct struct constructor
                 struct_name = func_name
-                return f"{struct_name}({', '.join(args)})"
+
+                # If no arguments provided, initialize all fields to default values
+                if not args:
+                    field_inits = []
+                    # Initialize each field with appropriate default value based on type
+                    for field_name, field_type in self.structs[struct_name].fields:
+                        if field_type == "int":
+                            field_inits.append("0")
+                        elif field_type == "float":
+                            field_inits.append("0.0")
+                        elif field_type == "bool":
+                            field_inits.append("false")
+                        elif field_type.startswith("vec"):
+                            # Get the dimension from the type (e.g., vec3 -> 3)
+                            dim = int(field_type[-1])
+                            field_inits.append(f"{field_type}(0.0)")
+                        else:
+                            # For other types, default to 0
+                            field_inits.append("0")
+
+                    return f"{struct_name}({', '.join(field_inits)})"
+                else:
+                    return f"{struct_name}({', '.join(args)})"
+
             elif func_name.endswith("Struct"):
                 # Handle struct constructors with the "Struct" suffix
                 struct_name = func_name.replace("Struct", "")
@@ -730,13 +761,12 @@ class GLSLGenerator:
                     logger.error(f"Unknown struct: {struct_name}")
                     raise ValueError(f"Unknown struct: {struct_name}")
             else:
-                # Check if this might be a dataclass (struct) constructor
-                for struct_name in self.structs.keys():
-                    if struct_name == func_name:
-                        return struct_name
-                    # Try case-insensitive match for RayMarchResult -> RayMarchResult
-                    if struct_name.lower() == func_name.lower():
-                        return struct_name
+                # Check if this might be a dataclass/struct type
+                # Use case-insensitive match for more robust detection
+                if func_name:
+                    for struct_name in self.structs.keys():
+                        if struct_name.lower() == func_name.lower():
+                            return struct_name
 
                 logger.error(f"Unknown function: {func_name}")
                 raise ValueError(f"Unknown function: {func_name}")

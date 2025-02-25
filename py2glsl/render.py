@@ -86,6 +86,18 @@ def animate(shader_input, used_uniforms=None, size=(1200, 800)):
     vbo = ctx.buffer(vertices)
     vao = ctx.simple_vertex_array(program, vbo, "in_position")
 
+    # Mouse position tracking
+    mouse_pos = [0, 0]
+    mouse_uv = [0.5, 0.5]  # Default centered
+
+    def mouse_callback(window, xpos, ypos):
+        mouse_pos[0] = xpos
+        mouse_pos[1] = ypos
+        mouse_uv[0] = xpos / size[0]
+        mouse_uv[1] = 1.0 - (ypos / size[1])  # Flip Y coordinate
+
+    glfw.set_cursor_pos_callback(window, mouse_callback)
+
     frame_count = 0
     last_time = time.time()
     while not glfw.window_should_close(window):
@@ -98,14 +110,47 @@ def animate(shader_input, used_uniforms=None, size=(1200, 800)):
             frame_count = 0
             last_time = current_time
 
-        # Set uniforms only if they exist in the program
-        if "u_time" in used_uniforms and "u_time" in program:
-            program["u_time"].value = glfw.get_time()
-        if "u_aspect" in used_uniforms and "u_aspect" in program:
-            program["u_aspect"].value = size[0] / size[1]
-        if "u_resolution" in used_uniforms and "u_resolution" in program:
+        # Always set common uniforms if they exist in the program
+        if "u_resolution" in program:
             program["u_resolution"].value = (size[0], size[1])
-        # Add other uniforms as needed
+
+        if "u_time" in program:
+            program["u_time"].value = glfw.get_time()
+
+        if "u_aspect" in program:
+            program["u_aspect"].value = size[0] / size[1]
+
+        if "u_mouse_pos" in program:
+            program["u_mouse_pos"].value = mouse_pos
+
+        if "u_mouse_uv" in program:
+            program["u_mouse_uv"].value = mouse_uv
+
+        # Set any other custom uniforms that might be in the shader
+        # This loop is a fallback for uniforms not covered above
+        for uniform_name in program:
+            if uniform_name not in [
+                "u_resolution",
+                "u_time",
+                "u_aspect",
+                "u_mouse_pos",
+                "u_mouse_uv",
+            ]:
+                try:
+                    uniform = program[uniform_name]
+                    if (
+                        hasattr(uniform, "array_length") and uniform.array_length == 1
+                    ):  # Not an array uniform
+                        if hasattr(uniform, "dimension") and uniform.dimension == 1:
+                            if hasattr(uniform, "dtype"):
+                                if uniform.dtype.startswith("f"):
+                                    uniform.value = 1.0  # Default float value
+                                elif uniform.dtype.startswith("i"):
+                                    uniform.value = 1  # Default int value
+                                elif uniform.dtype.startswith("b"):
+                                    uniform.value = True  # Default bool value
+                except Exception as e:
+                    logger.warning(f"Could not set uniform {uniform_name}: {e}")
 
         ctx.clear(0.0, 0.0, 0.0, 1.0)
         vao.render(moderngl.TRIANGLE_STRIP)
