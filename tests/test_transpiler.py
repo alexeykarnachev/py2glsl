@@ -28,12 +28,11 @@ def symbols():
         "uv": "vec2",
         "time": "float",
         "i": "int",
-        "test": "Test",  # For struct test
+        "test": "Test",
     }
 
 
 def test_generate_vec2_attribute(generator, symbols):
-    """Test generating and typing a vec2 attribute access."""
     node = ast.parse("hex_coord.x", mode="eval").body
     code = generator._generate_expr(node, symbols)
     expr_type = generator._get_expr_type(node, symbols)
@@ -41,8 +40,76 @@ def test_generate_vec2_attribute(generator, symbols):
     assert expr_type == "float"
 
 
+def test_main_shader_no_return_type():
+    shader_code = """
+def shader(vs_uv: 'vec2', u_time: 'float'):
+    return vec4(1.0, 0.0, 0.0, 1.0)
+"""
+    glsl_code, uniforms = transpile(shader_code)
+    assert "uniform float u_time;" in glsl_code
+    assert "vec4 shader(vec2 vs_uv, float u_time) {" in glsl_code
+    assert "return vec4(1.0, 0.0, 0.0, 1.0);" in glsl_code
+    assert "void main() {" in glsl_code
+    assert "fragColor = shader(u_time, vs_uv);" in glsl_code
+    assert uniforms == {"u_time"}
+
+
+def test_helper_function_requires_return_type():
+    shader_code = """
+def helper(x: 'float'):
+    return x * 2.0
+def shader(vs_uv: 'vec2'):
+    return vec4(helper(1.0), 0.0, 0.0, 1.0)
+"""
+    with pytest.raises(
+        TranspilerError, match="Helper function 'helper' lacks return type annotation"
+    ):
+        transpile(shader_code)
+
+
+def test_struct_and_uniforms():
+    shader_code = """
+from dataclasses import dataclass
+@dataclass
+class Material:
+    color: 'vec3'
+    shininess: 'float'
+def shader(vs_uv: 'vec2', u_mat: 'Material'):
+    return vec4(u_mat.color, 1.0)
+"""
+    glsl_code, uniforms = transpile(shader_code)
+    assert "struct Material {" in glsl_code
+    assert "    vec3 color;" in glsl_code
+    assert "    float shininess;" in glsl_code
+    assert "uniform Material u_mat;" in glsl_code
+    assert "vec4 shader(vec2 vs_uv, Material u_mat) {" in glsl_code
+    assert "return vec4(u_mat.color, 1.0);" in glsl_code
+    assert uniforms == {"u_mat"}
+
+
+def test_multi_uniform_struct():
+    @dataclass
+    class UniStruct:
+        offset: "vec3"
+        active: "bool"
+
+    def shader(vs_uv: "vec2", u_time: "float", u_offset: "vec3"):
+        s = UniStruct(offset=u_offset, active=(sin(u_time) > 0.0))
+        return vec4(s.offset, 1.0) if s.active else vec4(0.0, 0.0, 0.0, 1.0)
+
+    glsl_code, used_uniforms = transpile(shader)
+    assert "struct UniStruct {" in glsl_code
+    assert "uniform float u_time;" in glsl_code
+    assert "uniform vec3 u_offset;" in glsl_code
+    assert "UniStruct s = UniStruct(u_offset, sin(u_time) > 0.0);" in glsl_code
+    assert (
+        "return (s.active ? vec4(s.offset, 1.0) : vec4(0.0, 0.0, 0.0, 1.0));"
+        in glsl_code
+    )
+    assert used_uniforms == {"u_time", "u_offset"}
+
+
 def test_generate_vec4_rgb(generator, symbols):
-    """Test generating and typing a vec4 rgb swizzle."""
     node = ast.parse("color.rgb", mode="eval").body
     code = generator._generate_expr(node, symbols)
     expr_type = generator._get_expr_type(node, symbols)
@@ -51,7 +118,6 @@ def test_generate_vec4_rgb(generator, symbols):
 
 
 def test_binop_vec2_float(generator, symbols):
-    """Test generating and typing a vec2 * float operation."""
     node = ast.parse("uv * 2.0", mode="eval").body
     code = generator._generate_expr(node, symbols)
     expr_type = generator._get_expr_type(node, symbols)
@@ -60,16 +126,14 @@ def test_binop_vec2_float(generator, symbols):
 
 
 def test_invalid_attribute_raises_error(generator, symbols):
-    """Test that an invalid attribute access raises a TranspilerError."""
     node = ast.parse("hex_coord.z", mode="eval").body
-    with pytest.raises(TranspilerError, match="Invalid attribute access: z"):
+    with pytest.raises(TranspilerError, match="Invalid swizzle 'z' for vec2"):
         generator._get_expr_type(node, symbols)
 
 
 def test_version_directive_first_line():
-    """Test that #version 460 core is the first line in the generated GLSL."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(1.0, 0.0, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
@@ -80,19 +144,17 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_shader_compilation():
-    """Test that the generated GLSL code has the expected structure."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(sin(u_time), 0.0, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
-    assert "main_shader" in glsl_code
+    assert "shader" in glsl_code
     assert "void main()" in glsl_code
     assert "fragColor" in glsl_code
 
 
 def test_vec4_rgba_swizzle(generator, symbols):
-    """Test generating and typing a vec4 rgba swizzle."""
     node = ast.parse("color.rgba", mode="eval").body
     code = generator._generate_expr(node, symbols)
     expr_type = generator._get_expr_type(node, symbols)
@@ -101,7 +163,6 @@ def test_vec4_rgba_swizzle(generator, symbols):
 
 
 def test_vec4_xy_swizzle(generator, symbols):
-    """Test generating and typing a vec4 xy swizzle."""
     node = ast.parse("color.xy", mode="eval").body
     code = generator._generate_expr(node, symbols)
     expr_type = generator._get_expr_type(node, symbols)
@@ -110,7 +171,6 @@ def test_vec4_xy_swizzle(generator, symbols):
 
 
 def test_binop_vec4_vec4_addition(generator, symbols):
-    """Test generating and typing a vec4 + vec4 operation."""
     node = ast.parse("color + color", mode="eval").body
     code = generator._generate_expr(node, symbols)
     expr_type = generator._get_expr_type(node, symbols)
@@ -119,8 +179,6 @@ def test_binop_vec4_vec4_addition(generator, symbols):
 
 
 def test_function_call_with_args(generator, symbols):
-    """Test generating and typing a function call with arguments."""
-    # Correctly set the function in the collector
     dummy_node = ast.FunctionDef(
         name="wave", args=ast.arguments(args=[]), body=[ast.Pass()]
     )
@@ -132,8 +190,16 @@ def test_function_call_with_args(generator, symbols):
 
 
 def test_nested_function_call(generator, symbols):
-    """Test generating and typing a nested function call."""
-    generator.functions = {"sin": ("float", ["float"]), "length": ("float", ["vec2"])}
+    generator.collector.functions["sin"] = (
+        "float",
+        ["float"],
+        ast.FunctionDef(name="sin", args=ast.arguments(args=[]), body=[]),
+    )
+    generator.collector.functions["length"] = (
+        "float",
+        ["vec2"],
+        ast.FunctionDef(name="length", args=ast.arguments(args=[]), body=[]),
+    )
     node = ast.parse("sin(length(uv))", mode="eval").body
     code = generator._generate_expr(node, symbols)
     expr_type = generator._get_expr_type(node, symbols)
@@ -142,37 +208,32 @@ def test_nested_function_call(generator, symbols):
 
 
 def test_missing_main_shader_raises_error():
-    """Test that a missing main_shader raises a TranspilerError."""
     shader_code = """
 def helper(uv: 'vec2') -> 'float':
     return sin(uv.x)
 """
-    with pytest.raises(TranspilerError, match="Main function 'main_shader' not found"):
+    with pytest.raises(TranspilerError, match="Main function 'shader' not found"):
         transpile(shader_code)
 
 
 def test_multiple_helper_functions():
-    """Test transpilation with multiple helper functions."""
     shader_code = """
 def helper1(uv: 'vec2') -> 'float':
     return sin(uv.x)
-
 def helper2(uv: 'vec2', time: 'float') -> 'float':
     return cos(uv.y + time)
-
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(helper1(vs_uv), helper2(vs_uv, u_time), 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
     assert "helper1" in glsl_code
     assert "helper2" in glsl_code
-    assert "main_shader" in glsl_code
+    assert "shader" in glsl_code
 
 
 def test_uniform_declarations():
-    """Test that uniforms are correctly declared in GLSL."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float', u_scale: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float', u_scale: 'float') -> 'vec4':
     return vec4(vs_uv * u_scale, 0.0, 1.0)
 """
     glsl_code, used_uniforms = transpile(shader_code)
@@ -182,21 +243,21 @@ def main_shader(vs_uv: 'vec2', u_time: 'float', u_scale: 'float') -> 'vec4':
 
 
 def test_no_return_type_raises_error():
-    """Test that a missing return type raises a TranspilerError."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float'):
+def helper(vs_uv: 'vec2', u_time: 'float'):
     uv = vs_uv
+def shader(vs_uv: 'vec2', u_time: 'float'):
+    return vec4(1.0, 0.0, 0.0, 1.0)
 """
     with pytest.raises(
-        TranspilerError, match="Function 'main_shader' lacks return type annotation"
+        TranspilerError, match="Helper function 'helper' lacks return type annotation"
     ):
         transpile(shader_code)
 
 
 def test_complex_expression_in_shader():
-    """Test a shader with a complex expression."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     uv = vs_uv * 2.0
     color = vec4(sin(uv.x + u_time), cos(uv.y - u_time), 0.5, 1.0)
     return color
@@ -207,30 +268,26 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_unsupported_binop_raises_error(generator, symbols):
-    """Test that an unsupported binary operation raises a TranspilerError."""
     node = ast.parse("uv % 2.0", mode="eval").body
-    with pytest.raises(TranspilerError, match="Modulo requires integer operands"):
-        generator._get_expr_type(node, symbols)
+    with pytest.raises(TranspilerError, match="Unsupported binary op: Mod"):
+        generator._generate_expr(node, symbols)
 
 
 def test_empty_shader_raises_error():
-    """Test that an empty shader raises a TranspilerError."""
     shader_code = ""
     with pytest.raises(TranspilerError, match="Empty shader code provided"):
         transpile(shader_code)
 
 
 def test_invalid_function_call_raises_error(generator, symbols):
-    """Test that an unknown function call raises a TranspilerError."""
     node = ast.parse("unknown(uv)", mode="eval").body
-    with pytest.raises(TranspilerError, match="Unknown function: unknown"):
-        generator._get_expr_type(node, symbols)
+    with pytest.raises(TranspilerError, match="Unknown function call: unknown"):
+        generator._generate_expr(node, symbols)
 
 
 def test_shader_with_no_body_raises_error():
-    """Test that a main_shader with no body raises a TranspilerError."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     pass
 """
     with pytest.raises(
@@ -240,9 +297,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_augmented_assignment():
-    """Test that augmented assignment is correctly transpiled."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     uv = vs_uv
     uv *= 2.0
     return vec4(uv, 0.0, 1.0)
@@ -252,16 +308,13 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_struct_definition():
-    """Test that a struct is correctly defined and used."""
     shader_code = """
 from dataclasses import dataclass
-
 @dataclass
 class Test:
     x: 'float'
     y: 'vec2'
-
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     test: 'Test' = Test(1.0, vs_uv)
     return vec4(test.y, 0.0, 1.0)
 """
@@ -273,9 +326,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_while_loop():
-    """Test that a while loop is correctly transpiled."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     i = 0
     while i < 10:
         i += 1
@@ -287,16 +339,13 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_attribute_assignment():
-    """Test that attribute assignment is correctly transpiled."""
     shader_code = """
 from dataclasses import dataclass
-
 @dataclass
 class Test:
     x: 'float'
     y: 'vec2'
-
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     test: 'Test' = Test(1.0, vs_uv)
     test.y = vs_uv * 2.0
     return vec4(test.y, 0.0, 1.0)
@@ -306,9 +355,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_if_statement():
-    """Test that an if statement is correctly transpiled."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     color = vec3(0.0)
     if u_time > 1.0:
         color = vec3(1.0, 0.0, 0.0)
@@ -324,9 +372,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_break_in_loop():
-    """Test that a break statement in a loop is correctly transpiled."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     i = 0
     while i < 10:
         if i > 5:
@@ -341,9 +388,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_for_loop():
-    """Test that a for loop is correctly transpiled."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     i = 0
     for i in range(10):
         i += 1
@@ -354,9 +400,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_boolean_operation():
-    """Test that a boolean operation is correctly transpiled."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     i = 0
     while i < 10 or u_time > 1.0:
         i += 1
@@ -367,12 +412,10 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_global_variables():
-    """Test that global variables are correctly transpiled."""
     shader_code = """
 PI: 'float' = 3.141592
 MAX_STEPS: 'int' = 10
-
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     return vec4(sin(PI * u_time), 0.0, 0.0, 1.0)
 """
     glsl_code, _ = transpile(shader_code)
@@ -382,9 +425,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
 
 
 def test_default_uniforms_included():
-    """Test that default uniforms are included only if used."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float', u_aspect: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float', u_aspect: 'float') -> 'vec4':
     return vec4(sin(u_time), cos(u_aspect), 0.0, 1.0)
 """
     glsl_code, used_uniforms = transpile(shader_code)
@@ -394,9 +436,8 @@ def main_shader(vs_uv: 'vec2', u_time: 'float', u_aspect: 'float') -> 'vec4':
 
 
 def test_unused_default_uniforms_not_included():
-    """Test that unused default uniforms are not included in GLSL."""
     shader_code = """
-def main_shader(vs_uv: 'vec2') -> 'vec4':
+def shader(vs_uv: 'vec2') -> 'vec4':
     return vec4(vs_uv, 0.0, 1.0)
 """
     glsl_code, used_uniforms = transpile(shader_code)
@@ -406,9 +447,8 @@ def main_shader(vs_uv: 'vec2') -> 'vec4':
 
 
 def test_custom_uniforms_included():
-    """Test that custom uniforms are included if used."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_custom: 'vec3') -> 'vec4':
+def shader(vs_uv: 'vec2', u_custom: 'vec3') -> 'vec4':
     return vec4(u_custom, 1.0)
 """
     glsl_code, used_uniforms = transpile(shader_code)
@@ -417,9 +457,8 @@ def main_shader(vs_uv: 'vec2', u_custom: 'vec3') -> 'vec4':
 
 
 def test_mixed_uniforms():
-    """Test that both default and custom uniforms are handled correctly."""
     shader_code = """
-def main_shader(vs_uv: 'vec2', u_time: 'float', u_custom: 'float') -> 'vec4':
+def shader(vs_uv: 'vec2', u_time: 'float', u_custom: 'float') -> 'vec4':
     return vec4(sin(u_time * u_custom), 0.0, 0.0, 1.0)
 """
     glsl_code, used_uniforms = transpile(shader_code)
@@ -428,36 +467,14 @@ def main_shader(vs_uv: 'vec2', u_time: 'float', u_custom: 'float') -> 'vec4':
     assert used_uniforms == {"u_time", "u_custom"}
 
 
-# Your original test
-def test_struct_definition():
-    shader_code = """
-from dataclasses import dataclass
-
-@dataclass
-class Test:
-    x: 'float'
-    y: 'vec2'
-
-def main_shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
-    test: 'Test' = Test(1.0, vs_uv)
-    return vec4(test.y, 0.0, 1.0)
-"""
-    glsl_code, _ = transpile(shader_code)
-    assert "struct Test {" in glsl_code
-    assert "float x;" in glsl_code
-    assert "vec2 y;" in glsl_code
-    assert "Test test = Test(1.0, vs_uv);" in glsl_code
-
-
-# Basic struct initialization with keyword arguments
 def test_struct_initialization_keywords():
     @dataclass
     class SimpleStruct:
-        x: float
-        y: vec3
-        z: int
+        x: "float"
+        y: "vec3"
+        z: "int"
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         s = SimpleStruct(x=1.0, y=vec3(2.0, 3.0, 4.0), z=5)
         return vec4(s.y, s.x)
 
@@ -466,15 +483,14 @@ def test_struct_initialization_keywords():
     assert "return vec4(s.y, s.x);" in glsl_code
 
 
-# Struct with defaults and partial initialization
 def test_struct_partial_init_with_defaults():
     @dataclass
     class DefaultStruct:
-        a: float = 0.0
-        b: vec3 = vec3(1.0, 1.0, 1.0)
-        c: int = 42
+        a: "float" = 0.0
+        b: "vec3" = vec3(1.0, 1.0, 1.0)
+        c: "int" = 42
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         s = DefaultStruct(b=vec3(2.0, 3.0, 4.0))
         return vec4(s.b, s.a)
 
@@ -482,9 +498,8 @@ def test_struct_partial_init_with_defaults():
     assert "DefaultStruct s = DefaultStruct(0.0, vec3(2.0, 3.0, 4.0), 42);" in glsl_code
 
 
-# Uniform declaration and usage
 def test_uniform_declaration_and_usage():
-    def shader(vs_uv: vec2, u_time: float, u_scale: float) -> vec4:
+    def shader(vs_uv: "vec2", u_time: "float", u_scale: "float") -> "vec4":
         pos = vec3(sin(u_time) * u_scale, cos(u_time), 0.0)
         return vec4(pos, 1.0)
 
@@ -494,9 +509,8 @@ def test_uniform_declaration_and_usage():
     assert "u_time" in used_uniforms and "u_scale" in used_uniforms
 
 
-# Unused uniforms
 def test_unused_uniforms():
-    def shader(vs_uv: vec2, u_unused: float) -> vec4:
+    def shader(vs_uv: "vec2", u_unused: "float") -> "vec4":
         return vec4(vs_uv.x, vs_uv.y, 0.0, 1.0)
 
     glsl_code, used_uniforms = transpile(shader)
@@ -504,9 +518,8 @@ def test_unused_uniforms():
     assert "u_unused" in used_uniforms
 
 
-# Basic arithmetic and builtins
 def test_arithmetic_and_builtins():
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         v = vec3(vs_uv.x + 1.0, vs_uv.y * 2.0, sin(vs_uv.x))
         return vec4(normalize(v), 1.0)
 
@@ -515,14 +528,13 @@ def test_arithmetic_and_builtins():
     assert "return vec4(normalize(v), 1.0);" in glsl_code
 
 
-# Loop with struct modification
 def test_loop_with_struct():
     @dataclass
     class LoopStruct:
-        count: int
-        value: float
+        count: "int"
+        value: "float"
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         s = LoopStruct(count=0, value=vs_uv.x)
         for i in range(5):
             s.count = i
@@ -536,14 +548,13 @@ def test_loop_with_struct():
     assert "s.value = s.value + 1.0;" in glsl_code
 
 
-# Conditional struct usage
 def test_conditional_struct():
     @dataclass
     class CondStruct:
-        flag: bool
-        color: vec3
+        flag: "bool"
+        color: "vec3"
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         s = CondStruct(flag=vs_uv.x > 0.5, color=vec3(1.0, 0.0, 0.0))
         if s.flag:
             s.color = vec3(0.0, 1.0, 0.0)
@@ -555,14 +566,13 @@ def test_conditional_struct():
     assert "s.color = vec3(0.0, 1.0, 0.0);" in glsl_code
 
 
-# Error on missing required fields
 def test_missing_required_fields():
     @dataclass
     class RequiredStruct:
-        x: float
-        y: vec3
+        x: "float"
+        y: "vec3"
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         s = RequiredStruct(x=1.0)  # Missing y
         return vec4(s.y, 1.0)
 
@@ -572,14 +582,13 @@ def test_missing_required_fields():
         transpile(shader)
 
 
-# Error on invalid field name
 def test_invalid_field_name():
     @dataclass
     class ValidStruct:
-        a: int
-        b: vec3
+        a: "int"
+        b: "vec3"
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         s = ValidStruct(a=1, z=vec3(1.0, 2.0, 3.0))  # 'z' is invalid
         return vec4(s.b, 1.0)
 
@@ -589,18 +598,17 @@ def test_invalid_field_name():
         transpile(shader)
 
 
-# Nested structs
 def test_nested_structs():
     @dataclass
     class InnerStruct:
-        v: vec2
+        v: "vec2"
 
     @dataclass
     class OuterStruct:
-        inner: InnerStruct
-        scale: float
+        inner: "InnerStruct"
+        scale: "float"
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         inner = InnerStruct(v=vs_uv)
         outer = OuterStruct(inner=inner, scale=2.0)
         return vec4(outer.inner.v.x * outer.scale, outer.inner.v.y, 0.0, 1.0)
@@ -614,14 +622,13 @@ def test_nested_structs():
     )
 
 
-# NaN prevention in computations
 def test_nan_prevention():
     @dataclass
     class SafeStruct:
-        pos: vec3
-        speed: float
+        pos: "vec3"
+        speed: "float"
 
-    def shader(vs_uv: vec2) -> vec4:
+    def shader(vs_uv: "vec2") -> "vec4":
         s = SafeStruct(pos=vec3(vs_uv.x, vs_uv.y, 0.0), speed=1.0)
         s.pos = s.pos + vec3(s.speed, 0.0, 0.0)
         return vec4(s.pos, 1.0)
@@ -631,19 +638,28 @@ def test_nan_prevention():
     assert "s.pos = s.pos + vec3(s.speed, 0.0, 0.0);" in glsl_code
 
 
-# Multiple uniforms with struct
-def test_multi_uniform_struct():
-    @dataclass
-    class UniStruct:
-        offset: vec3
-        active: bool
+def test_loops_and_conditionals():
+    shader_code = """
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+    total: 'float' = 0.0
+    for i in range(3):
+        if u_time > float(i):
+            total = total + 1.0
+    return vec4(total / 3.0, 0.0, 0.0, 1.0)
+"""
+    glsl_code, _ = transpile(shader_code)
+    assert "for (int i = 0; i < 3; i += 1) {" in glsl_code
+    assert "if (u_time > float(i)) {" in glsl_code
+    assert "total = total + 1.0;" in glsl_code
+    assert "return vec4(total / 3.0, 0.0, 0.0, 1.0);" in glsl_code
 
-    def shader(vs_uv: vec2, u_time: float, u_offset: vec3) -> vec4:
-        s = UniStruct(offset=u_offset, active=sin(u_time) > 0.0)
-        return vec4(s.offset, 1.0) if s.active else vec4(0.0, 0.0, 0.0, 1.0)
 
-    glsl_code, used_uniforms = transpile(shader)
-    assert "uniform float u_time;" in glsl_code
-    assert "uniform vec3 u_offset;" in glsl_code
-    assert "UniStruct s = UniStruct(u_offset, sin(u_time) > 0.0);" in glsl_code
-    assert "u_time" in used_uniforms and "u_offset" in used_uniforms
+def test_arithmetic_and_builtins():
+    shader_code = """
+def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+    x: 'float' = sin(u_time) + 2.0 * vs_uv.x
+    return vec4(x, 0.0, 0.0, 1.0)
+"""
+    glsl_code, _ = transpile(shader_code)
+    assert "float x = sin(u_time) + 2.0 * vs_uv.x;" in glsl_code
+    assert "return vec4(x, 0.0, 0.0, 1.0);" in glsl_code
