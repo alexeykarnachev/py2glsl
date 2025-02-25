@@ -72,9 +72,7 @@ class FunctionCollector(ast.NodeVisitor):
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.current_context.append("class")
         is_dataclass = any(
-            isinstance(d, (ast.Name, ast.Attribute))
-            and getattr(d, "id", d.attr) == "dataclass"
-            for d in node.decorator_list
+            isinstance(d, ast.Name) and d.id == "dataclass" for d in node.decorator_list
         )
         if is_dataclass:
             fields = []
@@ -393,9 +391,10 @@ class GLSLGenerator:
                         return ftype
             if value_type.startswith("vec"):
                 swizzle_len = len(node.attr)
-                return {1: "float", 2: "vec2", 3: "vec3", 4: "vec4"}.get(
-                    swizzle_len, "unknown"
-                )
+                valid_lengths = {1: "float", 2: "vec2", 3: "vec3", 4: "vec4"}
+                if swizzle_len in valid_lengths:
+                    return valid_lengths[swizzle_len]
+                raise TranspilerError(f"Invalid attribute access: {node.attr}")
             raise TranspilerError(f"Invalid attribute access: {node.attr}")
         raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")
 
@@ -493,7 +492,7 @@ class Transpiler:
         ) + "".join(
             f"uniform {self._get_annotation_type(arg.annotation)} {arg.arg};\n"
             for arg in main_node.args.args
-            if arg.arg not in DEFAULT_UNIFORMS | {"vs_uv"}
+            if arg.arg not in set(DEFAULT_UNIFORMS.keys()) | {"vs_uv"}
         )
 
         # Functions

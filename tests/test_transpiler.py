@@ -211,7 +211,7 @@ def test_unsupported_binop_raises_error(generator, symbols):
 def test_empty_shader_raises_error():
     """Test that an empty shader raises a TranspilerError."""
     shader_code = ""
-    with pytest.raises(TranspilerError, match="Main function 'main_shader' not found"):
+    with pytest.raises(TranspilerError, match="Empty shader code provided"):
         transpile(shader_code)
 
 
