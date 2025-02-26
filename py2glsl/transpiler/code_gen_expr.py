@@ -318,7 +318,7 @@ def generate_expr(
         TranspilerError: If unsupported expressions are encountered
     """
     if isinstance(node, ast.Name):
-        return generate_name_expr(node)
+        return generate_name_expr(node, symbols)
     elif isinstance(node, ast.Constant):
         return generate_constant_expr(node)
     elif isinstance(node, ast.BinOp):

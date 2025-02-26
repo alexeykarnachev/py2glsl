@@ -25,9 +25,9 @@ class TestCollectInfo:
         """Test collecting function information."""
         # Arrange
         code = """
-        def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
-            return vec4(1.0, 0.0, 0.0, 1.0)
-        """
+    def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
+        return vec4(1.0, 0.0, 0.0, 1.0)
+    """
         tree = ast.parse(code)
 
         # Act
