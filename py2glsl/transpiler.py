@@ -1,28 +1,87 @@
+"""
+GLSL Shader Transpiler for Python.
+
+This module provides functionality to convert Python code into GLSL shader code for use with OpenGL.
+It parses Python functions, dataclasses, and other constructs and generates equivalent GLSL code.
+
+The main entry point is the `transpile` function, which takes Python code (as a string or callable)
+and returns the equivalent GLSL code along with a set of used uniforms.
+
+Example:
+    ```python
+    from py2glsl import transpile, vec2, vec4
+    
+    def shader(vs_uv: vec2, u_time: float) -> vec4:
+        return vec4(vs_uv.x, vs_uv.y, 0.0, 1.0)
+    
+    glsl_code, uniforms = transpile(shader)
+    print(glsl_code)
+    ```
+"""
+
 import ast
 import inspect
 import textwrap
-from typing import Any, Callable, Dict, List, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
 from loguru import logger
 
 
 class TranspilerError(Exception):
+    """Exception raised for errors during shader code transpilation."""
+
     pass
 
 
 class StructDefinition:
-    def __init__(self, name: str, fields: List[Tuple[str, str, str | None]]):
+    """Representation of a GLSL struct definition.
+
+    Attributes:
+        name: Name of the struct
+        fields: List of field tuples (name, type, default_value)
+    """
+
+    def __init__(self, name: str, fields: List[Tuple[str, str, Optional[str]]]):
+        """Initialize a struct definition.
+
+        Args:
+            name: Name of the struct
+            fields: List of field tuples (name, type, default_value)
+        """
         self.name = name
         self.fields = fields
 
 
 class FunctionCollector(ast.NodeVisitor):
+    """AST visitor that collects functions, structs, and global variables.
+
+    This class traverses the AST of Python code and collects information about
+    functions, struct definitions (dataclasses), and global constants that will
+    be converted to GLSL.
+
+    Attributes:
+        functions: Dictionary mapping function names to (return_type, param_types, node)
+        structs: Dictionary mapping struct names to StructDefinition objects
+        globals: Dictionary mapping global variable names to (type, value)
+    """
+
     def __init__(self):
-        self.functions: Dict[str, Tuple[str, List[str], ast.FunctionDef]] = {}
+        """Initialize the function collector."""
+        self.functions: Dict[
+            str, Tuple[Optional[str], List[Optional[str]], ast.FunctionDef]
+        ] = {}
         self.structs: Dict[str, StructDefinition] = {}
         self.globals: Dict[str, Tuple[str, str]] = {}
 
-    def _get_annotation_type(self, annotation: ast.AST) -> str:
+    def _get_annotation_type(self, annotation: Optional[ast.AST]) -> Optional[str]:
+        """Extract the type name from an AST annotation node.
+
+        Args:
+            annotation: AST node representing a type annotation
+
+        Returns:
+            String representation of the type or None if no valid annotation
+        """
         if annotation is None:
             return None
         if isinstance(annotation, ast.Name):
@@ -32,6 +91,13 @@ class FunctionCollector(ast.NodeVisitor):
         return None
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Process a function definition AST node.
+
+        Extracts function parameters, return type, and adds to the collected functions.
+
+        Args:
+            node: AST node for a function definition
+        """
         params = [self._get_annotation_type(arg.annotation) for arg in node.args.args]
         return_type = self._get_annotation_type(node.returns)
         self.functions[node.name] = (return_type, params, node)
@@ -41,6 +107,14 @@ class FunctionCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        """Process a class definition AST node.
+
+        Looks for dataclass definitions and extracts field information to create
+        struct definitions.
+
+        Args:
+            node: AST node for a class definition
+        """
         is_dataclass = any(
             isinstance(d, ast.Name) and d.id == "dataclass" for d in node.decorator_list
         )
@@ -62,6 +136,13 @@ class FunctionCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        """Process an annotated assignment AST node.
+
+        Extracts global variable definitions with type annotations.
+
+        Args:
+            node: AST node for an annotated assignment
+        """
         if isinstance(node.target, ast.Name) and node.value:
             expr_type = self._get_annotation_type(node.annotation)
             try:
@@ -75,6 +156,17 @@ class FunctionCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _generate_simple_expr(self, node: ast.AST) -> str:
+        """Generate GLSL code for simple expressions used in global constants or defaults.
+
+        Args:
+            node: AST node for a simple expression
+
+        Returns:
+            String representation of the expression in GLSL
+
+        Raises:
+            TranspilerError: If the expression is not supported for globals/defaults
+        """
         if isinstance(node, ast.Constant):
             if isinstance(node.value, (int, float)):
                 return str(node.value)
@@ -94,10 +186,29 @@ class FunctionCollector(ast.NodeVisitor):
 
 
 class GLSLGenerator:
+    """Generates GLSL code from collected AST information.
+
+    This class takes the functions, structs, and globals collected by FunctionCollector
+    and generates equivalent GLSL shader code.
+
+    Attributes:
+        collector: The FunctionCollector with the parsed information
+        indent_size: Indentation size for generated code
+        builtins: Dictionary of built-in GLSL functions and their signatures
+        OPERATOR_PRECEDENCE: Dictionary mapping operators to their precedence levels
+    """
+
     def __init__(self, collector: FunctionCollector, indent_size: int = 4):
+        """Initialize the GLSL generator.
+
+        Args:
+            collector: FunctionCollector containing parsed information
+            indent_size: Indentation size for generated code
+        """
         self.collector = collector
         self.indent_size = indent_size
-        self.builtins = {
+        # Built-in GLSL functions with return types and parameter types
+        self.builtins: Dict[str, Tuple[str, List[str]]] = {
             "sin": ("float", ["float"]),
             "cos": ("float", ["float"]),
             "tan": ("float", ["float"]),
@@ -114,7 +225,8 @@ class GLSLGenerator:
             "vec3": ("vec3", ["float", "float", "float"]),
             "vec4": ("vec4", ["float", "float", "float", "float"]),
         }
-        self.OPERATOR_PRECEDENCE = {
+        # Operator precedence for generating correct expressions
+        self.OPERATOR_PRECEDENCE: Dict[str, int] = {
             "=": 1,
             "||": 2,
             "&&": 3,
@@ -135,6 +247,17 @@ class GLSLGenerator:
         }
 
     def generate(self, main_func: str) -> Tuple[str, Set[str]]:
+        """Generate GLSL code from the collected information.
+
+        Args:
+            main_func: Name of the main function to use as shader entry point
+
+        Returns:
+            Tuple of (generated GLSL code, set of used uniform variables)
+
+        Raises:
+            TranspilerError: If there are issues generating valid GLSL
+        """
         logger.debug(f"Starting GLSL generation for main function: {main_func}")
         lines = []
         used_uniforms = set()
@@ -200,6 +323,18 @@ class GLSLGenerator:
         return glsl_code, used_uniforms
 
     def _generate_body(self, body: List[ast.AST], symbols: Dict[str, str]) -> str:
+        """Generate GLSL code for a function body.
+
+        Args:
+            body: List of AST nodes representing statements in the function body
+            symbols: Dictionary of variable names to their types
+
+        Returns:
+            Generated GLSL code for the function body
+
+        Raises:
+            TranspilerError: If unsupported statements are encountered
+        """
         logger.debug(f"Generating body with initial symbols: {symbols}")
         code = []
         indent = "    "
@@ -303,6 +438,19 @@ class GLSLGenerator:
         symbols: Dict[str, str],
         parent_precedence: int = 0,
     ) -> str:
+        """Generate GLSL code for an expression.
+
+        Args:
+            node: AST node representing an expression
+            symbols: Dictionary of variable names to their types
+            parent_precedence: Precedence level of the parent operation
+
+        Returns:
+            Generated GLSL code for the expression
+
+        Raises:
+            TranspilerError: If unsupported expressions are encountered
+        """
         if isinstance(node, ast.Name):
             return node.id if node.id in symbols else node.id
         elif isinstance(node, ast.Constant):
@@ -432,6 +580,18 @@ class GLSLGenerator:
         raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
 
     def _get_expr_type(self, node: ast.AST, symbols: Dict[str, str]) -> str:
+        """Determine the GLSL type of an expression.
+
+        Args:
+            node: AST node representing an expression
+            symbols: Dictionary of variable names to their types
+
+        Returns:
+            The GLSL type of the expression
+
+        Raises:
+            TranspilerError: If the type cannot be determined
+        """
         if isinstance(node, ast.Name):
             if node.id in symbols:
                 return symbols[node.id]
@@ -503,17 +663,38 @@ class GLSLGenerator:
 
 
 class Transpiler:
+    """Main class for transpiling Python code to GLSL.
+
+    This class coordinates the parsing of Python code, collection of information
+    about functions, structs, and globals, and the generation of GLSL code.
+
+    Attributes:
+        shader_input: The input Python code (string or dict of callables)
+        main_func: Name of the main function to use as shader entry point
+        tree: The AST of the parsed Python code
+        collector: FunctionCollector to extract information from the AST
+        generator: GLSLGenerator to generate GLSL code
+        globals: Dictionary of global constants to include in the shader
+    """
+
     def __init__(
         self,
         shader_input: Union[str, Dict[str, Callable]],
-        main_func: str | None = None,
-        globals: Dict[str, Any] | None = None,
+        main_func: Optional[str] = None,
+        globals: Optional[Dict[str, Any]] = None,
     ):
+        """Initialize the transpiler.
+
+        Args:
+            shader_input: The input Python code (string or dict of callables)
+            main_func: Name of the main function to use as shader entry point
+            globals: Dictionary of global constants to include in the shader
+        """
         self.shader_input = shader_input
         self.main_func = main_func
-        self.tree = None
+        self.tree: Optional[ast.AST] = None
         self.collector = FunctionCollector()
-        self.generator = None
+        self.generator: Optional[GLSLGenerator] = None
         self.globals = globals or {}
         logger.debug(
             f"Initializing Transpiler with main_func: {main_func}, globals: {self.globals}"
@@ -531,6 +712,11 @@ class Transpiler:
                 self.collector.globals[name] = ("bool", "true" if value else "false")
 
     def parse(self) -> None:
+        """Parse the input Python code into an AST.
+
+        Raises:
+            TranspilerError: If parsing fails
+        """
         logger.debug("Parsing shader input")
         if isinstance(self.shader_input, dict):
             # Parse all items in context together to include globals
@@ -560,6 +746,11 @@ class Transpiler:
         logger.debug("Parsing complete")
 
     def collect(self) -> None:
+        """Collect information about functions, structs, and globals from the AST.
+
+        Raises:
+            TranspilerError: If collection fails or if the main function is not found
+        """
         logger.debug("Collecting functions, structs, and globals")
         if not self.tree:
             raise TranspilerError("AST not parsed. Call parse() first.")
@@ -572,13 +763,61 @@ class Transpiler:
         self.generator = GLSLGenerator(self.collector)
 
     def generate(self) -> Tuple[str, Set[str]]:
+        """Generate GLSL code from the collected information.
+
+        Returns:
+            Tuple of (generated GLSL code, set of used uniform variables)
+
+        Raises:
+            TranspilerError: If generation fails
+        """
         logger.debug(f"Generating GLSL for: {self.main_func}")
         if not self.generator:
             raise TranspilerError("Generator not initialized. Call collect() first.")
         return self.generator.generate(self.main_func)
 
 
-def transpile(*args, main_func: str = None, **kwargs) -> Tuple[str, Set[str]]:
+def transpile(
+    *args: Union[str, Callable, Type, object],
+    main_func: Optional[str] = None,
+    **kwargs: Any,
+) -> Tuple[str, Set[str]]:
+    """Transpile Python code to GLSL shader code.
+
+    This is the main entry point for the transpiler. It accepts various forms of input:
+    - A string containing Python code
+    - A function or class to transpile
+    - Multiple functions or classes to include in the transpilation
+
+    Args:
+        *args: The Python code or callables to transpile
+        main_func: Name of the main function to use as shader entry point
+        **kwargs: Additional keyword arguments:
+            - Additional functions/classes to include
+            - Global constants to include in the shader
+
+    Returns:
+        Tuple of (generated GLSL code, set of used uniform variables)
+
+    Raises:
+        TranspilerError: If transpilation fails
+
+    Examples:
+        ```python
+        # Transpile a single function
+        glsl_code, uniforms = transpile(my_shader_func)
+
+        # Transpile with multiple functions/structs
+        glsl_code, uniforms = transpile(my_struct, my_helper_func, my_shader_func)
+
+        # Specify the main function
+        glsl_code, uniforms = transpile(my_struct, my_helper_func, my_shader_func,
+                                        main_func="my_shader_func")
+
+        # Include global constants
+        glsl_code, uniforms = transpile(my_shader_func, PI=3.14159, MAX_STEPS=100)
+        ```
+    """
     logger.debug(
         f"Transpiling with args: {args}, main_func: {main_func}, kwargs: {kwargs}"
     )
