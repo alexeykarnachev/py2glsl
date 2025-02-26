@@ -17,6 +17,7 @@ from py2glsl.builtins import (
     vec4,
 )
 from py2glsl.render import animate
+from py2glsl.transpiler import transpile  # Import transpile explicitly
 
 # Global constants
 PI: float = 3.141592
@@ -205,11 +206,17 @@ def main_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
 
 
 if __name__ == "__main__":
-    # Directly use animate with the shader function
-    animate(main_shader)
+    # Pass all functions and the struct explicitly to transpile
+    glsl_code, used_uniforms = transpile(
+        get_sd_shape,
+        march,
+        attenuate,
+        main_shader,
+        RayMarchResult,
+        main_func="main_shader",
+    )
+    animate(glsl_code, used_uniforms=used_uniforms)
 
-    # Optional: For debugging, you can also transpile and print the code
-    # from py2glsl.transpiler import transpile
-    # glsl_code, used_uniforms = transpile(main_shader)
-    # print("Generated GLSL code:")
-    # print(glsl_code)
+    # Optional: For debugging
+    print("Generated GLSL code:")
+    print(glsl_code)
