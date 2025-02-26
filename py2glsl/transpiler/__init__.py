@@ -1,17 +1,11 @@
 """
-Python to GLSL shader transpiler.
+GLSL code generation for complete shader programs.
 
-This package provides functionality to convert Python code into GLSL shader code for use with OpenGL.
-It parses Python functions, dataclasses, and other constructs and generates equivalent GLSL code.
-
-The main entry point is the "transpile" function, which takes Python code (as a string or callable)
-and returns the equivalent GLSL code along with a set of used uniforms.
+This module provides the top-level interface for transpiling Python code to GLSL shaders.
 """
 
-import ast
 import inspect
-import textwrap
-from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union
+from typing import Any, Callable, Optional, Set, Tuple, Type, Union
 
 from loguru import logger
 
@@ -91,43 +85,39 @@ def transpile(
             effective_main_func = main_func or "shader"
         else:
             main_item = args[0]
+            if not callable(main_item) and not isinstance(main_item, type):
+                raise TranspilerError("Unsupported item type")
             if main_item.__name__.startswith("test_"):
                 raise TranspilerError(
-                    f"Main function '{main_item.__name__}' excluded due to 'test_' prefix"
+                    "Test functions/classes are not supported in transpilation"
                 )
-            context = {main_item.__name__: main_item}
-            shader_input = context
-            effective_main_func = main_func or main_item.__name__
-    else:
-        context = {}
+            shader_input = {main_item.__name__: main_item}
+    elif len(args) > 1:
+        shader_input = {}
         for item in args:
-            if inspect.isfunction(item):
-                context[item.__name__] = item
-            elif inspect.isclass(item) and hasattr(item, "__dataclass_fields__"):
-                context[item.__name__] = item
+            if callable(item) or (
+                isinstance(item, type) and hasattr(item, "__dataclass_fields__")
+            ):
+                shader_input[item.__name__] = item
             else:
                 raise TranspilerError(
-                    f"Unsupported item type in transpile args: {type(item)}"
+                    f"Unsupported argument type: {type(item).__name__}"
                 )
-        shader_input = context
-        effective_main_func = main_func
 
-    tree, parsed_main_func = parse_shader_code(shader_input, effective_main_func)
-    effective_main_func = parsed_main_func
+    tree, effective_main_func = parse_shader_code(shader_input, effective_main_func)
 
     collected = collect_info(tree)
-
     for name, value in global_constants.items():
-        if isinstance(value, (int, float)):
-            type_name = "float" if isinstance(value, float) else "int"
-            collected.globals[name] = (type_name, str(value))
-        elif isinstance(value, bool):
-            collected.globals[name] = ("bool", "true" if value else "false")
+        value_str = str(value).lower() if isinstance(value, bool) else str(value)
+        collected.globals[name] = (
+            "float" if isinstance(value, float) else "int",
+            value_str,
+        )
 
     if effective_main_func not in collected.functions:
-        raise TranspilerError(f"Main function '{effective_main_func}' not found")
+        raise TranspilerError(
+            f"Main function '{effective_main_func}' not found in collected functions"
+        )
 
-    return generate_glsl(collected, effective_main_func)
-
-
-__all__ = ["transpile", "TranspilerError"]
+    glsl_code, uniforms = generate_glsl(collected, effective_main_func)
+    return glsl_code, uniforms

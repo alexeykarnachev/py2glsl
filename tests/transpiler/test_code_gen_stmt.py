@@ -472,7 +472,7 @@ else:
         result = generate_body(node, symbols.copy(), collected_info)
 
         # Assert
-        assert len(result) == 7
+        assert len(result) == 9
         assert "float x = 0.0;" in result[0]
         assert "for (int i = 0; i < 5; i += 1) {" in result[1]
         assert "x = x + 1.0;" in result[2]

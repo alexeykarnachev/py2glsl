@@ -16,6 +16,7 @@ BUILTIN_FUNCTIONS: Dict[str, Tuple[str, List[str]]] = {
     "asin": ("float", ["float"]),
     "acos": ("float", ["float"]),
     "atan": ("float", ["float"]),
+    "radians": ("float", ["float"]),
     # Mathematical functions
     "abs": ("float", ["float"]),
     "floor": ("float", ["float"]),

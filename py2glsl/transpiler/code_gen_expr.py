@@ -196,8 +196,8 @@ def generate_if_expr(
     """
     precedence = OPERATOR_PRECEDENCE["?"]
     condition = generate_expr(node.test, symbols, 0, collected)
-    true_expr = generate_expr(node.body, symbols, precedence, collected)
-    false_expr = generate_expr(node.orelse, symbols, precedence, collected)
+    true_expr = generate_expr(node.body, symbols, 0, collected)  # Changed to 0
+    false_expr = generate_expr(node.orelse, symbols, 0, collected)  # Changed to 0
     expr = f"{condition} ? {true_expr} : {false_expr}"
 
     return f"({expr})" if precedence < parent_precedence else expr
