@@ -65,8 +65,8 @@ def get_sd_shape(p: vec3) -> float:
     Returns:
         Signed distance to the shape
     """
-    # Rounded box SDF
-    d = length(max(abs(p) - 1.0, 0.0)) - 0.2
+    # Rounded box SDF - Fixed type compatibility
+    d = length(max(abs(p) - vec3(1.0, 1.0, 1.0), vec3(0.0, 0.0, 0.0))) - 0.2
     return d
 
 
@@ -153,7 +153,7 @@ def main_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
         Final color (RGBA)
     """
     # Screen position
-    screen_pos = vs_uv * 2.0 - 1.0
+    screen_pos = vs_uv * 2.0 - vec2(1.0, 1.0)
     screen_pos.x *= u_aspect
 
     # Camera setup
@@ -202,7 +202,7 @@ def main_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
         # Background color - simple gradient
         color = vec3(0.1, 0.2, 0.3) * (1.0 - length(screen_pos) * 0.5)
 
-    return vec4(color, 1.0)
+    return vec4(color.x, color.y, color.z, 1.0)  # Fixed vec4 construction
 
 
 if __name__ == "__main__":

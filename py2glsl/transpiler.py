@@ -189,6 +189,13 @@ class GLSLGenerator:
         lines.append("}")
 
         glsl_code = "\n".join(lines)
+
+        # Ensure boolean literals are lowercase in GLSL
+        glsl_code = glsl_code.replace(" True", " true").replace(" False", " false")
+        glsl_code = glsl_code.replace("(True", "(true").replace("(False", "(false")
+        glsl_code = glsl_code.replace(",True", ",true").replace(",False", ",false")
+        glsl_code = glsl_code.replace("=True", "=true").replace("=False", "=false")
+
         logger.debug(f"GLSL generation complete. Used uniforms: {used_uniforms}")
         return glsl_code, used_uniforms
 
