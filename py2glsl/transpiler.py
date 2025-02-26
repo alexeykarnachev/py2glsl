@@ -476,7 +476,7 @@ def generate_bool_op_expr(
     values = [generate_expr(val, symbols, precedence, collected) for val in node.values]
 
     expr = f" {op} ".join(values)
-    return f"({expr})" if precedence < parent_precedence else expr
+    return f"({expr})" if precedence <= parent_precedence else expr
 
 
 def generate_struct_constructor(
@@ -616,7 +616,7 @@ def generate_if_expr(
     true_expr = generate_expr(node.body, symbols, precedence, collected)
     false_expr = generate_expr(node.orelse, symbols, precedence, collected)
     expr = f"{condition} ? {true_expr} : {false_expr}"
-    return f"({expr})" if parent_precedence > precedence else expr
+    return f"({expr})" if precedence <= parent_precedence else expr
 
 
 def generate_expr(

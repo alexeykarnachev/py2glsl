@@ -824,7 +824,7 @@ def test_generate_for_loop(symbols: Dict[str, str], collected_info: CollectedInf
             args=[ast.Constant(value=5, kind=None), ast.Constant(value=15, kind=None)],
             keywords=[],
         ),
-        body=[ast.Pass()],
+        body=[ast.Expr(value=ast.Constant(value=0, kind=None))],
         orelse=[],
     )
     result = generate_for_loop(range_start_end, symbols, "    ", collected_info)
@@ -1751,7 +1751,7 @@ def test_missing_required_fields() -> None:
         return vec4(s.y, 1.0)
 
     with pytest.raises(
-        TranspilerError, match="Wrong number of arguments for struct RequiredStruct"
+        TranspilerError, match="Missing required fields in struct RequiredStruct"
     ):
         transpile(RequiredStruct, shader)
 
@@ -1872,7 +1872,7 @@ def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     assert "return Result(length(pos), pos.x > 0.0);" in glsl_code
     assert "Result res = helper(vs_uv);" in glsl_code
     assert (
-        "return (res.flag ? vec4(res.value, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0));"
+        "return res.flag ? vec4(res.value, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);"
         in glsl_code
     )
     assert used_uniforms == {"u_time"}
