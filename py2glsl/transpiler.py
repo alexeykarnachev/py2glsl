@@ -4,11 +4,10 @@ GLSL Shader Transpiler for Python.
 This module provides functionality to convert Python code into GLSL shader code for use with OpenGL.
 It parses Python functions, dataclasses, and other constructs and generates equivalent GLSL code.
 
-The main entry point is the `transpile` function, which takes Python code (as a string or callable)
+The main entry point is the "transpile" function, which takes Python code (as a string or callable)
 and returns the equivalent GLSL code along with a set of used uniforms.
 
 Example:
-    ```python
     from py2glsl import transpile, vec2, vec4
     
     def shader(vs_uv: vec2, u_time: float) -> vec4:
@@ -16,7 +15,6 @@ Example:
     
     glsl_code, uniforms = transpile(shader)
     print(glsl_code)
-    ```
 """
 
 import ast
@@ -132,6 +130,7 @@ OPERATOR_PRECEDENCE: Dict[str, int] = {
     "unary": 8,
     "call": 9,
     "member": 10,
+    "?": 14,  # Ternary operator precedence in GLSL
 }
 
 
@@ -166,18 +165,14 @@ def generate_simple_expr(node: ast.AST) -> str:
         TranspilerError: If the expression is not supported for globals/defaults
     """
     if isinstance(node, ast.Constant):
-        if isinstance(node.value, (int, float)):
-            return str(node.value)
-        elif isinstance(node.value, bool):
+        if isinstance(node.value, bool):
             return "true" if node.value else "false"  # GLSL uses lowercase
+        elif isinstance(node.value, (int, float)):
+            return str(node.value)
         elif isinstance(node.value, str):
             return node.value
     elif isinstance(node, ast.Call):
-        if isinstance(node.func, ast.Name) and node.func.id in {
-            "vec2",
-            "vec3",
-            "vec4",
-        }:
+        if isinstance(node.func, ast.Name) and node.func.id in {"vec2", "vec3", "vec4"}:
             args = [generate_simple_expr(arg) for arg in node.args]
             return f"{node.func.id}({', '.join(args)})"
     raise TranspilerError("Unsupported expression in global or default value")
@@ -280,10 +275,12 @@ def get_expr_type(
             return symbols[node.id]
         raise TranspilerError(f"Undefined variable: {node.id}")
     elif isinstance(node, ast.Constant):
-        if isinstance(node.value, (int, float)):
+        if isinstance(node.value, bool):
+            return "bool"  # Correctly identify boolean type
+        elif isinstance(node.value, int):
+            return "int"
+        elif isinstance(node.value, float):
             return "float"
-        elif isinstance(node.value, bool):
-            return "bool"
     elif isinstance(node, ast.BinOp):
         left_type = get_expr_type(node.left, symbols, collected)
         right_type = get_expr_type(node.right, symbols, collected)
@@ -366,12 +363,10 @@ def generate_constant_expr(node: ast.Constant) -> str:
     Raises:
         TranspilerError: If the constant type is not supported
     """
-    if isinstance(node.value, (int, float)):
+    if isinstance(node.value, bool):
+        return "true" if node.value else "false"  # GLSL uses lowercase
+    elif isinstance(node.value, (int, float)):
         return str(node.value)
-    elif isinstance(node.value, bool):
-        # Use lowercase for GLSL boolean literals
-        return "true" if node.value else "false"
-
     raise TranspilerError(f"Unsupported constant type: {type(node.value).__name__}")
 
 
@@ -397,7 +392,6 @@ def generate_binary_op_expr(
     """
     op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
     op = op_map.get(type(node.op))
-
     if not op:
         raise TranspilerError(f"Unsupported binary op: {type(node.op).__name__}")
 
@@ -438,9 +432,7 @@ def generate_compare_expr(
             ast.Eq: "==",
             ast.NotEq: "!=",
         }
-
         op = op_map.get(type(node.ops[0]))
-
         if not op:
             raise TranspilerError(
                 f"Unsupported comparison op: {type(node.ops[0]).__name__}"
@@ -451,8 +443,7 @@ def generate_compare_expr(
         right = generate_expr(node.comparators[0], symbols, precedence, collected)
 
         expr = f"{left} {op} {right}"
-        return f"({expr})" if precedence < parent_precedence else expr
-
+        return f"({expr})" if precedence <= parent_precedence else expr
     raise TranspilerError("Multiple comparisons not supported")
 
 
@@ -478,7 +469,6 @@ def generate_bool_op_expr(
     """
     op_map = {ast.And: "&&", ast.Or: "||"}
     op = op_map.get(type(node.op))
-
     if not op:
         raise TranspilerError(f"Unsupported boolean op: {type(node.op).__name__}")
 
@@ -506,13 +496,10 @@ def generate_struct_constructor(
     Raises:
         TranspilerError: If the struct initialization is invalid
     """
-    logger.debug(f"Found {struct_name} as struct constructor")
     struct_def = collected.structs[struct_name]
     field_map = {f.name: i for i, f in enumerate(struct_def.fields)}
-    required_fields = sum(1 for f in struct_def.fields if f.default_value is None)
 
     if node.keywords:
-        # Keyword arguments constructor
         values = [None] * len(struct_def.fields)
         provided_fields = set()
 
@@ -521,7 +508,6 @@ def generate_struct_constructor(
                 raise TranspilerError(
                     f"Unknown field '{kw.arg}' in struct '{struct_name}'"
                 )
-
             values[field_map[kw.arg]] = generate_expr(kw.value, symbols, 0, collected)
             provided_fields.add(kw.arg)
 
@@ -530,28 +516,24 @@ def generate_struct_constructor(
             for field in struct_def.fields
             if field.default_value is None and field.name not in provided_fields
         ]
-
         if missing_fields:
             raise TranspilerError(
-                f"Wrong number of arguments for struct {struct_name}: expected {len(struct_def.fields)}, "
-                f"got {len(provided_fields)} (missing required fields: {', '.join(missing_fields)})"
+                f"Missing required fields in struct {struct_name}: {', '.join(missing_fields)}"
             )
 
         for i, field in enumerate(struct_def.fields):
-            if values[i] is None:
-                values[i] = (
-                    field.default_value if field.default_value is not None else "0.0"
-                )
+            if values[i] is None and field.default_value is not None:
+                values[i] = field.default_value
+            elif values[i] is None:
+                values[i] = "0.0"
 
         return f"{struct_name}({', '.join(values)})"
 
     elif node.args:
-        # Positional arguments constructor
         if len(node.args) != len(struct_def.fields):
             raise TranspilerError(
                 f"Wrong number of arguments for struct {struct_name}: expected {len(struct_def.fields)}, got {len(node.args)}"
             )
-
         args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
         return f"{struct_name}({', '.join(args)})"
 
@@ -579,27 +561,16 @@ def generate_call_expr(
         if isinstance(node.func, ast.Name)
         else generate_expr(node.func, symbols, 0, collected)
     )
-    logger.debug(f"Processing function call: {func_name}")
 
     if func_name in collected.functions:
-        # Regular function call
-        logger.debug(f"Found {func_name} in collected functions")
         args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
         return f"{func_name}({', '.join(args)})"
-
     elif func_name in BUILTIN_FUNCTIONS:
-        # Built-in function call
-        logger.debug(f"Found {func_name} in builtins")
         args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
         return f"{func_name}({', '.join(args)})"
-
     elif func_name in collected.structs:
-        # Struct constructor
         return generate_struct_constructor(func_name, node, symbols, collected)
-
-    else:
-        logger.error(f"Unknown function call detected: {func_name}")
-        raise TranspilerError(f"Unknown function call: {func_name}")
+    raise TranspilerError(f"Unknown function call: {func_name}")
 
 
 def generate_attribute_expr(
@@ -640,13 +611,12 @@ def generate_if_expr(
     Returns:
         Generated GLSL code for the conditional expression
     """
-    condition = generate_expr(node.test, symbols, 3, collected)
-    true_expr = generate_expr(node.body, symbols, 3, collected)
-    false_expr = generate_expr(node.orelse, symbols, 3, collected)
-
+    precedence = OPERATOR_PRECEDENCE["?"]
+    condition = generate_expr(node.test, symbols, precedence, collected)
+    true_expr = generate_expr(node.body, symbols, precedence, collected)
+    false_expr = generate_expr(node.orelse, symbols, precedence, collected)
     expr = f"{condition} ? {true_expr} : {false_expr}"
-    # Always use parentheses for ternary expressions in return statements
-    return f"({expr})"
+    return f"({expr})" if parent_precedence > precedence else expr
 
 
 def generate_expr(
@@ -669,7 +639,6 @@ def generate_expr(
     Raises:
         TranspilerError: If unsupported expressions are encountered
     """
-    # Handle different expression types by delegating to specialized functions
     if isinstance(node, ast.Name):
         return generate_name_expr(node, symbols)
     elif isinstance(node, ast.Constant):
@@ -686,7 +655,6 @@ def generate_expr(
         return generate_attribute_expr(node, symbols, parent_precedence, collected)
     elif isinstance(node, ast.IfExp):
         return generate_if_expr(node, symbols, parent_precedence, collected)
-
     raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
 
 
@@ -713,16 +681,13 @@ def generate_assignment(
     if isinstance(target, ast.Name):
         target_name = target.id
         expr_type = get_expr_type(stmt.value, symbols, collected)
-
         if target_name not in symbols:
             symbols[target_name] = expr_type
             return f"{indent}{expr_type} {target_name} = {expr};"
-        else:
-            return f"{indent}{target_name} = {expr};"
+        return f"{indent}{target_name} = {expr};"
     elif isinstance(target, ast.Attribute):
         target_expr = generate_expr(target, symbols, 0, collected)
         return f"{indent}{target_expr} = {expr};"
-
     raise TranspilerError(f"Unsupported assignment target: {type(target).__name__}")
 
 
@@ -747,10 +712,8 @@ def generate_annotated_assignment(
         target = stmt.target.id
         expr_type = get_annotation_type(stmt.annotation)
         expr = generate_expr(stmt.value, symbols, 0, collected) if stmt.value else None
-
         symbols[target] = expr_type
         return f"{indent}{expr_type} {target}{f' = {expr}' if expr else ''};"
-
     raise TranspilerError(
         f"Unsupported annotated assignment target: {type(stmt.target).__name__}"
     )
@@ -781,10 +744,7 @@ def generate_augmented_assignment(
 
     if op:
         return f"{indent}{target} = {target} {op} {value};"
-    else:
-        raise TranspilerError(
-            f"Unsupported augmented operator: {type(stmt.op).__name__}"
-        )
+    raise TranspilerError(f"Unsupported augmented operator: {type(stmt.op).__name__}")
 
 
 def generate_for_loop(
@@ -811,29 +771,23 @@ def generate_for_loop(
         and isinstance(stmt.iter.func, ast.Name)
         and stmt.iter.func.id == "range"
     ):
-
         target = stmt.target.id
         args = stmt.iter.args
 
-        # Parse range parameters
         start = "0" if len(args) == 1 else generate_expr(args[0], symbols, 0, collected)
         end = generate_expr(args[1 if len(args) > 1 else 0], symbols, 0, collected)
         step = "1" if len(args) <= 2 else generate_expr(args[2], symbols, 0, collected)
 
-        # Add target to symbols
         symbols[target] = "int"
-
-        # Generate loop body with proper indentation
         body_symbols = symbols.copy()
         body_code = generate_body(stmt.body, body_symbols, collected)
 
-        # Properly add indentation for inner code
-        inner_lines = []
-        for line in body_code.splitlines():
-            if line.strip():
-                inner_lines.append(f"{indent}    {line.strip()}")
+        inner_lines = [
+            f"{indent}    {line.strip()}"
+            for line in body_code.splitlines()
+            if line.strip()
+        ]
 
-        # Compose the for loop
         code.append(
             f"{indent}for (int {target} = {start}; {target} < {end}; {target} += {step}) {{"
         )
@@ -841,7 +795,6 @@ def generate_for_loop(
         code.append(f"{indent}}}")
     else:
         raise TranspilerError("Only range-based for loops are supported")
-
     return code
 
 
@@ -864,16 +817,13 @@ def generate_while_loop(
     condition = generate_expr(stmt.test, symbols, 0, collected)
     body_code = generate_body(stmt.body, symbols.copy(), collected)
 
-    # Properly add indentation for inner code
-    inner_lines = []
-    for line in body_code.splitlines():
-        if line.strip():
-            inner_lines.append(f"{indent}    {line.strip()}")
+    inner_lines = [
+        f"{indent}    {line.strip()}" for line in body_code.splitlines() if line.strip()
+    ]
 
     code.append(f"{indent}while ({condition}) {{")
     code.extend(inner_lines)
     code.append(f"{indent}}}")
-
     return code
 
 
@@ -894,30 +844,25 @@ def generate_if_statement(
     code = []
 
     condition = generate_expr(stmt.test, symbols, 0, collected)
-
-    # Generate if body with proper indentation
     body_code = generate_body(stmt.body, symbols.copy(), collected)
-    inner_lines = []
-    for line in body_code.splitlines():
-        if line.strip():
-            inner_lines.append(f"{indent}    {line.strip()}")
+    inner_lines = [
+        f"{indent}    {line.strip()}" for line in body_code.splitlines() if line.strip()
+    ]
 
     code.append(f"{indent}if ({condition}) {{")
     code.extend(inner_lines)
 
     if stmt.orelse:
-        # Generate else body with proper indentation
         else_code = generate_body(stmt.orelse, symbols.copy(), collected)
-        else_lines = []
-        for line in else_code.splitlines():
-            if line.strip():
-                else_lines.append(f"{indent}    {line.strip()}")
-
+        else_lines = [
+            f"{indent}    {line.strip()}"
+            for line in else_code.splitlines()
+            if line.strip()
+        ]
         code.append(f"{indent}}} else {{")
         code.extend(else_lines)
 
     code.append(f"{indent}}}")
-
     return code
 
 
@@ -978,6 +923,8 @@ def generate_body(
             code.append(f"{indent}break;")
         elif isinstance(stmt, ast.Pass):
             raise TranspilerError("Pass statements are not supported in GLSL")
+        else:
+            raise TranspilerError(f"Unsupported statement: {type(stmt).__name__}")
 
     return "\n".join(code)
 
@@ -1002,8 +949,8 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[st
     main_func_info = collected.functions[main_func]
     main_func_node = main_func_info.node
 
-    if not main_func_node.body or isinstance(main_func_node.body[0], ast.Pass):
-        raise TranspilerError("Pass statements are not supported in GLSL")
+    if not main_func_node.body:
+        raise TranspilerError("Empty function body not supported in GLSL")
 
     lines.append("#version 460 core\n")
 
@@ -1036,18 +983,15 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[st
             for p_type, arg in zip(func_info.param_types, node.args.args)
         )
 
-        # Create initial symbols dictionary from function parameters
         symbols = {
             arg.arg: p_type
             for arg, p_type in zip(node.args.args, func_info.param_types)
         }
-
         body = generate_body(node.body, symbols, collected)
 
         lines.append(f"{effective_return_type} {func_name}({param_str}) {{")
         lines.extend(body.splitlines())
         lines.append("}\n")
-        logger.debug(f"Generated GLSL for function: {func_name}")
 
     lines.append("in vec2 vs_uv;\nout vec4 fragColor;\n\nvoid main() {")
     main_call_args = [arg.arg for arg in main_func_node.args.args]
@@ -1056,20 +1000,8 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[st
     lines.append("}")
 
     glsl_code = "\n".join(lines)
-
-    # Fix indentation issues for braces
     glsl_code = glsl_code.replace(" }\n", "}\n")
 
-    # Ensure boolean literals are lowercase in GLSL
-    glsl_code = glsl_code.replace(" True", " true").replace(" False", " false")
-    glsl_code = glsl_code.replace("(True", "(true").replace("(False", "(false")
-    glsl_code = glsl_code.replace(",True", ",true").replace(",False", ",false")
-    glsl_code = glsl_code.replace("=True", "=true").replace("=False", "=false")
-
-    # Fix boolean literals anywhere else they might appear
-    glsl_code = glsl_code.replace("True", "true").replace("False", "false")
-
-    logger.debug(f"GLSL generation complete. Used uniforms: {used_uniforms}")
     return glsl_code, used_uniforms
 
 
@@ -1093,7 +1025,6 @@ def parse_shader_code(
     effective_main_func = main_func
 
     if isinstance(shader_input, dict):
-        # Parse all items in context together to include globals
         source_lines = []
         for name, obj in shader_input.items():
             try:
@@ -1148,7 +1079,6 @@ def transpile(
         TranspilerError: If transpilation fails
 
     Examples:
-        ```python
         # Transpile a single function
         glsl_code, uniforms = transpile(my_shader_func)
 
@@ -1161,25 +1091,21 @@ def transpile(
 
         # Include global constants
         glsl_code, uniforms = transpile(my_shader_func, PI=3.14159, MAX_STEPS=100)
-        ```
     """
     logger.debug(
         f"Transpiling with args: {args}, main_func: {main_func}, kwargs: {kwargs}"
     )
 
-    # Handle global constants passed as kwargs
     global_constants = {}
     for name, value in kwargs.items():
         if name != "main_func" and not callable(value) and not isinstance(value, type):
             if isinstance(value, (int, float, bool)):
                 global_constants[name] = value
 
-    # Prepare the shader input
     shader_input = None
     effective_main_func = main_func
 
     if len(args) == 1:
-        # Single argument case
         if isinstance(args[0], str):
             shader_input = args[0]
         elif inspect.ismodule(args[0]):
@@ -1199,14 +1125,12 @@ def transpile(
             main_item = args[0]
             if main_item.__name__.startswith("test_"):
                 raise TranspilerError(
-                    f"Main function '{main_item.__name__}' excluded due to 'test_' prefix. "
-                    "Please rename it to avoid conflicts with test function naming conventions."
+                    f"Main function '{main_item.__name__}' excluded due to 'test_' prefix"
                 )
             context = {main_item.__name__: main_item}
             shader_input = context
             effective_main_func = main_func or main_item.__name__
     else:
-        # Multiple arguments case
         context = {}
         for item in args:
             if inspect.isfunction(item):
@@ -1220,25 +1144,19 @@ def transpile(
         shader_input = context
         effective_main_func = main_func
 
-    # Parse the code
     tree, parsed_main_func = parse_shader_code(shader_input, effective_main_func)
     effective_main_func = parsed_main_func
 
-    # Collect information from the AST
     collected = collect_info(tree)
 
-    # Add explicitly passed globals to the collected info
     for name, value in global_constants.items():
         if isinstance(value, (int, float)):
             type_name = "float" if isinstance(value, float) else "int"
             collected.globals[name] = (type_name, str(value))
         elif isinstance(value, bool):
-            # Ensure booleans are properly converted to GLSL's lowercase true/false
             collected.globals[name] = ("bool", "true" if value else "false")
 
-    # Verify main function exists
     if effective_main_func not in collected.functions:
         raise TranspilerError(f"Main function '{effective_main_func}' not found")
 
-    # Generate GLSL code
     return generate_glsl(collected, effective_main_func)
