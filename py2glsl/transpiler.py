@@ -169,7 +169,7 @@ def generate_simple_expr(node: ast.AST) -> str:
         if isinstance(node.value, (int, float)):
             return str(node.value)
         elif isinstance(node.value, bool):
-            return "true" if node.value else "false"
+            return "true" if node.value else "false"  # GLSL uses lowercase
         elif isinstance(node.value, str):
             return node.value
     elif isinstance(node, ast.Call):
@@ -645,7 +645,8 @@ def generate_if_expr(
     false_expr = generate_expr(node.orelse, symbols, 3, collected)
 
     expr = f"{condition} ? {true_expr} : {false_expr}"
-    return f"({expr})" if parent_precedence <= 3 else expr
+    # Always use parentheses for ternary expressions in return statements
+    return f"({expr})"
 
 
 def generate_expr(
@@ -726,7 +727,7 @@ def generate_assignment(
 
 
 def generate_annotated_assignment(
-    stmt: ast.AnnAssign, symbols: Dict[str, str], indent: str
+    stmt: ast.AnnAssign, symbols: Dict[str, str], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for an annotated assignment.
 
@@ -734,6 +735,7 @@ def generate_annotated_assignment(
         stmt: AST annotated assignment node
         symbols: Dictionary of variable names to their types
         indent: Indentation string
+        collected: Information about functions, structs, and globals
 
     Returns:
         Generated GLSL code for the annotated assignment
@@ -821,14 +823,21 @@ def generate_for_loop(
         # Add target to symbols
         symbols[target] = "int"
 
-        # Generate loop body
-        body_code = generate_body(stmt.body, symbols.copy(), collected)
+        # Generate loop body with proper indentation
+        body_symbols = symbols.copy()
+        body_code = generate_body(stmt.body, body_symbols, collected)
+
+        # Properly add indentation for inner code
+        inner_lines = []
+        for line in body_code.splitlines():
+            if line.strip():
+                inner_lines.append(f"{indent}    {line.strip()}")
 
         # Compose the for loop
         code.append(
             f"{indent}for (int {target} = {start}; {target} < {end}; {target} += {step}) {{"
         )
-        code.extend(body_code.splitlines())
+        code.extend(inner_lines)
         code.append(f"{indent}}}")
     else:
         raise TranspilerError("Only range-based for loops are supported")
@@ -855,8 +864,14 @@ def generate_while_loop(
     condition = generate_expr(stmt.test, symbols, 0, collected)
     body_code = generate_body(stmt.body, symbols.copy(), collected)
 
+    # Properly add indentation for inner code
+    inner_lines = []
+    for line in body_code.splitlines():
+        if line.strip():
+            inner_lines.append(f"{indent}    {line.strip()}")
+
     code.append(f"{indent}while ({condition}) {{")
-    code.extend(body_code.splitlines())
+    code.extend(inner_lines)
     code.append(f"{indent}}}")
 
     return code
@@ -880,12 +895,26 @@ def generate_if_statement(
 
     condition = generate_expr(stmt.test, symbols, 0, collected)
 
+    # Generate if body with proper indentation
+    body_code = generate_body(stmt.body, symbols.copy(), collected)
+    inner_lines = []
+    for line in body_code.splitlines():
+        if line.strip():
+            inner_lines.append(f"{indent}    {line.strip()}")
+
     code.append(f"{indent}if ({condition}) {{")
-    code.extend(generate_body(stmt.body, symbols.copy(), collected).splitlines())
+    code.extend(inner_lines)
 
     if stmt.orelse:
+        # Generate else body with proper indentation
+        else_code = generate_body(stmt.orelse, symbols.copy(), collected)
+        else_lines = []
+        for line in else_code.splitlines():
+            if line.strip():
+                else_lines.append(f"{indent}    {line.strip()}")
+
         code.append(f"{indent}}} else {{")
-        code.extend(generate_body(stmt.orelse, symbols.copy(), collected).splitlines())
+        code.extend(else_lines)
 
     code.append(f"{indent}}}")
 
@@ -934,7 +963,7 @@ def generate_body(
         if isinstance(stmt, ast.Assign):
             code.append(generate_assignment(stmt, symbols, indent, collected))
         elif isinstance(stmt, ast.AnnAssign):
-            code.append(generate_annotated_assignment(stmt, symbols, indent))
+            code.append(generate_annotated_assignment(stmt, symbols, indent, collected))
         elif isinstance(stmt, ast.AugAssign):
             code.append(generate_augmented_assignment(stmt, symbols, indent, collected))
         elif isinstance(stmt, ast.For):
@@ -1028,11 +1057,17 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[st
 
     glsl_code = "\n".join(lines)
 
+    # Fix indentation issues for braces
+    glsl_code = glsl_code.replace(" }\n", "}\n")
+
     # Ensure boolean literals are lowercase in GLSL
     glsl_code = glsl_code.replace(" True", " true").replace(" False", " false")
     glsl_code = glsl_code.replace("(True", "(true").replace("(False", "(false")
     glsl_code = glsl_code.replace(",True", ",true").replace(",False", ",false")
     glsl_code = glsl_code.replace("=True", "=true").replace("=False", "=false")
+
+    # Fix boolean literals anywhere else they might appear
+    glsl_code = glsl_code.replace("True", "true").replace("False", "false")
 
     logger.debug(f"GLSL generation complete. Used uniforms: {used_uniforms}")
     return glsl_code, used_uniforms
