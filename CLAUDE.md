@@ -23,3 +23,17 @@
 - `/py2glsl`: Main package with transpiler modules
 - `/tests`: Test modules mirroring structure of main package
 - `/examples`: Example Python shader files
+
+## Code Generation Notes
+- Pass statements are translated to GLSL comments (`// Pass statement (no-op)`)
+- For loops over lists need size variable specified in globals (e.g., `list_name_size`)
+- Augmented assignments (e.g., `a += b`) are converted to regular assignment form (`a = a + b`)
+- GLSL doesn't support multiple assignment targets, each must be on a separate line
+- Ensure test expectations match actual generated code structure and formatting
+
+## Testing Best Practices
+- After all unit tests pass, also run an example file to verify end-to-end functionality:
+  ```bash
+  python examples/001_ray_marching.py
+  ```
+- This ensures that changes don't break the actual shader generation and rendering
