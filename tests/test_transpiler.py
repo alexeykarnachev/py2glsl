@@ -703,7 +703,9 @@ def test_generate_assignment(symbols: Dict[str, str], collected_info: CollectedI
         )
 
 
-def test_generate_annotated_assignment(symbols: Dict[str, str]):
+def test_generate_annotated_assignment(
+    symbols: Dict[str, str], collected_info: CollectedInfo
+):
     """Test generating code for annotated assignments."""
     # Annotated assignment with initialization
     ann_assign = ast.AnnAssign(
@@ -713,7 +715,7 @@ def test_generate_annotated_assignment(symbols: Dict[str, str]):
         simple=1,
     )
     assert (
-        generate_annotated_assignment(ann_assign, symbols, "    ")
+        generate_annotated_assignment(ann_assign, symbols, "    ", collected_info)
         == "    vec2 pos = uv;"
     )
 
@@ -725,7 +727,9 @@ def test_generate_annotated_assignment(symbols: Dict[str, str]):
         simple=1,
     )
     assert (
-        generate_annotated_assignment(ann_assign_no_val, symbols, "    ")
+        generate_annotated_assignment(
+            ann_assign_no_val, symbols, "    ", collected_info
+        )
         == "    float result;"
     )
 
@@ -744,6 +748,7 @@ def test_generate_annotated_assignment(symbols: Dict[str, str]):
             ),
             symbols,
             "    ",
+            collected_info,
         )
 
 
@@ -1205,8 +1210,7 @@ def test_multi_uniform_struct() -> None:
     assert "uniform vec3 u_offset;" in glsl_code
     assert "UniStruct s = UniStruct(u_offset, sin(u_time) > 0.0);" in glsl_code
     assert (
-        "return (s.active ? vec4(s.offset, 1.0) : vec4(0.0, 0.0, 0.0, 1.0));"
-        in glsl_code
+        "return s.active ? vec4(s.offset, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);" in glsl_code
     )
     assert used_uniforms == {"u_time", "u_offset"}
 
@@ -1909,7 +1913,7 @@ def shader(vs_uv: 'vec2', u_time: 'float') -> 'vec4':
     assert "return MarchResult(dist < 1.0, dist);" in glsl_code
     assert "MarchResult result = march_step(vs_uv, u_time);" in glsl_code
     assert (
-        "return (result.hit ? vec4(result.distance, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0));"
+        "return result.hit ? vec4(result.distance, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);"
         in glsl_code
     )
     assert used_uniforms == {"u_time"}
