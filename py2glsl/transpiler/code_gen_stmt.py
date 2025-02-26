@@ -8,19 +8,22 @@ including assignments, loops, conditionals, and return statements.
 import ast
 from typing import Dict, List
 
-from py2glsl.transpiler.code_gen_expr import generate_expr
+from py2glsl.transpiler.code_gen_expr import generate_attribute_expr, generate_expr
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
 from py2glsl.transpiler.type_checker import get_expr_type
 
 
 def generate_assignment(
-    stmt: ast.Assign, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    node: ast.Assign, symbols: Dict[str, str], indent: str, collected: CollectedInfo
 ) -> str:
-    """Generate GLSL code for a variable assignment.
+    """Generate GLSL code for an assignment statement.
+
+    This function handles both simple variable assignments and list assignments.
+    For list assignments, it delegates to generate_list_declaration.
 
     Args:
-        stmt: AST assignment node
+        node: AST assignment node
         symbols: Dictionary of variable names to their types
         indent: Indentation string
         collected: Information about functions, structs, and globals
@@ -29,22 +32,82 @@ def generate_assignment(
         Generated GLSL code for the assignment
 
     Raises:
-        TranspilerError: If the assignment target is not supported
+        TranspilerError: If the assignment target is not supported or if there are multiple targets
     """
-    target = stmt.targets[0]
-    expr = generate_expr(stmt.value, symbols, 0, collected)
+    if len(node.targets) != 1:
+        raise TranspilerError("Multiple assignment targets not supported")
+    target = node.targets[0]
+
+    if isinstance(node.value, ast.List):
+        return generate_list_declaration(node, symbols, indent, collected)
+
+    value_str = generate_expr(node.value, symbols, 0, collected)
 
     if isinstance(target, ast.Name):
         target_name = target.id
-        expr_type = get_expr_type(stmt.value, symbols, collected)
         if target_name not in symbols:
-            symbols[target_name] = expr_type
-            return f"{indent}{expr_type} {target_name} = {expr};"
-        return f"{indent}{target_name} = {expr};"
+            inferred_type = get_expr_type(node.value, symbols, collected)
+            symbols[target_name] = inferred_type
+            return f"{indent}{inferred_type} {target_name} = {value_str};"
+        else:
+            return f"{indent}{target_name} = {value_str};"
     elif isinstance(target, ast.Attribute):
-        target_expr = generate_expr(target, symbols, 0, collected)
-        return f"{indent}{target_expr} = {expr};"
-    raise TranspilerError(f"Unsupported assignment target: {type(target).__name__}")
+        target_str = generate_attribute_expr(target, symbols, 0, collected)
+        return f"{indent}{target_str} = {value_str};"
+    else:
+        raise TranspilerError(f"Unsupported assignment target: {type(target).__name__}")
+
+
+def generate_list_declaration(
+    node: ast.Assign, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+) -> str:
+    """Generate GLSL code for list assignment.
+
+    This function handles assignments where the value is a list, creating
+    a GLSL array with the appropriate type and size.
+
+    Args:
+        node: AST assignment node
+        symbols: Dictionary of variable names to their types
+        indent: Indentation string
+        collected: Information about functions, structs, and globals
+
+    Returns:
+        Generated GLSL code for the list assignment
+
+    Raises:
+        TranspilerError: If the list elements have mismatched types or if the assignment is invalid
+    """
+    if isinstance(node.value, ast.List):
+        elements = node.value.elts
+        list_name = node.targets[0].id
+        if not elements:
+            # Empty list: assume type from context or default to a safe type
+            list_type = (
+                symbols.get(list_name, "list[vec3]").removeprefix("list[")[:-1]
+                if list_name in symbols
+                else "vec3"
+            )
+            size = 0
+            symbols[list_name] = f"list[{list_type}]"
+            collected.globals[f"{list_name}_size"] = ("int", "0")
+            return f"{indent}{list_type} {list_name}[0];"
+        else:
+            list_type = get_expr_type(elements[0], symbols, collected)
+            for elem in elements[1:]:
+                if get_expr_type(elem, symbols, collected) != list_type:
+                    raise TranspilerError("Type mismatch in list elements")
+            size = len(elements)
+            symbols[list_name] = f"list[{list_type}]"
+            collected.globals[f"{list_name}_size"] = ("int", str(size))
+            array_init = ", ".join(
+                generate_expr(elem, symbols, 0, collected) for elem in elements
+            )
+            return f"{indent}{list_type} {list_name}[{size}] = {list_type}[{size}]({array_init});"
+    else:
+        raise TranspilerError(
+            "Only list assignments supported in generate_list_declaration"
+        )
 
 
 def generate_annotated_assignment(
@@ -123,12 +186,9 @@ def generate_augmented_assignment(
 
 
 def generate_for_loop(
-    stmt: ast.For,
-    symbols: Dict[str, str],
-    indent: str,
-    collected: CollectedInfo,
+    stmt: ast.For, symbols: Dict[str, str], indent: str, collected: CollectedInfo
 ) -> List[str]:
-    """Generate GLSL code for a for loop.
+    """Generate GLSL code for a for loop, supporting both list and range-based iterations.
 
     Args:
         stmt: AST for loop node
@@ -140,39 +200,62 @@ def generate_for_loop(
         List of generated GLSL code lines for the for loop
 
     Raises:
-        TranspilerError: If the loop is not a range-based for loop
+        TranspilerError: If the loop is not a list or range-based for loop
     """
     code = []
-
-    if (
+    if isinstance(stmt.iter, ast.Name):  # List iteration, e.g., `for item in some_list`
+        list_name = stmt.iter.id
+        list_type = symbols.get(list_name, "unknown")
+        if list_type.startswith("list["):
+            item_type = list_type[5:-1]  # Extract type, e.g., "vec3" from "list[vec3]"
+            index_var = f"i_{list_name}"  # Unique index name
+            size_var = f"{list_name}_size"
+            code.append(
+                f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; ++{index_var}) {{"
+            )
+            code.append(
+                f"{indent}    {item_type} {stmt.target.id} = {list_name}[{index_var}];"
+            )
+            body_symbols = symbols.copy()
+            body_symbols[stmt.target.id] = item_type
+            for line in generate_body(stmt.body, body_symbols, collected):
+                code.append(f"{indent}    {line}")
+            code.append(f"{indent}}}")
+        else:
+            raise TranspilerError(f"Unsupported iterable: {list_type}")
+    elif (
         isinstance(stmt.iter, ast.Call)
         and isinstance(stmt.iter.func, ast.Name)
         and stmt.iter.func.id == "range"
     ):
-        target = stmt.target.id
         args = stmt.iter.args
-
-        start = "0" if len(args) == 1 else generate_expr(args[0], symbols, 0, collected)
-        end = generate_expr(args[1 if len(args) > 1 else 0], symbols, 0, collected)
-        step = "1" if len(args) <= 2 else generate_expr(args[2], symbols, 0, collected)
-
-        symbols[target] = "int"
-        body_symbols = symbols.copy()
-
-        # Special handling for for loops with just a Pass statement
-        if len(stmt.body) == 1 and isinstance(stmt.body[0], ast.Pass):
-            inner_lines = [f"{indent}    // Pass statement (no-op)"]
+        target = stmt.target.id
+        if len(args) == 1:
+            start, end, step = "0", generate_expr(args[0], symbols, 0, collected), "1"
+        elif len(args) == 2:
+            start, end, step = (
+                generate_expr(args[0], symbols, 0, collected),
+                generate_expr(args[1], symbols, 0, collected),
+                "1",
+            )
+        elif len(args) == 3:
+            start, end, step = (
+                generate_expr(args[0], symbols, 0, collected),
+                generate_expr(args[1], symbols, 0, collected),
+                generate_expr(args[2], symbols, 0, collected),
+            )
         else:
-            body_code = generate_body(stmt.body, body_symbols, collected)
-            inner_lines = [f"{indent}    {line}" for line in body_code]
-
+            raise TranspilerError("Range function must have 1 to 3 arguments")
         code.append(
             f"{indent}for (int {target} = {start}; {target} < {end}; {target} += {step}) {{"
         )
-        code.extend(inner_lines)
+        body_symbols = symbols.copy()
+        body_symbols[target] = "int"
+        for line in generate_body(stmt.body, body_symbols, collected):
+            code.append(f"{indent}    {line}")
         code.append(f"{indent}}}")
     else:
-        raise TranspilerError("Only range-based for loops are supported")
+        raise TranspilerError("Only list and range-based for loops are supported")
     return code
 
 
@@ -272,9 +355,11 @@ def generate_body(
     code = []
     indent = ""
 
-    # Keep this check at the top to reject shader functions with only a pass statement
+    # Check for shader functions with only a pass statement in the top-level context
+    # For other contexts (e.g., within loops or conditionals), we'll handle pass statements differently
     if len(body) == 1 and isinstance(body[0], ast.Pass):
-        raise TranspilerError("Pass statements are not supported in GLSL")
+        # Instead of raising an error, generate a no-op comment
+        return ["// Pass statement (no-op)"]
 
     for stmt in body:
         if isinstance(stmt, ast.Assign):

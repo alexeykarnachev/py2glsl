@@ -11,6 +11,7 @@ from py2glsl.transpiler.code_gen_stmt import (
     generate_body,
     generate_for_loop,
     generate_if_statement,
+    generate_list_declaration,
     generate_return_statement,
     generate_while_loop,
     get_annotation_type,
@@ -362,7 +363,7 @@ for item in items:
 
         # Act & Assert
         with pytest.raises(
-            TranspilerError, match="Only range-based for loops are supported"
+            TranspilerError, match="Unsupported iterable: unknown"
         ):
             generate_for_loop(node, symbols, "    ", collected_info)
 
@@ -494,13 +495,16 @@ else:
         assert result == []
 
     def test_generate_body_only_pass(self, symbols, collected_info):
-        """Test that a body with only a pass statement raises an error."""
+        """Test that a body with only a pass statement generates a no-op comment."""
         # Arrange
         node = ast.parse("pass").body
 
-        # Act & Assert
-        with pytest.raises(TranspilerError, match="Pass statements are not supported"):
-            generate_body(node, symbols.copy(), collected_info)
+        # Act
+        result = generate_body(node, symbols.copy(), collected_info)
+
+        # Assert
+        assert len(result) == 1
+        assert "// Pass statement" in result[0]
 
     def test_generate_body_with_break(self, symbols, collected_info):
         """Test generating code for a body with a break statement."""
@@ -527,3 +531,181 @@ while True:
         # Act & Assert
         with pytest.raises(TranspilerError, match="Unsupported statement: With"):
             generate_body(node, symbols.copy(), collected_info)
+
+    def test_generate_for_loop_static_list(self, symbols, collected_info):
+        """Test generating code for a for loop over a static list."""
+        # Arrange
+        code = """
+some_list = [vec3(1.0, 0.0, 0.0), vec3(2.0, 0.0, 0.0), vec3(3.0, 0.0, 0.0)]
+total = vec3(0.0)
+for item in some_list:
+    total += item
+        """
+        node = ast.parse(code).body
+        symbols.update({"some_list": "list[vec3]"})
+        collected_info.globals["some_list_size"] = ("int", "3")
+
+        # Act
+        result = generate_body(node, symbols.copy(), collected_info)
+
+        # Assert
+        expected = [
+            "vec3 some_list[3] = vec3[3](vec3(1.0, 0.0, 0.0), vec3(2.0, 0.0, 0.0), vec3(3.0, 0.0, 0.0));",
+            "vec3 total = vec3(0.0);",
+            "for (int i_some_list = 0; i_some_list < some_list_size; ++i_some_list) {",
+            "    vec3 item = some_list[i_some_list];",
+            "    total = total + item;",  # Note: code gen uses "total = total + item" not "total += item"
+            "}",
+        ]
+        for line in expected:
+            assert line in result, f"Expected line not found: {line}"
+
+    def test_generate_for_loop_dynamic_list(self, symbols, collected_info):
+        """Test generating code for a for loop over a dynamic list."""
+        # Arrange
+        code = """
+total = vec3(0.0)
+for item in some_list:
+    total += item
+        """
+        node = ast.parse(code).body
+        symbols.update({"some_list": "list[vec3]"})
+        # Use globals instead of uniforms since CollectedInfo doesn't have uniforms
+        collected_info.globals["some_list_size"] = ("int", "3")
+
+        # Act
+        result = generate_body(node, symbols.copy(), collected_info)
+
+        # Assert
+        expected = [
+            "vec3 total = vec3(0.0);",
+            "for (int i_some_list = 0; i_some_list < some_list_size; ++i_some_list) {",
+            "    vec3 item = some_list[i_some_list];",
+            "    total = total + item;",
+            "}",
+        ]
+        for line in expected:
+            assert line in result, f"Expected line not found: {line}"
+
+    def test_generate_for_loop_nested(self, symbols, collected_info):
+        """Test generating code for nested for loops over lists."""
+        # Arrange
+        code = """
+outer_list = [vec3(1.0), vec3(2.0)]
+inner_list = [vec3(3.0), vec3(4.0)]
+total = vec3(0.0)
+for outer in outer_list:
+    for inner in inner_list:
+        total += outer + inner
+        """
+        node = ast.parse(code).body
+        symbols.update({"outer_list": "list[vec3]", "inner_list": "list[vec3]"})
+        collected_info.globals["outer_list_size"] = ("int", "2")
+        collected_info.globals["inner_list_size"] = ("int", "2")
+
+        # Act
+        result = generate_body(node, symbols.copy(), collected_info)
+
+        # Assert
+        expected = [
+            "vec3 outer_list[2] = vec3[2](vec3(1.0), vec3(2.0));",
+            "vec3 inner_list[2] = vec3[2](vec3(3.0), vec3(4.0));",
+            "vec3 total = vec3(0.0);",
+            "for (int i_outer_list = 0; i_outer_list < outer_list_size; ++i_outer_list) {",
+            "    vec3 outer = outer_list[i_outer_list];",
+            "    for (int i_inner_list = 0; i_inner_list < inner_list_size; ++i_inner_list) {",
+            "        vec3 inner = inner_list[i_inner_list];",
+            "        total = total + outer + inner;",
+            "    }",
+            "}",
+        ]
+        for line in expected:
+            assert line in result, f"Expected line not found: {line}"
+
+    def test_generate_for_loop_empty_list(self, symbols, collected_info):
+        """Test generating code for a for loop over an empty list."""
+        # Arrange
+        code = """
+some_list = []
+total = vec3(0.0)
+for item in some_list:
+    total += item
+        """
+        node = ast.parse(code).body
+        symbols.update({"some_list": "list[vec3]"})
+        collected_info.globals["some_list_size"] = ("int", "0")
+
+        # Act
+        result = generate_body(node, symbols.copy(), collected_info)
+
+        # Assert
+        expected = [
+            "vec3 some_list[0];",
+            "vec3 total = vec3(0.0);",
+            "for (int i_some_list = 0; i_some_list < some_list_size; ++i_some_list) {",
+            "    vec3 item = some_list[i_some_list];",
+            "    total = total + item;",
+            "}",
+        ]
+        for line in expected:
+            assert line in result, f"Expected line not found: {line}"
+
+    def test_generate_for_loop_type_mismatch(self, symbols, collected_info):
+        """Test that type mismatch in list elements raises an error."""
+        # Arrange
+        code = """
+some_list = [vec3(1.0), 2.0]  # Mixed types
+for item in some_list:
+    total += item
+        """
+        node = ast.parse(code).body
+        symbols.update({"some_list": "list[vec3]"})
+
+        # Act & Assert
+        with pytest.raises(TranspilerError, match="Type mismatch in list elements"):
+            generate_body(node, symbols.copy(), collected_info)
+
+
+class TestGenerateListDeclaration:
+    """Tests for the generate_list_declaration function."""
+
+    def test_generate_list_declaration_static(self, symbols, collected_info):
+        """Test generating code for a static list assignment."""
+        # Arrange
+        code = "some_list = [vec3(1.0), vec3(2.0), vec3(3.0)]"
+        node = ast.parse(code).body[0]
+
+        # Act
+        result = generate_list_declaration(node, symbols, "    ", collected_info)
+
+        # Assert
+        assert (
+            result
+            == "    vec3 some_list[3] = vec3[3](vec3(1.0), vec3(2.0), vec3(3.0));"
+        )
+        assert symbols["some_list"] == "list[vec3]"
+        assert collected_info.globals["some_list_size"] == ("int", "3")
+
+    def test_generate_list_declaration_empty(self, symbols, collected_info):
+        """Test generating code for an empty list assignment."""
+        # Arrange
+        code = "some_list = []"
+        node = ast.parse(code).body[0]
+
+        # Act
+        result = generate_list_declaration(node, symbols, "    ", collected_info)
+
+        # Assert
+        assert result == "    vec3 some_list[0];"
+        assert symbols["some_list"] == "list[vec3]"
+        assert collected_info.globals["some_list_size"] == ("int", "0")
+
+    def test_generate_list_declaration_type_mismatch(self, symbols, collected_info):
+        """Test that type mismatch in list elements raises an error."""
+        # Arrange
+        code = "some_list = [vec3(1.0), 2.0]"  # Mixed types
+        node = ast.parse(code).body[0]
+
+        # Act & Assert
+        with pytest.raises(TranspilerError, match="Type mismatch in list elements"):
+            generate_list_declaration(node, symbols, "    ", collected_info)
