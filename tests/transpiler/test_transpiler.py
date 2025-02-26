@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import pytest
 
 from py2glsl.transpiler import transpile
+from py2glsl.transpiler.code_generator import generate_glsl
+from py2glsl.transpiler.collector import collect_info
 from py2glsl.transpiler.errors import TranspilerError
 
 
