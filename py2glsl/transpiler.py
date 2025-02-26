@@ -1,7 +1,7 @@
 import ast
 import inspect
 import textwrap
-from typing import Callable, Dict, List, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Set, Tuple, Union
 
 from loguru import logger
 
@@ -291,7 +291,10 @@ class GLSLGenerator:
         return "\n".join(code)
 
     def _generate_expr(
-        self, node: ast.AST, symbols: Dict[str, str], parent_precedence: int = 0
+        self,
+        node: ast.AST,
+        symbols: Dict[str, str],
+        parent_precedence: int = 0,
     ) -> str:
         if isinstance(node, ast.Name):
             return node.id if node.id in symbols else node.id
@@ -299,6 +302,7 @@ class GLSLGenerator:
             if isinstance(node.value, (int, float)):
                 return str(node.value)
             elif isinstance(node.value, bool):
+                # Use lowercase for GLSL boolean literals
                 return "true" if node.value else "false"
         elif isinstance(node, ast.BinOp):
             op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
@@ -493,16 +497,31 @@ class GLSLGenerator:
 
 class Transpiler:
     def __init__(
-        self, shader_input: Union[str, Dict[str, Callable]], main_func: str = None
+        self,
+        shader_input: Union[str, Dict[str, Callable]],
+        main_func: str | None = None,
+        globals: Dict[str, Any] | None = None,
     ):
         self.shader_input = shader_input
         self.main_func = main_func
         self.tree = None
         self.collector = FunctionCollector()
         self.generator = None
-        logger.debug(f"Initializing Transpiler with main_func: {main_func}")
+        self.globals = globals or {}
+        logger.debug(
+            f"Initializing Transpiler with main_func: {main_func}, globals: {self.globals}"
+        )
         self.parse()
         self.collect()
+
+        # Add explicitly passed globals to the collector
+        for name, value in self.globals.items():
+            if isinstance(value, (int, float)):
+                type_name = "float" if isinstance(value, float) else "int"
+                self.collector.globals[name] = (type_name, str(value))
+            elif isinstance(value, bool):
+                # Ensure booleans are properly converted to GLSL's lowercase true/false
+                self.collector.globals[name] = ("bool", "true" if value else "false")
 
     def parse(self) -> None:
         logger.debug("Parsing shader input")
@@ -552,11 +571,23 @@ class Transpiler:
         return self.generator.generate(self.main_func)
 
 
-def transpile(*args, main_func: str = None) -> Tuple[str, Set[str]]:
-    logger.debug(f"Transpiling with args: {args}, main_func: {main_func}")
+def transpile(*args, main_func: str = None, **kwargs) -> Tuple[str, Set[str]]:
+    logger.debug(
+        f"Transpiling with args: {args}, main_func: {main_func}, kwargs: {kwargs}"
+    )
+
+    # Handle global constants passed as kwargs
+    global_constants = {}
+    for name, value in kwargs.items():
+        if name != "main_func" and not callable(value) and not isinstance(value, type):
+            if isinstance(value, (int, float, bool)):
+                global_constants[name] = value
+
     if len(args) == 1:
         if isinstance(args[0], str):
-            return Transpiler(args[0], main_func=main_func).generate()
+            return Transpiler(
+                args[0], main_func=main_func, globals=global_constants
+            ).generate()
         elif inspect.ismodule(args[0]):
             module = args[0]
             if hasattr(module, "__all__"):
@@ -568,7 +599,9 @@ def transpile(*args, main_func: str = None) -> Tuple[str, Set[str]]:
                     if inspect.isfunction(obj)
                     or (inspect.isclass(obj) and hasattr(obj, "__dataclass_fields__"))
                 }
-            return Transpiler(context, main_func=main_func or "shader").generate()
+            return Transpiler(
+                context, main_func=main_func or "shader", globals=global_constants
+            ).generate()
         else:
             main_item = args[0]
             if main_item.__name__.startswith("test_"):
@@ -578,7 +611,9 @@ def transpile(*args, main_func: str = None) -> Tuple[str, Set[str]]:
                 )
             context = {main_item.__name__: main_item}
             return Transpiler(
-                context, main_func=main_func or main_item.__name__
+                context,
+                main_func=main_func or main_item.__name__,
+                globals=global_constants,
             ).generate()
     else:
         context = {}
@@ -591,4 +626,6 @@ def transpile(*args, main_func: str = None) -> Tuple[str, Set[str]]:
                 raise TranspilerError(
                     f"Unsupported item type in transpile args: {type(item)}"
                 )
-        return Transpiler(context, main_func=main_func).generate()
+        return Transpiler(
+            context, main_func=main_func, globals=global_constants
+        ).generate()

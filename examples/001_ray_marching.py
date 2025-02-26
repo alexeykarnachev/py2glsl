@@ -19,7 +19,7 @@ from py2glsl.builtins import (
 from py2glsl.render import animate
 from py2glsl.transpiler import transpile  # Import transpile explicitly
 
-# Global constants
+# Global constants - these need to be properly annotated and passed to the transpiler
 PI: float = 3.141592
 RM_MAX_DIST: float = 10000.0
 RM_MAX_STEPS: int = 64
@@ -206,13 +206,22 @@ def main_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
 
 
 if __name__ == "__main__":
-    # Pass all functions and the struct explicitly to transpile
+    # Pass all functions, the struct AND GLOBAL CONSTANTS explicitly to transpile
     glsl_code, used_uniforms = transpile(
+        # Functions
         get_sd_shape,
         march,
         attenuate,
         main_shader,
+        # Struct
         RayMarchResult,
+        # Global constants
+        PI=PI,
+        RM_MAX_DIST=RM_MAX_DIST,
+        RM_MAX_STEPS=RM_MAX_STEPS,
+        RM_EPS=RM_EPS,
+        NORMAL_DERIVATIVE_STEP=NORMAL_DERIVATIVE_STEP,
+        # Main function
         main_func="main_shader",
     )
     animate(glsl_code, used_uniforms=used_uniforms)
