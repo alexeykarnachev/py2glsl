@@ -1,9 +1,17 @@
 import time
+from typing import Any, Callable, Dict, Protocol, Union, cast
 
 import glfw
 import moderngl
 import numpy as np
 from loguru import logger
+
+# Define protocol for ModernGL uniform handling
+class UniformProtocol(Protocol):
+    value: Any
+    array_length: int
+    dimension: int
+    dtype: str
 
 # Vertex shader source
 vertex_shader_source = """
@@ -20,7 +28,7 @@ logger.opt(colors=True).info(
 )
 
 
-def animate(shader_input, used_uniforms=None, size=(1200, 800)):
+def animate(shader_input: Callable[..., Any] | str, used_uniforms: set[str] | None = None, size: tuple[int, int] = (1200, 800)) -> None:
     """Run the shader with an animation loop and FPS calculation.
 
     Args:
@@ -87,10 +95,10 @@ def animate(shader_input, used_uniforms=None, size=(1200, 800)):
     vao = ctx.simple_vertex_array(program, vbo, "in_position")
 
     # Mouse position tracking
-    mouse_pos = [0, 0]
-    mouse_uv = [0.5, 0.5]  # Default centered
+    mouse_pos: list[float] = [0.0, 0.0]
+    mouse_uv: list[float] = [0.5, 0.5]  # Default centered
 
-    def mouse_callback(window, xpos, ypos):
+    def mouse_callback(window: glfw._GLFWwindow, xpos: float, ypos: float) -> None:
         mouse_pos[0] = xpos
         mouse_pos[1] = ypos
         mouse_uv[0] = xpos / size[0]
@@ -112,19 +120,24 @@ def animate(shader_input, used_uniforms=None, size=(1200, 800)):
 
         # Always set common uniforms if they exist in the program
         if "u_resolution" in program:
-            program["u_resolution"].value = (size[0], size[1])
+            uniform = cast(UniformProtocol, program["u_resolution"])
+            uniform.value = (size[0], size[1])
 
         if "u_time" in program:
-            program["u_time"].value = glfw.get_time()
+            uniform = cast(UniformProtocol, program["u_time"])
+            uniform.value = glfw.get_time()
 
         if "u_aspect" in program:
-            program["u_aspect"].value = size[0] / size[1]
+            uniform = cast(UniformProtocol, program["u_aspect"])
+            uniform.value = size[0] / size[1]
 
         if "u_mouse_pos" in program:
-            program["u_mouse_pos"].value = mouse_pos
+            uniform = cast(UniformProtocol, program["u_mouse_pos"])
+            uniform.value = mouse_pos
 
         if "u_mouse_uv" in program:
-            program["u_mouse_uv"].value = mouse_uv
+            uniform = cast(UniformProtocol, program["u_mouse_uv"])
+            uniform.value = mouse_uv
 
         # Set any other custom uniforms that might be in the shader
         # This loop is a fallback for uniforms not covered above
@@ -137,18 +150,15 @@ def animate(shader_input, used_uniforms=None, size=(1200, 800)):
                 "u_mouse_uv",
             ]:
                 try:
-                    uniform = program[uniform_name]
-                    if (
-                        hasattr(uniform, "array_length") and uniform.array_length == 1
-                    ):  # Not an array uniform
-                        if hasattr(uniform, "dimension") and uniform.dimension == 1:
-                            if hasattr(uniform, "dtype"):
-                                if uniform.dtype.startswith("f"):
-                                    uniform.value = 1.0  # Default float value
-                                elif uniform.dtype.startswith("i"):
-                                    uniform.value = 1  # Default int value
-                                elif uniform.dtype.startswith("b"):
-                                    uniform.value = True  # Default bool value
+                    uniform = cast(UniformProtocol, program[uniform_name])
+                    if uniform.array_length == 1:  # Not an array uniform
+                        if uniform.dimension == 1:
+                            if uniform.dtype.startswith("f"):
+                                uniform.value = 1.0  # Default float value
+                            elif uniform.dtype.startswith("i"):
+                                uniform.value = 1  # Default int value
+                            elif uniform.dtype.startswith("b"):
+                                uniform.value = True  # Default bool value
                 except Exception as e:
                     logger.warning(f"Could not set uniform {uniform_name}: {e}")
 
@@ -160,25 +170,25 @@ def animate(shader_input, used_uniforms=None, size=(1200, 800)):
     glfw.terminate()
 
 
-def render_array(glsl_code, size=(1200, 800)):
+def render_array(glsl_code: str, size: tuple[int, int] = (1200, 800)) -> None:
     """Render the shader to an array or buffer."""
     logger.info("Rendering to array")
     # Placeholder
 
 
-def render_gif(glsl_code, size=(1200, 800), duration=5.0, fps=30):
+def render_gif(glsl_code: str, size: tuple[int, int] = (1200, 800), duration: float = 5.0, fps: int = 30) -> None:
     """Render the shader to a GIF file."""
     logger.info("Rendering to GIF")
     # Placeholder
 
 
-def render_video(glsl_code, size=(1200, 800), duration=5.0, fps=30):
+def render_video(glsl_code: str, size: tuple[int, int] = (1200, 800), duration: float = 5.0, fps: int = 30) -> None:
     """Render the shader to a video file."""
     logger.info("Rendering to video")
     # Placeholder
 
 
-def render_image(glsl_code, size=(1200, 800)):
+def render_image(glsl_code: str, size: tuple[int, int] = (1200, 800)) -> None:
     """Render the shader to a single image."""
     logger.info("Rendering to image")
     # Placeholder

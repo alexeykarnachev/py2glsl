@@ -86,9 +86,10 @@ def generate_list_declaration(
             raise TranspilerError("List assignment target must be a variable name")
         if not elements:
             # Empty list: assume type from context or default to a safe type
+            symbol_type = symbols.get(list_name)
             list_type = (
-                symbols.get(list_name, "list[vec3]").removeprefix("list[")[:-1]
-                if list_name in symbols
+                symbol_type.removeprefix("list[")[:-1]
+                if symbol_type and list_name in symbols and symbol_type.startswith("list[")
                 else "vec3"
             )
             size = 0
@@ -209,7 +210,7 @@ def generate_for_loop(
     if isinstance(stmt.iter, ast.Name):  # List iteration, e.g., `for item in some_list`
         list_name = stmt.iter.id
         list_type = symbols.get(list_name, "unknown")
-        if list_type.startswith("list["):
+        if list_type and isinstance(list_type, str) and list_type.startswith("list["):
             item_type = list_type[5:-1]  # Extract type, e.g., "vec3" from "list[vec3]"
             index_var = f"i_{list_name}"  # Unique index name
             size_var = f"{list_name}_size"

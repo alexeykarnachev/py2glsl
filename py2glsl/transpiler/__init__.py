@@ -5,7 +5,7 @@ This module provides the top-level interface for transpiling Python code to GLSL
 """
 
 import inspect
-from typing import Any, Callable, Optional, Set, Tuple, Type, Union
+from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union
 
 from loguru import logger
 
@@ -16,7 +16,7 @@ from py2glsl.transpiler.errors import TranspilerError
 
 
 def transpile(
-    *args: Union[str, Callable, Type, object],
+    *args: Union[str, Callable[..., Any], Type[Any], object],
     main_func: Optional[str] = None,
     **kwargs: Any,
 ) -> Tuple[str, Set[str]]:
@@ -64,14 +64,15 @@ def transpile(
             if isinstance(value, (int, float, bool)):
                 global_constants[name] = value
 
-    shader_input = None
-    effective_main_func = main_func
+    shader_input: Union[str, Dict[str, Union[Callable[..., Any], Type[Any]]], None] = None
+    effective_main_func: Optional[str] = main_func
 
     if len(args) == 1:
         if isinstance(args[0], str):
             shader_input = args[0]
         elif inspect.ismodule(args[0]):
             module = args[0]
+            context: Dict[str, Union[Callable[..., Any], Type[Any]]] = {}
             if hasattr(module, "__all__"):
                 context = {name: getattr(module, name) for name in module.__all__}
             else:
@@ -85,25 +86,35 @@ def transpile(
             effective_main_func = main_func or "shader"
         else:
             main_item = args[0]
-            if not callable(main_item) and not isinstance(main_item, type):
+            if callable(main_item) or isinstance(main_item, type):
+                if hasattr(main_item, "__name__"):
+                    # Check for test functions
+                    if hasattr(main_item, "__name__") and main_item.__name__.startswith("test_"):
+                        raise TranspilerError(
+                            "Test functions/classes are not supported in transpilation"
+                        )
+                    shader_input = {main_item.__name__: main_item}
+                else:
+                    raise TranspilerError("Item must have a __name__ attribute")
+            else:
                 raise TranspilerError("Unsupported item type")
-            if main_item.__name__.startswith("test_"):
-                raise TranspilerError(
-                    "Test functions/classes are not supported in transpilation"
-                )
-            shader_input = {main_item.__name__: main_item}
     elif len(args) > 1:
-        shader_input = {}
+        shader_input_dict: Dict[str, Union[Callable[..., Any], Type[Any]]] = {}
         for item in args:
-            if callable(item) or (
-                isinstance(item, type) and hasattr(item, "__dataclass_fields__")
-            ):
-                shader_input[item.__name__] = item
+            if callable(item) or isinstance(item, type):
+                if hasattr(item, "__name__"):
+                    shader_input_dict[item.__name__] = item
+                else:
+                    raise TranspilerError("Item must have a __name__ attribute")
             else:
                 raise TranspilerError(
                     f"Unsupported argument type: {type(item).__name__}"
                 )
+        shader_input = shader_input_dict
 
+    if shader_input is None:
+        raise TranspilerError("No shader input provided")
+    
     tree, effective_main_func = parse_shader_code(shader_input, effective_main_func)
 
     collected = collect_info(tree)

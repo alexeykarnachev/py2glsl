@@ -14,7 +14,7 @@ from py2glsl.transpiler.models import CollectedInfo
 from py2glsl.transpiler.type_checker import get_expr_type
 
 
-def generate_name_expr(node: ast.Name, symbols: Dict[str, str]) -> str:
+def generate_name_expr(node: ast.Name, symbols: Dict[str, str | None]) -> str:
     """Generate GLSL code for a name expression (variable).
 
     Args:
@@ -48,7 +48,7 @@ def generate_constant_expr(node: ast.Constant) -> str:
 
 def generate_binary_op_expr(
     node: ast.BinOp,
-    symbols: Dict[str, str],
+    symbols: Dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -81,7 +81,7 @@ def generate_binary_op_expr(
 
 def generate_compare_expr(
     node: ast.Compare,
-    symbols: Dict[str, str],
+    symbols: Dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -125,7 +125,7 @@ def generate_compare_expr(
 
 def generate_bool_op_expr(
     node: ast.BoolOp,
-    symbols: Dict[str, str],
+    symbols: Dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -158,7 +158,7 @@ def generate_bool_op_expr(
 
 def generate_attribute_expr(
     node: ast.Attribute,
-    symbols: Dict[str, str],
+    symbols: Dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -179,7 +179,7 @@ def generate_attribute_expr(
 
 def generate_if_expr(
     node: ast.IfExp,
-    symbols: Dict[str, str],
+    symbols: Dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -204,7 +204,7 @@ def generate_if_expr(
 
 
 def generate_struct_constructor(
-    struct_name: str, node: ast.Call, symbols: Dict[str, str], collected: CollectedInfo
+    struct_name: str, node: ast.Call, symbols: Dict[str, str | None], collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for a struct constructor.
 
@@ -265,7 +265,7 @@ def generate_struct_constructor(
 
 
 def generate_call_expr(
-    node: ast.Call, symbols: Dict[str, str], collected: CollectedInfo
+    node: ast.Call, symbols: Dict[str, str | None], collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for a function call expression.
 
@@ -299,7 +299,7 @@ def generate_call_expr(
 
 def generate_expr(
     node: ast.AST,
-    symbols: Dict[str, str],
+    symbols: Dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:

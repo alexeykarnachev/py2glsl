@@ -14,7 +14,7 @@ from py2glsl.transpiler.models import CollectedInfo
 
 
 def get_expr_type(
-    node: ast.AST, symbols: Dict[str, str], collected: CollectedInfo
+    node: ast.AST, symbols: Dict[str, str | None], collected: CollectedInfo
 ) -> str:
     """Determine the GLSL type of an expression.
 
@@ -31,7 +31,10 @@ def get_expr_type(
     """
     if isinstance(node, ast.Name):
         if node.id in symbols:
-            return symbols[node.id]
+            symbol_type = symbols[node.id]
+            if symbol_type is None:
+                raise TranspilerError(f"Variable has no type: {node.id}")
+            return symbol_type
         # Check if it's a global constant
         elif node.id in collected.globals:
             return collected.globals[node.id][0]  # Return the type of the global constant
