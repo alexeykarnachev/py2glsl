@@ -209,8 +209,9 @@ def generate_augmented_assignment(
 def generate_for_loop(
     stmt: ast.For, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> list[str]:
-    """Generate GLSL code for a for loop, supporting both list and range-based iterations.
+    """Generate GLSL code for a for loop.
 
+    Supports both list-based iterations and range-based iterations.
     Args:
         stmt: AST for loop node
         symbols: Dictionary of variable names to their types
@@ -232,7 +233,8 @@ def generate_for_loop(
             index_var = f"i_{list_name}"  # Unique index name
             size_var = f"{list_name}_size"
             code.append(
-                f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; ++{index_var}) {{"
+                f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; "
+                f"++{index_var}) {{"
             )
             # Extract the target variable name
             if isinstance(stmt.target, ast.Name):
@@ -260,7 +262,7 @@ def generate_for_loop(
             target = stmt.target.id
         else:
             raise TranspilerError("For loop target must be a variable name")
-        if len(args) == 1:  # noqa: PLR2004
+        if len(args) == 1:
             start, end, step = "0", generate_expr(args[0], symbols, 0, collected), "1"
         elif len(args) == 2:  # noqa: PLR2004
             start, end, step = (
@@ -399,7 +401,8 @@ def generate_body(
     indent = ""
 
     # Check for shader functions with only a pass statement in the top-level context
-    # For other contexts (e.g., within loops or conditionals), we'll handle pass statements differently
+    # For other contexts (e.g., within loops or conditionals), we'll handle pass
+    # statements differently
     if len(body) == 1 and isinstance(body[0], ast.Pass):
         # Instead of raising an error, generate a no-op comment
         return ["// Pass statement (no-op)"]
@@ -423,7 +426,8 @@ def generate_body(
             code.append(f"{indent}break;")
         elif isinstance(stmt, ast.Pass):
             # For non-top-level Pass (e.g., within a loop in test_generate_for_loop),
-            # This case is not reachable for top-level Pass statements due to the check above
+            # This case is not reachable for top-level Pass statements due to the
+            # check above
             code.append(f"{indent}// Pass statement (no-op)")
         elif isinstance(stmt, ast.Expr):
             # Ignore expression statements

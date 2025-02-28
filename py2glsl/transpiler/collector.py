@@ -31,7 +31,7 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
     collected = CollectedInfo()
 
     class Visitor(ast.NodeVisitor):
-        """AST visitor that collects information about functions, structs, and globals."""
+        """AST visitor collecting function, struct, and global information."""
 
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
             """Visit function definition nodes and collect information about them."""
@@ -46,12 +46,13 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
                 node=node,
             )
             logger.debug(
-                f"Collected function: {node.name}, return_type: {return_type}, params: {param_types}"
+                f"Collected function: {node.name}, return_type: {return_type}, "
+                f"params: {param_types}"
             )
             self.generic_visit(node)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
-            """Visit class definition nodes and collect struct information from dataclasses.
+            """Visit class definition nodes for struct information.
 
             Processes classes marked with @dataclass and extracts their fields.
             """
@@ -80,7 +81,8 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
                             )
                         else:
                             raise TranspilerError(
-                                f"Missing type annotation for struct field {stmt.target.id}"
+                                f"Missing type annotation for struct field "
+                                f"{stmt.target.id}"
                             )
                 collected.structs[node.name] = StructDefinition(
                     name=node.name, fields=fields

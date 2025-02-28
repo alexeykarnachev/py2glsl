@@ -91,7 +91,8 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> tuple[str, set[st
             if type_name is not None:
                 symbols[name] = type_name
 
-        # Since body is List[ast.stmt] and not List[ast.AST], this is compatible with generate_body
+        # Since body is List[ast.stmt] and not List[ast.AST],
+        # this is compatible with generate_body
         body_lines = generate_body(node.body, symbols, collected)
 
         lines.append(f"{effective_return_type} {func_name}({param_str}) {{")

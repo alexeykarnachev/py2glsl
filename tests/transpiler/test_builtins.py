@@ -142,8 +142,7 @@ class TestBuiltinFunctions:
             v2b = vec2(2.0, 2.0)  # type: ignore
             min_vec2 = min(v2a, v2b)  # vec2, vec2 -> vec2
             # Use both min and max functions in result to ensure both work correctly
-            max_result = max(v2a, v2b)  # vec2, vec2 -> vec2
-            # Add assertion to use max_result to avoid F841 warning
+            max_vec2 = max(v2a, v2b)  # vec2, vec2 -> vec2
 
             # Test vec3 versions to cover all cases
             v3a = vec3(1.0, 3.0, 5.0)  # type: ignore
@@ -151,7 +150,7 @@ class TestBuiltinFunctions:
             # Also test vec3 min function to verify it works too
             min_vec3 = min(v3a, v3b)  # vec3, vec3 -> vec3
 
-            return vec4(min_float, max_float, min_vec2.x, min_vec3.z)  # type: ignore
+            return vec4(min_float, max_float, min_vec2.x + max_vec2.y, min_vec3.z)  # type: ignore
 
         # Act
         glsl_code, _ = transpile(shader)
@@ -160,5 +159,5 @@ class TestBuiltinFunctions:
         assert "float min_float = min(a, b);" in glsl_code
         assert "float max_float = max(a, b);" in glsl_code
         assert "vec2 min_vec2 = min(v2a, v2b);" in glsl_code
-        assert "vec2 max_result = max(v2a, v2b);" in glsl_code
+        assert "vec2 max_vec2 = max(v2a, v2b);" in glsl_code
         assert "vec3 min_vec3 = min(v3a, v3b);" in glsl_code

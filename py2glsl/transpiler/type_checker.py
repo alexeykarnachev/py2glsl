@@ -74,7 +74,7 @@ def get_expr_type(
 
             # Check built-in functions
             if func_name in BUILTIN_FUNCTIONS:
-                # Get the function signatures (could be a single tuple or a list of tuples)
+                # Get function signatures (single tuple or list of tuples)
                 func_signatures = BUILTIN_FUNCTIONS[func_name]
 
                 # If it's a single signature tuple (not overloaded)
@@ -84,7 +84,8 @@ def get_expr_type(
                     ]  # Return the single return type
                     return return_type
 
-                # For overloaded functions, determine parameter types and find the matching signature
+                # For overloaded functions, determine parameter types
+                # and find the matching signature
                 arg_types = [
                     get_expr_type(arg, symbols, collected) for arg in node.args
                 ]
@@ -112,7 +113,8 @@ def get_expr_type(
 
                 # If we're here, no matching overload was found
                 raise TranspilerError(
-                    f"No matching overload for function {func_name} with argument types {arg_types}"
+                    f"No matching overload for function {func_name} with "
+                    f"argument types {arg_types}"
                 )
 
             # Check user-defined functions
