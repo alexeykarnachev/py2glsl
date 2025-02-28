@@ -89,9 +89,11 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[st
         }
         
         # Add global constants to the symbols table
-        for name, (type_name, _) in collected.globals.items():
-            symbols[name] = type_name
+        for name, (type_name, value) in collected.globals.items():
+            if type_name is not None:
+                symbols[name] = type_name
             
+        # Since body is List[ast.stmt] and not List[ast.AST], this is compatible with generate_body
         body_lines = generate_body(node.body, symbols, collected)
 
         lines.append(f"{effective_return_type} {func_name}({param_str}) {{")

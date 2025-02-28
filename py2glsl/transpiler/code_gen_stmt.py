@@ -6,7 +6,7 @@ including assignments, loops, conditionals, and return statements.
 """
 
 import ast
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from py2glsl.transpiler.code_gen_expr import generate_attribute_expr, generate_expr
 from py2glsl.transpiler.errors import TranspilerError
@@ -15,7 +15,7 @@ from py2glsl.transpiler.type_checker import get_expr_type
 
 
 def generate_assignment(
-    node: ast.Assign, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    node: ast.Assign, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for an assignment statement.
 
@@ -59,7 +59,7 @@ def generate_assignment(
 
 
 def generate_list_declaration(
-    node: ast.Assign, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    node: ast.Assign, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for list assignment.
 
@@ -80,7 +80,10 @@ def generate_list_declaration(
     """
     if isinstance(node.value, ast.List):
         elements = node.value.elts
-        list_name = node.targets[0].id
+        if isinstance(node.targets[0], ast.Name):
+            list_name = node.targets[0].id
+        else:
+            raise TranspilerError("List assignment target must be a variable name")
         if not elements:
             # Empty list: assume type from context or default to a safe type
             list_type = (
@@ -112,7 +115,7 @@ def generate_list_declaration(
 
 def generate_annotated_assignment(
     stmt: ast.AnnAssign,
-    symbols: Dict[str, str],
+    symbols: Dict[str, str | None],
     indent: str,
     collected: CollectedInfo,
 ) -> str:
@@ -158,7 +161,7 @@ def get_annotation_type(annotation: ast.AST) -> str:
 
 
 def generate_augmented_assignment(
-    stmt: ast.AugAssign, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    stmt: ast.AugAssign, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for an augmented assignment (e.g., +=, -=).
 
@@ -186,7 +189,7 @@ def generate_augmented_assignment(
 
 
 def generate_for_loop(
-    stmt: ast.For, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    stmt: ast.For, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> List[str]:
     """Generate GLSL code for a for loop, supporting both list and range-based iterations.
 
@@ -213,11 +216,17 @@ def generate_for_loop(
             code.append(
                 f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; ++{index_var}) {{"
             )
+            # Extract the target variable name
+            if isinstance(stmt.target, ast.Name):
+                target_name = stmt.target.id
+            else:
+                raise TranspilerError("For loop target must be a variable name")
             code.append(
-                f"{indent}    {item_type} {stmt.target.id} = {list_name}[{index_var}];"
+                f"{indent}    {item_type} {target_name} = {list_name}[{index_var}];"
             )
             body_symbols = symbols.copy()
-            body_symbols[stmt.target.id] = item_type
+            body_symbols[target_name] = item_type
+            # body_symbols is now Dict[str, str | None] which matches generate_body's signature
             for line in generate_body(stmt.body, body_symbols, collected):
                 code.append(f"{indent}    {line}")
             code.append(f"{indent}}}")
@@ -229,7 +238,10 @@ def generate_for_loop(
         and stmt.iter.func.id == "range"
     ):
         args = stmt.iter.args
-        target = stmt.target.id
+        if isinstance(stmt.target, ast.Name):
+            target = stmt.target.id
+        else:
+            raise TranspilerError("For loop target must be a variable name")
         if len(args) == 1:
             start, end, step = "0", generate_expr(args[0], symbols, 0, collected), "1"
         elif len(args) == 2:
@@ -251,6 +263,7 @@ def generate_for_loop(
         )
         body_symbols = symbols.copy()
         body_symbols[target] = "int"
+        # body_symbols is now Dict[str, str | None] which matches generate_body's signature
         for line in generate_body(stmt.body, body_symbols, collected):
             code.append(f"{indent}    {line}")
         code.append(f"{indent}}}")
@@ -260,7 +273,7 @@ def generate_for_loop(
 
 
 def generate_while_loop(
-    stmt: ast.While, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    stmt: ast.While, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> List[str]:
     """Generate GLSL code for a while loop.
 
@@ -276,6 +289,7 @@ def generate_while_loop(
     code = []
 
     condition = generate_expr(stmt.test, symbols, 0, collected)
+    # symbols.copy() is now Dict[str, str | None] which matches generate_body's signature
     body_code = generate_body(stmt.body, symbols.copy(), collected)
     inner_lines = [f"{indent}    {line}" for line in body_code]
 
@@ -286,7 +300,7 @@ def generate_while_loop(
 
 
 def generate_if_statement(
-    stmt: ast.If, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    stmt: ast.If, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> List[str]:
     """Generate GLSL code for an if statement.
 
@@ -302,6 +316,7 @@ def generate_if_statement(
     code = []
 
     condition = generate_expr(stmt.test, symbols, 0, collected)
+    # symbols.copy() is now Dict[str, str | None] which matches generate_body's signature
     body_code = generate_body(stmt.body, symbols.copy(), collected)
     inner_lines = [f"{indent}    {line}" for line in body_code]
 
@@ -309,6 +324,7 @@ def generate_if_statement(
     code.extend(inner_lines)
 
     if stmt.orelse:
+        # symbols.copy() is now Dict[str, str | None] which matches generate_body's signature
         else_code = generate_body(stmt.orelse, symbols.copy(), collected)
         else_lines = [f"{indent}    {line}" for line in else_code]
         code.append(f"{indent}}} else {{")
@@ -319,7 +335,7 @@ def generate_if_statement(
 
 
 def generate_return_statement(
-    stmt: ast.Return, symbols: Dict[str, str], indent: str, collected: CollectedInfo
+    stmt: ast.Return, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for a return statement.
 
@@ -332,12 +348,14 @@ def generate_return_statement(
     Returns:
         Generated GLSL code for the return statement
     """
+    if stmt.value is None:
+        return f"{indent}return;"
     expr = generate_expr(stmt.value, symbols, 0, collected)
     return f"{indent}return {expr};"
 
 
 def generate_body(
-    body: List[ast.AST], symbols: Dict[str, str], collected: CollectedInfo
+    body: List[ast.stmt], symbols: Dict[str, str | None], collected: CollectedInfo
 ) -> List[str]:
     """Generate GLSL code for a function body.
 

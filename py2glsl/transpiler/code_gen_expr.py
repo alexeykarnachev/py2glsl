@@ -224,7 +224,7 @@ def generate_struct_constructor(
     field_map = {f.name: i for i, f in enumerate(struct_def.fields)}
 
     if node.keywords:
-        values = [None] * len(struct_def.fields)
+        values: list[str] = [""] * len(struct_def.fields)
         provided_fields = set()
 
         for kw in node.keywords:
@@ -246,9 +246,9 @@ def generate_struct_constructor(
             )
 
         for i, field in enumerate(struct_def.fields):
-            if values[i] is None and field.default_value is not None:
+            if not values[i] and field.default_value is not None:
                 values[i] = field.default_value
-            elif values[i] is None:
+            elif not values[i]:
                 values[i] = "0.0"
 
         return f"{struct_name}({', '.join(values)})"

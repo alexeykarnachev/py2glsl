@@ -75,7 +75,8 @@ def get_expr_type(
                 
                 # If it's a single signature tuple (not overloaded)
                 if isinstance(func_signatures, tuple):
-                    return func_signatures[0]  # Return the single return type
+                    return_type: str = func_signatures[0]  # Return the single return type
+                    return return_type
                 
                 # For overloaded functions, determine parameter types and find the matching signature
                 arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
@@ -91,7 +92,8 @@ def get_expr_type(
                     if all(arg_type == param_type or 
                            (arg_type in ["float", "int"] and param_type in ["float", "int"])
                            for arg_type, param_type in zip(arg_types, param_types)):
-                        return return_type
+                        return_type_str: str = return_type
+                        return return_type_str
                 
                 # If we're here, no matching overload was found
                 raise TranspilerError(

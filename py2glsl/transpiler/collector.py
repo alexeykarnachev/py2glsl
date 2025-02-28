@@ -10,6 +10,7 @@ import ast
 from loguru import logger
 
 from py2glsl.transpiler.ast_parser import generate_simple_expr, get_annotation_type
+from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
     CollectedInfo,
     FunctionInfo,
@@ -65,13 +66,17 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
                         default_value = None
                         if stmt.value:
                             default_value = generate_simple_expr(stmt.value)
-                        fields.append(
-                            StructField(
-                                name=stmt.target.id,
-                                type_name=field_type,
-                                default_value=default_value,
+                        # Make sure field_type is not None before creating a StructField
+                        if field_type is not None:
+                            fields.append(
+                                StructField(
+                                    name=stmt.target.id,
+                                    type_name=field_type,
+                                    default_value=default_value,
+                                )
                             )
-                        )
+                        else:
+                            raise TranspilerError(f"Missing type annotation for struct field {stmt.target.id}")
                 collected.structs[node.name] = StructDefinition(
                     name=node.name, fields=fields
                 )
@@ -86,7 +91,11 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
                 expr_type = get_annotation_type(node.annotation)
                 try:
                     value = generate_simple_expr(node.value)
-                    collected.globals[node.target.id] = (expr_type, value)
+                    # Make sure expr_type is not None
+                    if expr_type is not None:
+                        collected.globals[node.target.id] = (expr_type, value)
+                    else:
+                        collected.globals[node.target.id] = ("float", value)  # Default to float if no type annotation
                     logger.debug(
                         f"Collected global: {node.target.id}, type: {expr_type}, value: {value}"
                     )

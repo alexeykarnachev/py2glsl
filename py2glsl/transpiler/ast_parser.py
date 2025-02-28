@@ -8,7 +8,7 @@ and extracting basic information like type annotations.
 import ast
 import inspect
 import textwrap
-from typing import Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 from loguru import logger
 
@@ -60,7 +60,7 @@ def generate_simple_expr(node: ast.AST) -> str:
 
 
 def parse_shader_code(
-    shader_input: Union[str, Dict[str, Callable]], main_func: Optional[str] = None
+    shader_input: Union[str, Dict[str, Callable[..., Any]]], main_func: Optional[str] = None
 ) -> Tuple[ast.AST, Optional[str]]:
     """Parse the input Python code into an AST.
 
