@@ -8,16 +8,28 @@ class TestBuiltinFunctions:
 
     def test_builtin_functions_structure(self):
         """Test that the built-in functions dictionary has the expected structure."""
-        # All entries should be tuples of (return_type, param_types)
+        # Each entry can be a tuple (return_type, param_types) or a list of such tuples
         for func_name, func_info in BUILTIN_FUNCTIONS.items():
             assert isinstance(func_name, str)
-            assert isinstance(func_info, tuple)
-            assert len(func_info) == 2
-
-            return_type, param_types = func_info
-            assert isinstance(return_type, str)
-            assert isinstance(param_types, list)
-            assert all(isinstance(param, str) for param in param_types)
+            
+            # Handle both single signature and overloaded signatures
+            if isinstance(func_info, tuple):
+                # Single signature
+                assert len(func_info) == 2
+                return_type, param_types = func_info
+                assert isinstance(return_type, str)
+                assert isinstance(param_types, list)
+                assert all(isinstance(param, str) for param in param_types)
+            else:
+                # Overloaded signatures list
+                assert isinstance(func_info, list)
+                for signature in func_info:
+                    assert isinstance(signature, tuple)
+                    assert len(signature) == 2
+                    return_type, param_types = signature
+                    assert isinstance(return_type, str)
+                    assert isinstance(param_types, list)
+                    assert all(isinstance(param, str) for param in param_types)
 
     def test_common_functions_exist(self):
         """Test that common GLSL functions exist in the dictionary."""
@@ -41,18 +53,24 @@ class TestBuiltinFunctions:
 
     def test_vec_constructors(self):
         """Test that vector constructors have correct signatures."""
-        # Check vec2
-        assert BUILTIN_FUNCTIONS["vec2"][0] == "vec2"
-        assert len(BUILTIN_FUNCTIONS["vec2"][1]) == 2
-        assert all(param == "float" for param in BUILTIN_FUNCTIONS["vec2"][1])
-
-        # Check one of the vec3 constructors
-        assert BUILTIN_FUNCTIONS["vec3"][0] == "vec3"
-        # We can't check specific parameter types because there are multiple overloads
-
-        # Check one of the vec4 constructors
-        assert BUILTIN_FUNCTIONS["vec4"][0] == "vec4"
-        # Again, can't check specific parameters due to overloads
+        # Check vec2 constructors (now a list of signatures)
+        vec2_signatures = BUILTIN_FUNCTIONS["vec2"]
+        assert isinstance(vec2_signatures, list)
+        
+        # Find the 2-float constructor
+        two_float_constructor = next(
+            (sig for sig in vec2_signatures if sig[0] == "vec2" and len(sig[1]) == 2), None
+        )
+        assert two_float_constructor is not None
+        assert all(param == "float" for param in two_float_constructor[1])
+        
+        # Check vec3 constructors
+        vec3_signatures = BUILTIN_FUNCTIONS["vec3"]
+        assert isinstance(vec3_signatures, list)
+        
+        # Check vec4 constructors
+        vec4_signatures = BUILTIN_FUNCTIONS["vec4"]
+        assert isinstance(vec4_signatures, list)
 
 
 class TestOperatorPrecedence:

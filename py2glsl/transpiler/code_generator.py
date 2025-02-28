@@ -82,10 +82,16 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[st
             for p_type, arg in zip(func_info.param_types, node.args.args)
         )
 
+        # Initialize symbols with function parameters and global constants
         symbols = {
             arg.arg: p_type
             for arg, p_type in zip(node.args.args, func_info.param_types)
         }
+        
+        # Add global constants to the symbols table
+        for name, (type_name, _) in collected.globals.items():
+            symbols[name] = type_name
+            
         body_lines = generate_body(node.body, symbols, collected)
 
         lines.append(f"{effective_return_type} {func_name}({param_str}) {{")

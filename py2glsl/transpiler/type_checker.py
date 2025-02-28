@@ -32,6 +32,9 @@ def get_expr_type(
     if isinstance(node, ast.Name):
         if node.id in symbols:
             return symbols[node.id]
+        # Check if it's a global constant
+        elif node.id in collected.globals:
+            return collected.globals[node.id][0]  # Return the type of the global constant
         raise TranspilerError(f"Undefined variable: {node.id}")
 
     elif isinstance(node, ast.Constant):
@@ -67,7 +70,33 @@ def get_expr_type(
 
             # Check built-in functions
             if func_name in BUILTIN_FUNCTIONS:
-                return BUILTIN_FUNCTIONS[func_name][0]
+                # Get the function signatures (could be a single tuple or a list of tuples)
+                func_signatures = BUILTIN_FUNCTIONS[func_name]
+                
+                # If it's a single signature tuple (not overloaded)
+                if isinstance(func_signatures, tuple):
+                    return func_signatures[0]  # Return the single return type
+                
+                # For overloaded functions, determine parameter types and find the matching signature
+                arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
+                
+                for signature in func_signatures:
+                    return_type, param_types = signature
+                    
+                    # Skip if argument count doesn't match
+                    if len(arg_types) != len(param_types):
+                        continue
+                    
+                    # Check if the arguments match the parameter types
+                    if all(arg_type == param_type or 
+                           (arg_type in ["float", "int"] and param_type in ["float", "int"])
+                           for arg_type, param_type in zip(arg_types, param_types)):
+                        return return_type
+                
+                # If we're here, no matching overload was found
+                raise TranspilerError(
+                    f"No matching overload for function {func_name} with argument types {arg_types}"
+                )
 
             # Check user-defined functions
             elif func_name in collected.functions:

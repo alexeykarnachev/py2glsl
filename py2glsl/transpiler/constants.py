@@ -5,10 +5,14 @@ This module contains dictionaries and definitions used throughout the transpiler
 including GLSL built-in functions and operator precedence mappings.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any, Union
+
+# Type alias for function signature
+FunctionSignature = Union[Tuple[str, List[str]], List[Tuple[str, List[str]]]]
 
 # Dictionary of built-in GLSL functions with return types and parameter types
-BUILTIN_FUNCTIONS: Dict[str, Tuple[str, List[str]]] = {
+# Each function can have multiple overloads defined as a list of signatures
+BUILTIN_FUNCTIONS: Dict[str, Any] = {
     # Trigonometric functions
     "sin": ("float", ["float"]),
     "cos": ("float", ["float"]),
@@ -17,47 +21,140 @@ BUILTIN_FUNCTIONS: Dict[str, Tuple[str, List[str]]] = {
     "acos": ("float", ["float"]),
     "atan": ("float", ["float"]),
     "radians": ("float", ["float"]),
+    
     # Mathematical functions
-    "abs": ("float", ["float"]),
-    "floor": ("float", ["float"]),
-    "ceil": ("float", ["float"]),
-    "fract": ("float", ["float"]),
-    "mod": ("float", ["float", "float"]),
-    "min": ("float", ["float", "float"]),
-    "max": ("float", ["float", "float"]),
-    "clamp": ("float", ["float", "float", "float"]),
-    "mix": ("float", ["float", "float", "float"]),
-    "step": ("float", ["float", "float"]),
-    "smoothstep": ("float", ["float", "float", "float"]),
-    "sqrt": ("float", ["float"]),
+    "abs": [
+        ("float", ["float"]),
+        ("vec2", ["vec2"]),
+        ("vec3", ["vec3"]),
+        ("vec4", ["vec4"])
+    ],
+    "floor": [
+        ("float", ["float"]),
+        ("vec2", ["vec2"]),
+        ("vec3", ["vec3"]),
+        ("vec4", ["vec4"])
+    ],
+    "ceil": [
+        ("float", ["float"]),
+        ("vec2", ["vec2"]),
+        ("vec3", ["vec3"]),
+        ("vec4", ["vec4"])
+    ],
+    "fract": [
+        ("float", ["float"]),
+        ("vec2", ["vec2"]),
+        ("vec3", ["vec3"]),
+        ("vec4", ["vec4"])
+    ],
+    "mod": [
+        ("float", ["float", "float"]),
+        ("vec2", ["vec2", "float"]),
+        ("vec3", ["vec3", "float"]),
+        ("vec4", ["vec4", "float"])
+    ],
+    "min": [
+        ("float", ["float", "float"]),
+        ("vec2", ["vec2", "vec2"]),
+        ("vec3", ["vec3", "vec3"]),
+        ("vec4", ["vec4", "vec4"])
+    ],
+    "max": [
+        ("float", ["float", "float"]),
+        ("vec2", ["vec2", "vec2"]),
+        ("vec3", ["vec3", "vec3"]),
+        ("vec4", ["vec4", "vec4"])
+    ],
+    "clamp": [
+        ("float", ["float", "float", "float"]),
+        ("vec2", ["vec2", "vec2", "vec2"]),
+        ("vec3", ["vec3", "vec3", "vec3"]),
+        ("vec4", ["vec4", "vec4", "vec4"])
+    ],
+    "mix": [
+        ("float", ["float", "float", "float"]),
+        ("vec2", ["vec2", "vec2", "float"]),
+        ("vec3", ["vec3", "vec3", "float"]),
+        ("vec4", ["vec4", "vec4", "float"])
+    ],
+    "step": [
+        ("float", ["float", "float"]),
+        ("vec2", ["vec2", "vec2"]),
+        ("vec3", ["vec3", "vec3"]),
+        ("vec4", ["vec4", "vec4"])
+    ],
+    "smoothstep": [
+        ("float", ["float", "float", "float"]),
+        ("vec2", ["vec2", "vec2", "vec2"]),
+        ("vec3", ["vec3", "vec3", "vec3"]),
+        ("vec4", ["vec4", "vec4", "vec4"])
+    ],
+    "sqrt": [
+        ("float", ["float"]),
+        ("vec2", ["vec2"]),
+        ("vec3", ["vec3"]),
+        ("vec4", ["vec4"])
+    ],
     "pow": ("float", ["float", "float"]),
     "exp": ("float", ["float"]),
     "log": ("float", ["float"]),
     "exp2": ("float", ["float"]),
     "log2": ("float", ["float"]),
     "round": ("float", ["float"]),
+    
     # Geometric functions
-    "length": ("float", ["vec2"]),
-    "distance": ("float", ["vec2", "vec2"]),
-    "dot": ("float", ["vec2", "vec2"]),
+    "length": [
+        ("float", ["vec2"]),
+        ("float", ["vec3"]),
+        ("float", ["vec4"])
+    ],
+    "distance": [
+        ("float", ["vec2", "vec2"]),
+        ("float", ["vec3", "vec3"]),
+        ("float", ["vec4", "vec4"])
+    ],
+    "dot": [
+        ("float", ["vec2", "vec2"]),
+        ("float", ["vec3", "vec3"]),
+        ("float", ["vec4", "vec4"])
+    ],
     "cross": ("vec3", ["vec3", "vec3"]),
-    "normalize": ("vec3", ["vec3"]),
-    "reflect": ("vec3", ["vec3", "vec3"]),
-    "refract": ("vec3", ["vec3", "vec3", "float"]),
-    "faceforward": ("vec3", ["vec3", "vec3", "vec3"]),
-    # Vector functions with varying return types
-    "mix": ("vec3", ["vec3", "vec3", "float"]),
+    "normalize": [
+        ("vec2", ["vec2"]),
+        ("vec3", ["vec3"]),
+        ("vec4", ["vec4"])
+    ],
+    "reflect": [
+        ("vec2", ["vec2", "vec2"]),
+        ("vec3", ["vec3", "vec3"]),
+        ("vec4", ["vec4", "vec4"])
+    ],
+    "refract": [
+        ("vec2", ["vec2", "vec2", "float"]),
+        ("vec3", ["vec3", "vec3", "float"]),
+        ("vec4", ["vec4", "vec4", "float"])
+    ],
+    
     # Type conversion functions
     "float": ("float", ["int"]),
     "int": ("int", ["float"]),
+    
     # Vector constructors
-    "vec2": ("vec2", ["float", "float"]),
-    "vec3": ("vec3", ["float", "float", "float"]),
-    "vec4": ("vec4", ["float", "float", "float", "float"]),
-    # Alternative vector constructors (from smaller vectors)
-    "vec3": ("vec3", ["vec2", "float"]),
-    "vec4": ("vec4", ["vec3", "float"]),
-    "vec4": ("vec4", ["vec2", "vec2"]),
+    "vec2": [
+        ("vec2", ["float", "float"]),
+        ("vec2", ["float"]) # Same value for all components
+    ],
+    "vec3": [
+        ("vec3", ["float", "float", "float"]),
+        ("vec3", ["vec2", "float"]),
+        ("vec3", ["float"]) # Same value for all components
+    ],
+    "vec4": [
+        ("vec4", ["float", "float", "float", "float"]),
+        ("vec4", ["vec3", "float"]), 
+        ("vec4", ["vec2", "vec2"]),
+        ("vec4", ["float"]) # Same value for all components
+    ]
 }
 
 
