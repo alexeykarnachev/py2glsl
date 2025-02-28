@@ -253,22 +253,22 @@ def tan(x: float) -> float:
 
 # pylint: disable=redefined-builtin
 @overload
-def abs(x: float) -> float: ...  # noqa: A001
+def abs(x: float) -> float: ...
 
 
 @overload
-def abs(x: vec2) -> vec2: ...  # noqa: A001
+def abs(x: vec2) -> vec2: ...
 
 
 @overload
-def abs(x: vec3) -> vec3: ...  # noqa: A001
+def abs(x: vec3) -> vec3: ...
 
 
 @overload
-def abs(x: vec4) -> vec4: ...  # noqa: A001
+def abs(x: vec4) -> vec4: ...
 
 
-def abs(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:  # noqa: A001
+def abs(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:
     if isinstance(x, vec2):
         result = np.abs(x.data)
         return vec2(float(result[0]), float(result[1]))
@@ -321,22 +321,22 @@ def distance(p0: vec2 | vec3 | vec4, p1: vec2 | vec3 | vec4) -> float:
 
 # pylint: disable=redefined-builtin
 @overload
-def min(a: float, b: float) -> float: ...  # noqa: A001
+def min(a: float, b: float) -> float: ...
 
 
 @overload
-def min(a: vec2, b: vec2) -> vec2: ...  # noqa: A001
+def min(a: vec2, b: vec2) -> vec2: ...
 
 
 @overload
-def min(a: vec3, b: vec3) -> vec3: ...  # noqa: A001
+def min(a: vec3, b: vec3) -> vec3: ...
 
 
 @overload
-def min(a: vec4, b: vec4) -> vec4: ...  # noqa: A001
+def min(a: vec4, b: vec4) -> vec4: ...
 
 
-def min(  # noqa: A001
+def min(
     a: float | vec2 | vec3 | vec4, b: float | vec2 | vec3 | vec4
 ) -> float | vec2 | vec3 | vec4:
     if isinstance(a, vec2) and isinstance(b, vec2):
@@ -358,22 +358,22 @@ def min(  # noqa: A001
 
 # pylint: disable=redefined-builtin
 @overload
-def max(a: float, b: float) -> float: ...  # noqa: A001
+def max(a: float, b: float) -> float: ...
 
 
 @overload
-def max(a: vec2, b: vec2) -> vec2: ...  # noqa: A001
+def max(a: vec2, b: vec2) -> vec2: ...
 
 
 @overload
-def max(a: vec3, b: vec3) -> vec3: ...  # noqa: A001
+def max(a: vec3, b: vec3) -> vec3: ...
 
 
 @overload
-def max(a: vec4, b: vec4) -> vec4: ...  # noqa: A001
+def max(a: vec4, b: vec4) -> vec4: ...
 
 
-def max(  # noqa: A001
+def max(
     a: float | vec2 | vec3 | vec4, b: float | vec2 | vec3 | vec4
 ) -> float | vec2 | vec3 | vec4:
     if isinstance(a, vec2) and isinstance(b, vec2):

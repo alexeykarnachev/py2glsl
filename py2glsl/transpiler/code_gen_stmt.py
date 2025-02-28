@@ -233,9 +233,11 @@ def _generate_list_iteration_loop(
     code = []
     list_type = symbols.get(list_name, "unknown")
 
-    if (not list_type
-            or not isinstance(list_type, str)
-            or not list_type.startswith("list[")):
+    if (
+        not list_type
+        or not isinstance(list_type, str)
+        or not list_type.startswith("list[")
+    ):
         raise TranspilerError(f"Unsupported iterable: {list_type}")
 
     # Extract type, e.g., "vec3" from "list[vec3]"
@@ -256,9 +258,7 @@ def _generate_list_iteration_loop(
     )
 
     # Generate item assignment
-    code.append(
-        f"{indent}    {item_type} {target_name} = {list_name}[{index_var}];"
-    )
+    code.append(f"{indent}    {item_type} {target_name} = {list_name}[{index_var}];")
 
     # Generate loop body
     body_symbols = symbols.copy()
