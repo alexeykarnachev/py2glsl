@@ -9,6 +9,11 @@
 - Install dev dependencies: `uv sync`
 - Install pre-commit hooks: `pre-commit install`
 
+## Pre-commit Hooks
+- Install: `pre-commit install`
+- Run manually: `pre-commit run --all-files`
+- Hooks include: ruff (linting), ruff-format (formatting), mypy (type checking)
+
 ## Code Style
 - Use double quotes for strings
 - Type annotations required on all functions and variables
