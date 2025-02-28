@@ -8,11 +8,21 @@ and extracting basic information like type annotations.
 import ast
 import inspect
 import textwrap
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar, Protocol, cast
 
 from loguru import logger
 
 from py2glsl.transpiler.errors import TranspilerError
+
+# Type variable for shader functions
+T = TypeVar("T")
+
+class ShaderFunction(Protocol):
+    """Protocol for shader functions that can be converted to GLSL."""
+    
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        """Callable shader function protocol."""
+        ...
 
 
 def get_annotation_type(annotation: Optional[ast.AST]) -> Optional[str]:
@@ -60,7 +70,7 @@ def generate_simple_expr(node: ast.AST) -> str:
 
 
 def parse_shader_code(
-    shader_input: Union[str, Dict[str, Callable[..., Any]]], main_func: Optional[str] = None
+    shader_input: Union[str, Dict[str, Any]], main_func: Optional[str] = None
 ) -> Tuple[ast.AST, Optional[str]]:
     """Parse the input Python code into an AST.
 

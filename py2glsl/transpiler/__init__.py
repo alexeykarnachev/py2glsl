@@ -5,11 +5,11 @@ This module provides the top-level interface for transpiling Python code to GLSL
 """
 
 import inspect
-from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union
+from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union, cast
 
 from loguru import logger
 
-from py2glsl.transpiler.ast_parser import parse_shader_code
+from py2glsl.transpiler.ast_parser import parse_shader_code, ShaderFunction
 from py2glsl.transpiler.code_generator import generate_glsl
 from py2glsl.transpiler.collector import collect_info
 from py2glsl.transpiler.errors import TranspilerError
@@ -115,7 +115,12 @@ def transpile(
     if shader_input is None:
         raise TranspilerError("No shader input provided")
     
-    tree, effective_main_func = parse_shader_code(shader_input, effective_main_func)
+    # We need to handle the different types that could come through
+    # to parse_shader_code correctly
+    tree, effective_main_func = parse_shader_code(
+        shader_input, 
+        effective_main_func
+    )
 
     collected = collect_info(tree)
     for name, value in global_constants.items():
