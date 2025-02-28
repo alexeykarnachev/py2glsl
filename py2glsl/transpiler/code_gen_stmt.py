@@ -208,6 +208,176 @@ def generate_augmented_assignment(
     raise TranspilerError(f"Unsupported augmented operator: {type(stmt.op).__name__}")
 
 
+def _generate_list_iteration_loop(
+    stmt: ast.For,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
+    list_name: str,
+) -> list[str]:
+    """Generate GLSL code for a list iteration for loop.
+
+    Args:
+        stmt: AST for loop node
+        symbols: Dictionary of variable names to their types
+        indent: Indentation string
+        collected: Information about functions, structs, and globals
+        list_name: Name of the list being iterated
+
+    Returns:
+        List of generated GLSL code lines for the list iteration loop
+
+    Raises:
+        TranspilerError: If the list type is unsupported or target is invalid
+    """
+    code = []
+    list_type = symbols.get(list_name, "unknown")
+
+    if (not list_type
+            or not isinstance(list_type, str)
+            or not list_type.startswith("list[")):
+        raise TranspilerError(f"Unsupported iterable: {list_type}")
+
+    # Extract type, e.g., "vec3" from "list[vec3]"
+    item_type = list_type[5:-1]
+    index_var = f"i_{list_name}"  # Unique index name
+    size_var = f"{list_name}_size"
+
+    # Extract the target variable name
+    if not isinstance(stmt.target, ast.Name):
+        raise TranspilerError("For loop target must be a variable name")
+
+    target_name = stmt.target.id
+
+    # Generate loop header
+    code.append(
+        f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; "
+        f"++{index_var}) {{"
+    )
+
+    # Generate item assignment
+    code.append(
+        f"{indent}    {item_type} {target_name} = {list_name}[{index_var}];"
+    )
+
+    # Generate loop body
+    body_symbols = symbols.copy()
+    body_symbols[target_name] = item_type
+    for line in generate_body(stmt.body, body_symbols, collected):
+        code.append(f"{indent}    {line}")
+
+    # Close the loop
+    code.append(f"{indent}}}")
+
+    return code
+
+
+def _parse_range_arguments(
+    args: list[ast.expr], symbols: dict[str, str | None], collected: CollectedInfo
+) -> tuple[str, str, str]:
+    """Parse the arguments to a range() call.
+
+    Args:
+        args: List of AST nodes representing range arguments
+        symbols: Dictionary of variable names to their types
+        collected: Information about functions, structs, and globals
+
+    Returns:
+        Tuple of (start, end, step) values as strings
+
+    Raises:
+        TranspilerError: If the range has an invalid number of arguments
+    """
+    # Constants for range argument counts
+    single_arg = 1
+    start_end_args = 2
+    full_range_args = 3
+
+    if len(args) == single_arg:
+        return "0", generate_expr(args[0], symbols, 0, collected), "1"
+    elif len(args) == start_end_args:
+        return (
+            generate_expr(args[0], symbols, 0, collected),
+            generate_expr(args[1], symbols, 0, collected),
+            "1",
+        )
+    elif len(args) == full_range_args:
+        return (
+            generate_expr(args[0], symbols, 0, collected),
+            generate_expr(args[1], symbols, 0, collected),
+            generate_expr(args[2], symbols, 0, collected),
+        )
+    else:
+        raise TranspilerError("Range function must have 1 to 3 arguments")
+
+
+def _generate_range_iteration_loop(
+    stmt: ast.For,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
+    range_args: list[ast.expr],
+) -> list[str]:
+    """Generate GLSL code for a range-based for loop.
+
+    Args:
+        stmt: AST for loop node
+        symbols: Dictionary of variable names to their types
+        indent: Indentation string
+        collected: Information about functions, structs, and globals
+        range_args: Arguments to the range() call
+
+    Returns:
+        List of generated GLSL code lines for the range-based loop
+
+    Raises:
+        TranspilerError: If the target is invalid
+    """
+    code = []
+
+    # Extract the target variable name
+    if not isinstance(stmt.target, ast.Name):
+        raise TranspilerError("For loop target must be a variable name")
+
+    target = stmt.target.id
+
+    # Parse range arguments
+    start, end, step = _parse_range_arguments(range_args, symbols, collected)
+
+    # Generate loop header
+    code.append(
+        f"{indent}for (int {target} = {start}; {target} < {end}; "
+        f"{target} += {step}) {{"
+    )
+
+    # Generate loop body
+    body_symbols = symbols.copy()
+    body_symbols[target] = "int"
+    for line in generate_body(stmt.body, body_symbols, collected):
+        code.append(f"{indent}    {line}")
+
+    # Close the loop
+    code.append(f"{indent}}}")
+
+    return code
+
+
+def _is_range_call(node: ast.AST) -> bool:
+    """Check if a node is a call to the range() function.
+
+    Args:
+        node: AST node to check
+
+    Returns:
+        True if the node is a call to range(), False otherwise
+    """
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "range"
+    )
+
+
 def generate_for_loop(
     stmt: ast.For, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> list[str]:
@@ -226,73 +396,23 @@ def generate_for_loop(
     Raises:
         TranspilerError: If the loop is not a list or range-based for loop
     """
-    code = []
-    if isinstance(stmt.iter, ast.Name):  # List iteration, e.g., `for item in some_list`
+    # List iteration, e.g., `for item in some_list`
+    if isinstance(stmt.iter, ast.Name):
         list_name = stmt.iter.id
-        list_type = symbols.get(list_name, "unknown")
-        if list_type and isinstance(list_type, str) and list_type.startswith("list["):
-            item_type = list_type[5:-1]  # Extract type, e.g., "vec3" from "list[vec3]"
-            index_var = f"i_{list_name}"  # Unique index name
-            size_var = f"{list_name}_size"
-            code.append(
-                f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; "
-                f"++{index_var}) {{"
-            )
-            # Extract the target variable name
-            if isinstance(stmt.target, ast.Name):
-                target_name = stmt.target.id
-            else:
-                raise TranspilerError("For loop target must be a variable name")
-            code.append(
-                f"{indent}    {item_type} {target_name} = {list_name}[{index_var}];"
-            )
-            body_symbols = symbols.copy()
-            body_symbols[target_name] = item_type
-            # Type is preserved when copying the symbols dictionary
-            for line in generate_body(stmt.body, body_symbols, collected):
-                code.append(f"{indent}    {line}")
-            code.append(f"{indent}}}")
-        else:
-            raise TranspilerError(f"Unsupported iterable: {list_type}")
-    elif (
-        isinstance(stmt.iter, ast.Call)
-        and isinstance(stmt.iter.func, ast.Name)
-        and stmt.iter.func.id == "range"
-    ):
-        args = stmt.iter.args
-        if isinstance(stmt.target, ast.Name):
-            target = stmt.target.id
-        else:
-            raise TranspilerError("For loop target must be a variable name")
-        if len(args) == 1:
-            start, end, step = "0", generate_expr(args[0], symbols, 0, collected), "1"
-        elif len(args) == 2:  # noqa: PLR2004
-            start, end, step = (
-                generate_expr(args[0], symbols, 0, collected),
-                generate_expr(args[1], symbols, 0, collected),
-                "1",
-            )
-        elif len(args) == 3:  # noqa: PLR2004
-            start, end, step = (
-                generate_expr(args[0], symbols, 0, collected),
-                generate_expr(args[1], symbols, 0, collected),
-                generate_expr(args[2], symbols, 0, collected),
-            )
-        else:
-            raise TranspilerError("Range function must have 1 to 3 arguments")
-        code.append(
-            f"{indent}for (int {target} = {start}; {target} < {end}; "
-            f"{target} += {step}) {{"
+        return _generate_list_iteration_loop(
+            stmt, symbols, indent, collected, list_name
         )
-        body_symbols = symbols.copy()
-        body_symbols[target] = "int"
-        # Type is preserved when copying the symbols dictionary
-        for line in generate_body(stmt.body, body_symbols, collected):
-            code.append(f"{indent}    {line}")
-        code.append(f"{indent}}}")
+
+    # Range-based iteration, e.g., `for i in range(10)`
+    elif _is_range_call(stmt.iter):
+        range_args = cast(ast.Call, stmt.iter).args
+        return _generate_range_iteration_loop(
+            stmt, symbols, indent, collected, range_args
+        )
+
+    # Unsupported iteration type
     else:
         raise TranspilerError("Only list and range-based for loops are supported")
-    return code
 
 
 def generate_while_loop(
