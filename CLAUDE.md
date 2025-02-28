@@ -37,3 +37,4 @@
   python examples/001_ray_marching.py
   ```
 - This ensures that changes don't break the actual shader generation and rendering
+- Always address root causes methodically rather than implementing quick fixes, and verify all affected parts of the codebase
