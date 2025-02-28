@@ -6,6 +6,7 @@ including names, constants, binary operations, function calls, and more.
 """
 
 import ast
+from collections.abc import Callable
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS, OPERATOR_PRECEDENCE
 from py2glsl.transpiler.errors import TranspilerError
@@ -297,23 +298,110 @@ def generate_call_expr(
     raise TranspilerError(f"Unknown function call: {func_name}")
 
 
-# Dictionary mapping AST node types to handler functions
-_EXPR_GENERATORS = {
-    ast.Name: lambda node, symbols, parent_precedence, collected: generate_name_expr(
-        node, symbols
-    ),
-    # Split long line into separate lines to fix line length issue
-    ast.Constant: lambda node, symbols, parent_precedence, collected: (
-        generate_constant_expr(node)
-    ),
-    ast.BinOp: generate_binary_op_expr,
-    ast.Compare: generate_compare_expr,
-    ast.BoolOp: generate_bool_op_expr,
-    ast.Call: lambda node, symbols, parent_precedence, collected: generate_call_expr(
-        node, symbols, collected
-    ),
-    ast.Attribute: generate_attribute_expr,
-    ast.IfExp: generate_if_expr,
+# Type for expression generator functions
+ExprGenerator = Callable[[ast.AST, dict[str, str | None], int, CollectedInfo], str]
+
+
+# Create helper functions with the right signatures
+def _name_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.Name):
+        return generate_name_expr(node, symbols)
+    raise TypeError(f"Expected ast.Name, got {type(node).__name__}")
+
+
+def _constant_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.Constant):
+        return generate_constant_expr(node)
+    raise TypeError(f"Expected ast.Constant, got {type(node).__name__}")
+
+
+def _call_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.Call):
+        return generate_call_expr(node, symbols, collected)
+    raise TypeError(f"Expected ast.Call, got {type(node).__name__}")
+
+
+# Create wrapper functions for other expressions
+def _binop_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.BinOp):
+        return generate_binary_op_expr(node, symbols, parent_precedence, collected)
+    raise TypeError(f"Expected ast.BinOp, got {type(node).__name__}")
+
+
+def _compare_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.Compare):
+        return generate_compare_expr(node, symbols, parent_precedence, collected)
+    raise TypeError(f"Expected ast.Compare, got {type(node).__name__}")
+
+
+def _boolop_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.BoolOp):
+        return generate_bool_op_expr(node, symbols, parent_precedence, collected)
+    raise TypeError(f"Expected ast.BoolOp, got {type(node).__name__}")
+
+
+def _attribute_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.Attribute):
+        return generate_attribute_expr(node, symbols, parent_precedence, collected)
+    raise TypeError(f"Expected ast.Attribute, got {type(node).__name__}")
+
+
+def _ifexp_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.IfExp):
+        return generate_if_expr(node, symbols, parent_precedence, collected)
+    raise TypeError(f"Expected ast.IfExp, got {type(node).__name__}")
+
+
+# Dictionary mapping AST node types to handler functions that all accept ast.AST
+_EXPR_GENERATORS: dict[type[ast.AST], ExprGenerator] = {
+    ast.Name: _name_expr_wrapper,
+    ast.Constant: _constant_expr_wrapper,
+    ast.BinOp: _binop_expr_wrapper,
+    ast.Compare: _compare_expr_wrapper,
+    ast.BoolOp: _boolop_expr_wrapper,
+    ast.Call: _call_expr_wrapper,
+    ast.Attribute: _attribute_expr_wrapper,
+    ast.IfExp: _ifexp_expr_wrapper,
 }
 
 
@@ -338,7 +426,7 @@ def generate_expr(
         TranspilerError: If unsupported expressions are encountered
     """
     node_type = type(node)
-    generator = _EXPR_GENERATORS.get(node_type)
-    if generator:
+    if node_type in _EXPR_GENERATORS:
+        generator = _EXPR_GENERATORS[node_type]
         return generator(node, symbols, parent_precedence, collected)
     raise TranspilerError(f"Unsupported expression: {node_type.__name__}")

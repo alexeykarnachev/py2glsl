@@ -7,7 +7,6 @@ and validating type compatibility in operations.
 
 import ast
 from collections.abc import Callable
-from typing import Any, TypeVar, cast
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS
 from py2glsl.transpiler.errors import TranspilerError
@@ -311,22 +310,77 @@ def _get_compare_boolop_type(
     return "bool"
 
 
-# Type variable for the node type
-T = TypeVar("T", bound=ast.AST)
+# Type for a generic AST node handler
+TypeChecker = Callable[[ast.AST, dict[str, str | None], CollectedInfo], str]
 
-# Type for type checker functions
-TypeChecker = Callable[[T, dict[str, str | None], CollectedInfo], str]
 
-# Map of AST node types to their type checker functions
-_TYPE_CHECKERS = {
-    ast.Name: _get_name_type,
-    ast.Constant: _get_constant_type,
-    ast.BinOp: _get_binop_type,
-    ast.Call: _get_call_type,
-    ast.Attribute: _get_attribute_type,
-    ast.IfExp: _get_ifexp_type,
-    ast.Compare: _get_compare_boolop_type,
-    ast.BoolOp: _get_compare_boolop_type,
+# Create wrapper functions with the right signatures
+def _name_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.Name):
+        return _get_name_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.Name, got {type(node).__name__}")
+
+
+def _constant_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.Constant):
+        return _get_constant_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.Constant, got {type(node).__name__}")
+
+
+def _binop_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.BinOp):
+        return _get_binop_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.BinOp, got {type(node).__name__}")
+
+
+def _call_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.Call):
+        return _get_call_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.Call, got {type(node).__name__}")
+
+
+def _attribute_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.Attribute):
+        return _get_attribute_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.Attribute, got {type(node).__name__}")
+
+
+def _ifexp_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.IfExp):
+        return _get_ifexp_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.IfExp, got {type(node).__name__}")
+
+
+def _compare_boolop_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.Compare | ast.BoolOp):
+        return _get_compare_boolop_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.Compare or ast.BoolOp, got {type(node).__name__}")
+
+
+# Map of AST node types to their type checker functions with proper typing
+_TYPE_CHECKERS: dict[type[ast.AST], TypeChecker] = {
+    ast.Name: _name_type_wrapper,
+    ast.Constant: _constant_type_wrapper,
+    ast.BinOp: _binop_type_wrapper,
+    ast.Call: _call_type_wrapper,
+    ast.Attribute: _attribute_type_wrapper,
+    ast.IfExp: _ifexp_type_wrapper,
+    ast.Compare: _compare_boolop_type_wrapper,
+    ast.BoolOp: _compare_boolop_type_wrapper,
 }
 
 
@@ -347,9 +401,7 @@ def get_expr_type(
         TranspilerError: If the type cannot be determined
     """
     node_type = type(node)
-    checker = _TYPE_CHECKERS.get(node_type)
-    if checker:
-        # Use cast to help type checking understand the type
-        typed_checker = cast(TypeChecker[Any], checker)
-        return typed_checker(node, symbols, collected)
+    if node_type in _TYPE_CHECKERS:
+        checker = _TYPE_CHECKERS[node_type]
+        return checker(node, symbols, collected)
     raise TranspilerError(f"Cannot determine type for: {node_type.__name__}")

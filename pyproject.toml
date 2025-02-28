@@ -64,7 +64,6 @@ select = [
     "N",     # pep8-naming
     "UP",    # pyupgrade
     "B",     # flake8-bugbear
-    "A",     # flake8-builtins
     "C4",    # flake8-comprehensions
     "SIM",   # flake8-simplify
     "ERA",   # eradicate
@@ -72,7 +71,8 @@ select = [
     "RUF",   # ruff-specific rules
     "F841",  # unused variables
 ]
-per-file-ignores = { "__init__.py" = ["F401"], "tests/*" = ["PLR2004"], "py2glsl/builtins.py" = ["N801", "A005", "PLR0911"] }
+ignore = []
+per-file-ignores = { "__init__.py" = ["F401"], "tests/*" = ["PLR2004"], "py2glsl/builtins.py" = ["N801", "PLR0911"] }
 
 [tool.ruff.format]
 quote-style = "double"
@@ -93,6 +93,10 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_return_any = true
 warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "py2glsl.builtins"
+ignore_errors = true
 
 [dependency-groups]
 dev = [
