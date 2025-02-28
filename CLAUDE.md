@@ -13,6 +13,7 @@
 - Use double quotes for strings
 - Type annotations required on all functions and variables
 - Follow PEP 8 naming: snake_case for variables/functions, PascalCase for classes
+- IMPORTANT: GLSL-compatible types must use GLSL naming (vec2, vec3, vec4, mat2, etc.) NOT PascalCase
 - Maximum line length: 88 characters
 - Use dataclasses for data structures
 - Comprehensive error handling with custom exceptions

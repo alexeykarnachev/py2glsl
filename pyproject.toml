@@ -72,7 +72,7 @@ select = [
     "RUF",   # ruff-specific rules
     "F841",  # unused variables
 ]
-per-file-ignores = { "__init__.py" = ["F401"], "tests/*" = ["PLR2004"] }
+per-file-ignores = { "__init__.py" = ["F401"], "tests/*" = ["PLR2004"], "py2glsl/builtins.py" = ["N801", "A005", "PLR0911"] }
 
 [tool.ruff.format]
 quote-style = "double"

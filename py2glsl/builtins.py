@@ -1,8 +1,5 @@
-from typing import (
-    Any, Callable, Generic, NamedTuple, Protocol, Tuple, 
-    TypeVar, Union, cast, overload
-)
-from typing_extensions import Self  # For Python 3.11 and older
+from typing import TypeVar, Union, overload
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -17,7 +14,7 @@ class vec2:
     data: FloatArray
     _x: property
     _y: property
-    
+
     def __init__(self, x: float, y: float):
         self.data = np.array([x, y], dtype=np.float32)
 
@@ -61,7 +58,7 @@ class vec3:
     _x: property
     _y: property
     _z: property
-    
+
     def __init__(self, x: float, y: float, z: float):
         self.data = np.array([x, y, z], dtype=np.float32)
 
@@ -126,7 +123,7 @@ class vec4:
     _y: property
     _z: property
     _w: property
-    
+
     def __init__(self, x: float, y: float, z: float, w: float):
         self.data = np.array([x, y, z, w], dtype=np.float32)
 
@@ -164,15 +161,21 @@ class vec4:
 
     def __add__(self, other: "vec4") -> "vec4":
         result = self.data + other.data
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
 
     def __sub__(self, other: "vec4") -> "vec4":
         result = self.data - other.data
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
 
     def __mul__(self, scalar: float) -> "vec4":
         result = self.data * scalar
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
 
     def __rmul__(self, scalar: float) -> "vec4":
         return self.__mul__(scalar)
@@ -184,9 +187,11 @@ class vec4:
 # Matrix classes
 class mat2:
     data: FloatArray
-    
+
     def __init__(self, *args: float):
-        if len(args) == 4:  # 2x2 matrix
+        # 2x2 matrix
+        mat2_size = 4
+        if len(args) == mat2_size:
             self.data = np.array(
                 [[args[0], args[1]], [args[2], args[3]]], dtype=np.float32
             )
@@ -196,9 +201,11 @@ class mat2:
 
 class mat3:
     data: FloatArray
-    
+
     def __init__(self, *args: float):
-        if len(args) == 9:  # 3x3 matrix
+        # 3x3 matrix
+        mat3_size = 9
+        if len(args) == mat3_size:
             self.data = np.array(
                 [
                     [args[0], args[1], args[2]],
@@ -213,9 +220,11 @@ class mat3:
 
 class mat4:
     data: FloatArray
-    
+
     def __init__(self, *args: float):
-        if len(args) == 16:  # 4x4 matrix
+        # 4x4 matrix
+        mat4_size = 16
+        if len(args) == mat4_size:
             self.data = np.array(
                 [
                     [args[0], args[1], args[2], args[3]],
@@ -242,19 +251,24 @@ def tan(x: float) -> float:
     return float(np.tan(x))
 
 
+# pylint: disable=redefined-builtin
 @overload
-def abs(x: float) -> float: ...
+def abs(x: float) -> float: ...  # noqa: A001
+
 
 @overload
-def abs(x: vec2) -> vec2: ...
+def abs(x: vec2) -> vec2: ...  # noqa: A001
+
 
 @overload
-def abs(x: vec3) -> vec3: ...
+def abs(x: vec3) -> vec3: ...  # noqa: A001
+
 
 @overload
-def abs(x: vec4) -> vec4: ...
+def abs(x: vec4) -> vec4: ...  # noqa: A001
 
-def abs(x: Union[float, vec2, vec3, vec4]) -> Union[float, vec2, vec3, vec4]:
+
+def abs(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:  # noqa: A001
     if isinstance(x, vec2):
         result = np.abs(x.data)
         return vec2(float(result[0]), float(result[1]))
@@ -263,53 +277,68 @@ def abs(x: Union[float, vec2, vec3, vec4]) -> Union[float, vec2, vec3, vec4]:
         return vec3(float(result[0]), float(result[1]), float(result[2]))
     elif isinstance(x, vec4):
         result = np.abs(x.data)
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
     return float(np.abs(x))
 
 
 @overload
 def length(v: vec2) -> float: ...
 
+
 @overload
 def length(v: vec3) -> float: ...
+
 
 @overload
 def length(v: vec4) -> float: ...
 
-def length(v: Union[vec2, vec3, vec4]) -> float:
+
+def length(v: vec2 | vec3 | vec4) -> float:
     return float(np.linalg.norm(v.data))
 
 
 @overload
 def distance(p0: vec2, p1: vec2) -> float: ...
 
+
 @overload
 def distance(p0: vec3, p1: vec3) -> float: ...
+
 
 @overload
 def distance(p0: vec4, p1: vec4) -> float: ...
 
-def distance(p0: Union[vec2, vec3, vec4], p1: Union[vec2, vec3, vec4]) -> float:
-    if type(p0) != type(p1):
-        raise TypeError(f"distance() requires matching vector types, got {type(p0)} and {type(p1)}")
+
+def distance(p0: vec2 | vec3 | vec4, p1: vec2 | vec3 | vec4) -> float:
+    if not isinstance(p0, type(p1)):
+        raise TypeError(
+            f"distance() requires matching vector types, got {type(p0)} and {type(p1)}"
+        )
     return float(np.linalg.norm(p0.data - p1.data))
 
 
+# pylint: disable=redefined-builtin
 @overload
-def min(a: float, b: float) -> float: ...
+def min(a: float, b: float) -> float: ...  # noqa: A001
+
 
 @overload
-def min(a: vec2, b: vec2) -> vec2: ...
+def min(a: vec2, b: vec2) -> vec2: ...  # noqa: A001
+
 
 @overload
-def min(a: vec3, b: vec3) -> vec3: ...
+def min(a: vec3, b: vec3) -> vec3: ...  # noqa: A001
+
 
 @overload
-def min(a: vec4, b: vec4) -> vec4: ...
+def min(a: vec4, b: vec4) -> vec4: ...  # noqa: A001
 
-def min(
-    a: Union[float, vec2, vec3, vec4], b: Union[float, vec2, vec3, vec4]
-) -> Union[float, vec2, vec3, vec4]:
+
+def min(  # noqa: A001
+    a: float | vec2 | vec3 | vec4, b: float | vec2 | vec3 | vec4
+) -> float | vec2 | vec3 | vec4:
     if isinstance(a, vec2) and isinstance(b, vec2):
         result = np.minimum(a.data, b.data)
         return vec2(float(result[0]), float(result[1]))
@@ -318,28 +347,35 @@ def min(
         return vec3(float(result[0]), float(result[1]), float(result[2]))
     elif isinstance(a, vec4) and isinstance(b, vec4):
         result = np.minimum(a.data, b.data)
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
-    elif isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
+    elif isinstance(a, (int | float)) and isinstance(b, (int | float)):
         return float(np.minimum(a, b))
     else:
         raise TypeError(f"min() received incompatible types: {type(a)} and {type(b)}")
 
 
+# pylint: disable=redefined-builtin
 @overload
-def max(a: float, b: float) -> float: ...
+def max(a: float, b: float) -> float: ...  # noqa: A001
+
 
 @overload
-def max(a: vec2, b: vec2) -> vec2: ...
+def max(a: vec2, b: vec2) -> vec2: ...  # noqa: A001
+
 
 @overload
-def max(a: vec3, b: vec3) -> vec3: ...
+def max(a: vec3, b: vec3) -> vec3: ...  # noqa: A001
+
 
 @overload
-def max(a: vec4, b: vec4) -> vec4: ...
+def max(a: vec4, b: vec4) -> vec4: ...  # noqa: A001
 
-def max(
-    a: Union[float, vec2, vec3, vec4], b: Union[float, vec2, vec3, vec4]
-) -> Union[float, vec2, vec3, vec4]:
+
+def max(  # noqa: A001
+    a: float | vec2 | vec3 | vec4, b: float | vec2 | vec3 | vec4
+) -> float | vec2 | vec3 | vec4:
     if isinstance(a, vec2) and isinstance(b, vec2):
         result = np.maximum(a.data, b.data)
         return vec2(float(result[0]), float(result[1]))
@@ -348,8 +384,10 @@ def max(
         return vec3(float(result[0]), float(result[1]), float(result[2]))
     elif isinstance(a, vec4) and isinstance(b, vec4):
         result = np.maximum(a.data, b.data)
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
-    elif isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
+    elif isinstance(a, (int | float)) and isinstance(b, (int | float)):
         return float(np.maximum(a, b))
     else:
         raise TypeError(f"max() received incompatible types: {type(a)} and {type(b)}")
@@ -358,17 +396,20 @@ def max(
 @overload
 def normalize(v: vec2) -> vec2: ...
 
+
 @overload
 def normalize(v: vec3) -> vec3: ...
+
 
 @overload
 def normalize(v: vec4) -> vec4: ...
 
-def normalize(v: Union[vec2, vec3, vec4]) -> Union[vec2, vec3, vec4]:
+
+def normalize(v: vec2 | vec3 | vec4) -> vec2 | vec3 | vec4:
     norm = float(np.linalg.norm(v.data))
     if norm == 0:
         return v
-        
+
     if isinstance(v, vec2):
         result = v.data / norm
         return vec2(float(result[0]), float(result[1]))
@@ -377,7 +418,9 @@ def normalize(v: Union[vec2, vec3, vec4]) -> Union[vec2, vec3, vec4]:
         return vec3(float(result[0]), float(result[1]), float(result[2]))
     else:  # vec4
         result = v.data / norm
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
 
 
 def cross(a: vec3, b: vec3) -> vec3:
@@ -388,107 +431,139 @@ def cross(a: vec3, b: vec3) -> vec3:
 @overload
 def mix(x: float, y: float, a: float) -> float: ...
 
+
 @overload
 def mix(x: vec2, y: vec2, a: float) -> vec2: ...
+
 
 @overload
 def mix(x: vec3, y: vec3, a: float) -> vec3: ...
 
+
 @overload
 def mix(x: vec4, y: vec4, a: float) -> vec4: ...
+
 
 @overload
 def mix(x: vec2, y: vec2, a: vec2) -> vec2: ...
 
+
 @overload
 def mix(x: vec3, y: vec3, a: vec3) -> vec3: ...
+
 
 @overload
 def mix(x: vec4, y: vec4, a: vec4) -> vec4: ...
 
+
 def mix(
-    x: Union[float, vec2, vec3, vec4], 
-    y: Union[float, vec2, vec3, vec4], 
-    a: Union[float, vec2, vec3, vec4]
-) -> Union[float, vec2, vec3, vec4]:
+    x: float | vec2 | vec3 | vec4,
+    y: float | vec2 | vec3 | vec4,
+    a: float | vec2 | vec3 | vec4,
+) -> float | vec2 | vec3 | vec4:
     # Handle float, float, float → float
-    if isinstance(x, (int, float)) and isinstance(y, (int, float)) and isinstance(a, (int, float)):
+    if (
+        isinstance(x, (int | float))
+        and isinstance(y, (int | float))
+        and isinstance(a, (int | float))
+    ):
         return float(x * (1 - a) + y * a)
-    
+
     # Handle vec2, vec2, float → vec2
-    if isinstance(x, vec2) and isinstance(y, vec2) and isinstance(a, (int, float)):
+    if isinstance(x, vec2) and isinstance(y, vec2) and isinstance(a, (int | float)):
         result = x.data * (1 - a) + y.data * a
         return vec2(float(result[0]), float(result[1]))
-    
+
     # Handle vec3, vec3, float → vec3
-    if isinstance(x, vec3) and isinstance(y, vec3) and isinstance(a, (int, float)):
+    if isinstance(x, vec3) and isinstance(y, vec3) and isinstance(a, (int | float)):
         result = x.data * (1 - a) + y.data * a
         return vec3(float(result[0]), float(result[1]), float(result[2]))
-    
+
     # Handle vec4, vec4, float → vec4
-    if isinstance(x, vec4) and isinstance(y, vec4) and isinstance(a, (int, float)):
+    if isinstance(x, vec4) and isinstance(y, vec4) and isinstance(a, (int | float)):
         result = x.data * (1 - a) + y.data * a
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
-    
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
+
     # Handle vec2, vec2, vec2 → vec2
     if isinstance(x, vec2) and isinstance(y, vec2) and isinstance(a, vec2):
         result = x.data * (1 - a.data) + y.data * a.data
         return vec2(float(result[0]), float(result[1]))
-    
+
     # Handle vec3, vec3, vec3 → vec3
     if isinstance(x, vec3) and isinstance(y, vec3) and isinstance(a, vec3):
         result = x.data * (1 - a.data) + y.data * a.data
         return vec3(float(result[0]), float(result[1]), float(result[2]))
-    
+
     # Handle vec4, vec4, vec4 → vec4
     if isinstance(x, vec4) and isinstance(y, vec4) and isinstance(a, vec4):
         result = x.data * (1 - a.data) + y.data * a.data
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
-    
-    raise TypeError(f"mix() received incompatible types: {type(x)}, {type(y)}, {type(a)}")
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
+
+    types = f"{type(x)}, {type(y)}, {type(a)}"
+    raise TypeError(f"mix() received incompatible types: {types}")
 
 
 @overload
 def smoothstep(edge0: float, edge1: float, x: float) -> float: ...
 
+
 @overload
 def smoothstep(edge0: vec2, edge1: vec2, x: vec2) -> vec2: ...
+
 
 @overload
 def smoothstep(edge0: vec3, edge1: vec3, x: vec3) -> vec3: ...
 
+
 @overload
 def smoothstep(edge0: vec4, edge1: vec4, x: vec4) -> vec4: ...
 
+
 def smoothstep(
-    edge0: Union[float, vec2, vec3, vec4],
-    edge1: Union[float, vec2, vec3, vec4],
-    x: Union[float, vec2, vec3, vec4]
-) -> Union[float, vec2, vec3, vec4]:
+    edge0: float | vec2 | vec3 | vec4,
+    edge1: float | vec2 | vec3 | vec4,
+    x: float | vec2 | vec3 | vec4,
+) -> float | vec2 | vec3 | vec4:
     # Handle float, float, float → float
-    if isinstance(edge0, (int, float)) and isinstance(edge1, (int, float)) and isinstance(x, (int, float)):
+    if (
+        isinstance(edge0, (int | float))
+        and isinstance(edge1, (int | float))
+        and isinstance(x, (int | float))
+    ):
         t = float(np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0))
         return t * t * (3.0 - 2.0 * t)
-    
+
     # Handle vec2, vec2, vec2 → vec2
     if isinstance(edge0, vec2) and isinstance(edge1, vec2) and isinstance(x, vec2):
         t_array = np.clip((x.data - edge0.data) / (edge1.data - edge0.data), 0.0, 1.0)
         result_array = t_array * t_array * (3.0 - 2.0 * t_array)
         return vec2(float(result_array[0]), float(result_array[1]))
-    
+
     # Handle vec3, vec3, vec3 → vec3
     if isinstance(edge0, vec3) and isinstance(edge1, vec3) and isinstance(x, vec3):
         t_array = np.clip((x.data - edge0.data) / (edge1.data - edge0.data), 0.0, 1.0)
         result_array = t_array * t_array * (3.0 - 2.0 * t_array)
-        return vec3(float(result_array[0]), float(result_array[1]), float(result_array[2]))
-    
+        return vec3(
+            float(result_array[0]), float(result_array[1]), float(result_array[2])
+        )
+
     # Handle vec4, vec4, vec4 → vec4
     if isinstance(edge0, vec4) and isinstance(edge1, vec4) and isinstance(x, vec4):
         t_array = np.clip((x.data - edge0.data) / (edge1.data - edge0.data), 0.0, 1.0)
         result_array = t_array * t_array * (3.0 - 2.0 * t_array)
-        return vec4(float(result_array[0]), float(result_array[1]), float(result_array[2]), float(result_array[3]))
-    
-    raise TypeError(f"smoothstep() received incompatible types: {type(edge0)}, {type(edge1)}, {type(x)}")
+        return vec4(
+            float(result_array[0]),
+            float(result_array[1]),
+            float(result_array[2]),
+            float(result_array[3]),
+        )
+
+    types = f"{type(edge0)}, {type(edge1)}, {type(x)}"
+    raise TypeError(f"smoothstep() received incompatible types: {types}")
 
 
 def radians(degrees: float) -> float:
@@ -502,13 +577,16 @@ def sqrt(x: float) -> float:
 @overload
 def fract(v: vec2) -> vec2: ...
 
+
 @overload
 def fract(v: vec3) -> vec3: ...
+
 
 @overload
 def fract(v: vec4) -> vec4: ...
 
-def fract(v: Union[vec2, vec3, vec4]) -> Union[vec2, vec3, vec4]:
+
+def fract(v: vec2 | vec3 | vec4) -> vec2 | vec3 | vec4:
     if isinstance(v, vec2):
         result = v.data - np.floor(v.data)
         return vec2(float(result[0]), float(result[1]))
@@ -517,4 +595,6 @@ def fract(v: Union[vec2, vec3, vec4]) -> Union[vec2, vec3, vec4]:
         return vec3(float(result[0]), float(result[1]), float(result[2]))
     else:  # vec4
         result = v.data - np.floor(v.data)
-        return vec4(float(result[0]), float(result[1]), float(result[2]), float(result[3]))
+        return vec4(
+            float(result[0]), float(result[1]), float(result[2]), float(result[3])
+        )
