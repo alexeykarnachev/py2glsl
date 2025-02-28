@@ -79,7 +79,11 @@ class TestCollectInfo:
         assert collected.globals["MAX_STEPS"] == ("int", "100")
 
     def test_collect_complex_setup(self):
-        """Test collecting information from a complex setup with functions, structs, and globals."""
+        """Test collecting from a complex setup.
+
+        This test covers collection of functions, structs, and globals defined
+        in the same source file.
+        """
         # Arrange
         code = textwrap.dedent(
             """
@@ -144,7 +148,8 @@ class TestCollectInfo:
         code = textwrap.dedent(
             """
         SIMPLE: 'float' = 3.14
-        COMPLEX: 'float' = 2.0 + 3.0  # This should be skipped as it's not a simple expression
+        # This should be skipped as it's not a simple expression:
+        COMPLEX: 'float' = 2.0 + 3.0
         """
         )
         tree = ast.parse(code)

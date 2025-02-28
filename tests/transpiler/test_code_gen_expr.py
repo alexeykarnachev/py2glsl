@@ -372,7 +372,10 @@ class TestGenerateIfExpr:
         assert result == "flag ? uv : uv * 2.0"
 
     def test_generate_if_expr_with_precedence(self, symbols, collected_info):
-        """Test generating code for conditional expression with precedence considerations."""
+        """Test generating code for conditional expression with precedence handling.
+
+        Verifies proper parentheses are added when needed based on operator precedence.
+        """
         # Arrange
         node = ast.parse("uv if flag else uv * 2.0", mode="eval").body
 

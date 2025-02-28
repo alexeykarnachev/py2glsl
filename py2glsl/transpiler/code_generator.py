@@ -5,7 +5,6 @@ This module handles generation of GLSL code from the collected information,
 combining function bodies, struct definitions, and global constants.
 """
 
-
 from loguru import logger
 
 from py2glsl.transpiler.code_gen_stmt import generate_body

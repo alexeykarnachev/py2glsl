@@ -1,4 +1,4 @@
-from builtins import max as python_max  # Using Python's built-in max
+# Using builtins would be needed if both Python's max and GLSL max are used
 from dataclasses import dataclass
 
 import pytest

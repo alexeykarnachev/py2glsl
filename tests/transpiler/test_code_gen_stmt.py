@@ -362,9 +362,7 @@ for item in items:
         ).body[0]
 
         # Act & Assert
-        with pytest.raises(
-            TranspilerError, match="Unsupported iterable: unknown"
-        ):
+        with pytest.raises(TranspilerError, match="Unsupported iterable: unknown"):
             generate_for_loop(node, symbols, "    ", collected_info)
 
 
@@ -550,7 +548,8 @@ for item in some_list:
 
         # Assert
         expected = [
-            "vec3 some_list[3] = vec3[3](vec3(1.0, 0.0, 0.0), vec3(2.0, 0.0, 0.0), vec3(3.0, 0.0, 0.0));",
+            "vec3 some_list[3] = vec3[3](vec3(1.0, 0.0, 0.0), "
+            "vec3(2.0, 0.0, 0.0), vec3(3.0, 0.0, 0.0));",
             "vec3 total = vec3(0.0);",
             "for (int i_some_list = 0; i_some_list < some_list_size; ++i_some_list) {",
             "    vec3 item = some_list[i_some_list];",
@@ -612,10 +611,12 @@ for outer in outer_list:
             "vec3 inner_list[2] = vec3[2](vec3(3.0), vec3(4.0));",
             "vec3 total = vec3(0.0);",
             # For loop iteration over outer list
-            "for (int i_outer_list = 0; i_outer_list < outer_list_size; ++i_outer_list) {",
+            "for (int i_outer_list = 0; i_outer_list < outer_list_size; "
+            "++i_outer_list) {",
             "    vec3 outer = outer_list[i_outer_list];",
             # Nested for loop iteration over inner list
-            "    for (int i_inner_list = 0; i_inner_list < inner_list_size; ++i_inner_list) {",
+            "    for (int i_inner_list = 0; i_inner_list < inner_list_size; "
+            "++i_inner_list) {",
             "        vec3 inner = inner_list[i_inner_list];",
             "        total = total + outer + inner;",
             "    }",

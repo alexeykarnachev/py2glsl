@@ -33,7 +33,7 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
     class Visitor(ast.NodeVisitor):
         """AST visitor that collects information about functions, structs, and globals."""
 
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
             """Visit function definition nodes and collect information about them."""
             param_types = [
                 get_annotation_type(arg.annotation) for arg in node.args.args
@@ -50,8 +50,11 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
             )
             self.generic_visit(node)
 
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            """Visit class definition nodes and collect struct information from dataclasses."""
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+            """Visit class definition nodes and collect struct information from dataclasses.
+
+            Processes classes marked with @dataclass and extracts their fields.
+            """
             is_dataclass = any(
                 isinstance(d, ast.Name) and d.id == "dataclass"
                 for d in node.decorator_list
@@ -76,16 +79,19 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
                                 )
                             )
                         else:
-                            raise TranspilerError(f"Missing type annotation for struct field {stmt.target.id}")
+                            raise TranspilerError(
+                                f"Missing type annotation for struct field {stmt.target.id}"
+                            )
                 collected.structs[node.name] = StructDefinition(
                     name=node.name, fields=fields
                 )
                 logger.debug(
-                    f"Collected struct: {node.name}, fields: {[(f.name, f.type_name) for f in fields]}"
+                    f"Collected struct: {node.name}, "
+                    f"fields: {[(f.name, f.type_name) for f in fields]}"
                 )
             self.generic_visit(node)
 
-        def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
             """Visit annotated assignment nodes to collect global variables."""
             if isinstance(node.target, ast.Name) and node.value:
                 expr_type = get_annotation_type(node.annotation)
@@ -95,12 +101,15 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
                     if expr_type is not None:
                         collected.globals[node.target.id] = (expr_type, value)
                     else:
-                        collected.globals[node.target.id] = ("float", value)  # Default to float if no type annotation
+                        # Default to float if no type annotation
+                        collected.globals[node.target.id] = ("float", value)
                     logger.debug(
-                        f"Collected global: {node.target.id}, type: {expr_type}, value: {value}"
+                        f"Collected global: {node.target.id}, "
+                        f"type: {expr_type}, value: {value}"
                     )
                 except Exception:
-                    # Skip if we can't generate a simple expression (likely a complex expression)
+                    # Skip if we can't generate a simple expression
+                    # (likely a complex expression that needs further processing)
                     pass
             self.generic_visit(node)
 

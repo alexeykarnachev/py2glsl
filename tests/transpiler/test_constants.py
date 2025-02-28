@@ -57,7 +57,8 @@ class TestBuiltinFunctions:
         assert isinstance(vec2_signatures, list)
         # Find the 2-float constructor
         two_float_constructor = next(
-            (sig for sig in vec2_signatures if sig[0] == "vec2" and len(sig[1]) == 2), None
+            (sig for sig in vec2_signatures if sig[0] == "vec2" and len(sig[1]) == 2),
+            None,
         )
         assert two_float_constructor is not None
         assert all(param == "float" for param in two_float_constructor[1])
@@ -89,7 +90,10 @@ class TestOperatorPrecedence:
         assert OPERATOR_PRECEDENCE["&&"] > OPERATOR_PRECEDENCE["||"]
 
     def test_equality_higher_than_logical(self):
-        """Test that equality operators have higher precedence than logical operators."""
+        """Test equality operators precedence versus logical operators.
+
+        Ensures == and != have higher precedence than || (logical OR).
+        """
         assert OPERATOR_PRECEDENCE["=="] > OPERATOR_PRECEDENCE["||"]
         assert OPERATOR_PRECEDENCE["!="] > OPERATOR_PRECEDENCE["||"]
 

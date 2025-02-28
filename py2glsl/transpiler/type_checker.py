@@ -36,7 +36,9 @@ def get_expr_type(
             return symbol_type
         # Check if it's a global constant
         elif node.id in collected.globals:
-            return collected.globals[node.id][0]  # Return the type of the global constant
+            return collected.globals[node.id][
+                0
+            ]  # Return the type of the global constant
         raise TranspilerError(f"Undefined variable: {node.id}")
 
     elif isinstance(node, ast.Constant):
@@ -77,11 +79,15 @@ def get_expr_type(
 
                 # If it's a single signature tuple (not overloaded)
                 if isinstance(func_signatures, tuple):
-                    return_type: str = func_signatures[0]  # Return the single return type
+                    return_type: str = func_signatures[
+                        0
+                    ]  # Return the single return type
                     return return_type
 
                 # For overloaded functions, determine parameter types and find the matching signature
-                arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
+                arg_types = [
+                    get_expr_type(arg, symbols, collected) for arg in node.args
+                ]
 
                 for signature in func_signatures:
                     return_type, param_types = signature
@@ -91,9 +97,16 @@ def get_expr_type(
                         continue
 
                     # Check if the arguments match the parameter types
-                    if all(arg_type == param_type or
-                           (arg_type in ["float", "int"] and param_type in ["float", "int"])
-                           for arg_type, param_type in zip(arg_types, param_types, strict=False)):
+                    if all(
+                        arg_type == param_type
+                        or (
+                            arg_type in ["float", "int"]
+                            and param_type in ["float", "int"]
+                        )
+                        for arg_type, param_type in zip(
+                            arg_types, param_types, strict=False
+                        )
+                    ):
                         return_type_str: str = return_type
                         return return_type_str
 
@@ -161,7 +174,7 @@ def get_expr_type(
 
         return true_type
 
-    elif isinstance(node, (ast.Compare, ast.BoolOp)):
+    elif isinstance(node, ast.Compare | ast.BoolOp):
         return "bool"
 
     raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")

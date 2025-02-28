@@ -39,7 +39,7 @@ def generate_constant_expr(node: ast.Constant) -> str:
     """
     if isinstance(node.value, bool):
         return "true" if node.value else "false"  # GLSL uses lowercase
-    elif isinstance(node.value, (int, float)):
+    elif isinstance(node.value, int | float):
         return str(node.value)
     raise TranspilerError(f"Unsupported constant type: {type(node.value).__name__}")
 
@@ -202,7 +202,10 @@ def generate_if_expr(
 
 
 def generate_struct_constructor(
-    struct_name: str, node: ast.Call, symbols: dict[str, str | None], collected: CollectedInfo
+    struct_name: str,
+    node: ast.Call,
+    symbols: dict[str, str | None],
+    collected: CollectedInfo,
 ) -> str:
     """Generate GLSL code for a struct constructor.
 
@@ -240,7 +243,8 @@ def generate_struct_constructor(
         ]
         if missing_fields:
             raise TranspilerError(
-                f"Missing required fields in struct {struct_name}: {', '.join(missing_fields)}"
+                f"Missing required fields in struct {struct_name}: "
+                f"{', '.join(missing_fields)}"
             )
 
         for i, field in enumerate(struct_def.fields):
@@ -254,7 +258,8 @@ def generate_struct_constructor(
     elif node.args:
         if len(node.args) != len(struct_def.fields):
             raise TranspilerError(
-                f"Wrong number of arguments for struct {struct_name}: expected {len(struct_def.fields)}, got {len(node.args)}"
+                f"Wrong number of arguments for struct {struct_name}: "
+                f"expected {len(struct_def.fields)}, got {len(node.args)}"
             )
         args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
         return f"{struct_name}({', '.join(args)})"

@@ -14,7 +14,10 @@ from py2glsl.transpiler.type_checker import get_expr_type
 
 
 def generate_assignment(
-    node: ast.Assign, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+    node: ast.Assign,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
 ) -> str:
     """Generate GLSL code for an assignment statement.
 
@@ -31,7 +34,8 @@ def generate_assignment(
         Generated GLSL code for the assignment
 
     Raises:
-        TranspilerError: If the assignment target is not supported or if there are multiple targets
+        TranspilerError: If the assignment target is not supported or if there are
+            multiple targets
     """
     if len(node.targets) != 1:
         raise TranspilerError("Multiple assignment targets not supported")
@@ -58,7 +62,10 @@ def generate_assignment(
 
 
 def generate_list_declaration(
-    node: ast.Assign, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+    node: ast.Assign,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
 ) -> str:
     """Generate GLSL code for list assignment.
 
@@ -75,7 +82,8 @@ def generate_list_declaration(
         Generated GLSL code for the list assignment
 
     Raises:
-        TranspilerError: If the list elements have mismatched types or if the assignment is invalid
+        TranspilerError: If the list elements have mismatched types or if the assignment
+            is invalid
     """
     if isinstance(node.value, ast.List):
         elements = node.value.elts
@@ -88,7 +96,11 @@ def generate_list_declaration(
             symbol_type = symbols.get(list_name)
             list_type = (
                 symbol_type.removeprefix("list[")[:-1]
-                if symbol_type and list_name in symbols and symbol_type.startswith("list[")
+                if (
+                    symbol_type
+                    and list_name in symbols
+                    and symbol_type.startswith("list[")
+                )
                 else "vec3"
             )
             size = 0
@@ -106,7 +118,10 @@ def generate_list_declaration(
             array_init = ", ".join(
                 generate_expr(elem, symbols, 0, collected) for elem in elements
             )
-            return f"{indent}{list_type} {list_name}[{size}] = {list_type}[{size}]({array_init});"
+            return (
+                f"{indent}{list_type} {list_name}[{size}] = "
+                f"{list_type}[{size}]({array_init});"
+            )
     else:
         raise TranspilerError(
             "Only list assignments supported in generate_list_declaration"
@@ -161,7 +176,10 @@ def get_annotation_type(annotation: ast.AST) -> str:
 
 
 def generate_augmented_assignment(
-    stmt: ast.AugAssign, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+    stmt: ast.AugAssign,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
 ) -> str:
     """Generate GLSL code for an augmented assignment (e.g., +=, -=).
 
@@ -226,7 +244,7 @@ def generate_for_loop(
             )
             body_symbols = symbols.copy()
             body_symbols[target_name] = item_type
-            # body_symbols is now Dict[str, str | None] which matches generate_body's signature
+            # Type is preserved when copying the symbols dictionary
             for line in generate_body(stmt.body, body_symbols, collected):
                 code.append(f"{indent}    {line}")
             code.append(f"{indent}}}")
@@ -242,15 +260,15 @@ def generate_for_loop(
             target = stmt.target.id
         else:
             raise TranspilerError("For loop target must be a variable name")
-        if len(args) == 1:
+        if len(args) == 1:  # noqa: PLR2004
             start, end, step = "0", generate_expr(args[0], symbols, 0, collected), "1"
-        elif len(args) == 2:
+        elif len(args) == 2:  # noqa: PLR2004
             start, end, step = (
                 generate_expr(args[0], symbols, 0, collected),
                 generate_expr(args[1], symbols, 0, collected),
                 "1",
             )
-        elif len(args) == 3:
+        elif len(args) == 3:  # noqa: PLR2004
             start, end, step = (
                 generate_expr(args[0], symbols, 0, collected),
                 generate_expr(args[1], symbols, 0, collected),
@@ -259,11 +277,12 @@ def generate_for_loop(
         else:
             raise TranspilerError("Range function must have 1 to 3 arguments")
         code.append(
-            f"{indent}for (int {target} = {start}; {target} < {end}; {target} += {step}) {{"
+            f"{indent}for (int {target} = {start}; {target} < {end}; "
+            f"{target} += {step}) {{"
         )
         body_symbols = symbols.copy()
         body_symbols[target] = "int"
-        # body_symbols is now Dict[str, str | None] which matches generate_body's signature
+        # Type is preserved when copying the symbols dictionary
         for line in generate_body(stmt.body, body_symbols, collected):
             code.append(f"{indent}    {line}")
         code.append(f"{indent}}}")
@@ -273,7 +292,10 @@ def generate_for_loop(
 
 
 def generate_while_loop(
-    stmt: ast.While, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+    stmt: ast.While,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
 ) -> list[str]:
     """Generate GLSL code for a while loop.
 
@@ -289,7 +311,7 @@ def generate_while_loop(
     code = []
 
     condition = generate_expr(stmt.test, symbols, 0, collected)
-    # symbols.copy() is now Dict[str, str | None] which matches generate_body's signature
+    # Type is preserved when copying the symbols dictionary
     body_code = generate_body(stmt.body, symbols.copy(), collected)
     inner_lines = [f"{indent}    {line}" for line in body_code]
 
@@ -316,7 +338,7 @@ def generate_if_statement(
     code = []
 
     condition = generate_expr(stmt.test, symbols, 0, collected)
-    # symbols.copy() is now Dict[str, str | None] which matches generate_body's signature
+    # Type is preserved when copying the symbols dictionary
     body_code = generate_body(stmt.body, symbols.copy(), collected)
     inner_lines = [f"{indent}    {line}" for line in body_code]
 
@@ -324,7 +346,7 @@ def generate_if_statement(
     code.extend(inner_lines)
 
     if stmt.orelse:
-        # symbols.copy() is now Dict[str, str | None] which matches generate_body's signature
+        # Type is preserved when copying the symbols dictionary
         else_code = generate_body(stmt.orelse, symbols.copy(), collected)
         else_lines = [f"{indent}    {line}" for line in else_code]
         code.append(f"{indent}}} else {{")
@@ -335,7 +357,10 @@ def generate_if_statement(
 
 
 def generate_return_statement(
-    stmt: ast.Return, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+    stmt: ast.Return,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
 ) -> str:
     """Generate GLSL code for a return statement.
 

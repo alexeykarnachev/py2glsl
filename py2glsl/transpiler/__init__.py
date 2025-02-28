@@ -1,7 +1,8 @@
 """
 GLSL code generation for complete shader programs.
 
-This module provides the top-level interface for transpiling Python code to GLSL shaders.
+This module provides the top-level interface for transpiling Python code to GLSL
+shaders.
 """
 
 import inspect
@@ -61,8 +62,12 @@ def transpile(
 
     global_constants = {}
     for name, value in kwargs.items():
-        if (name != "main_func" and not callable(value) and not isinstance(value, type)
-                and isinstance(value, (int, float, bool))):
+        if (
+            name != "main_func"
+            and not callable(value)
+            and not isinstance(value, type)
+            and isinstance(value, int | float | bool)
+        ):
             global_constants[name] = value
 
     shader_input: str | dict[str, Callable[..., Any] | type[Any]] | None = None
@@ -118,10 +123,7 @@ def transpile(
 
     # We need to handle the different types that could come through
     # to parse_shader_code correctly
-    tree, effective_main_func = parse_shader_code(
-        shader_input,
-        effective_main_func
-    )
+    tree, effective_main_func = parse_shader_code(shader_input, effective_main_func)
 
     collected = collect_info(tree)
     for name, value in global_constants.items():

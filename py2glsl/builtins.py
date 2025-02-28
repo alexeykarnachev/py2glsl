@@ -443,7 +443,9 @@ def dot(a: vec4, b: vec4) -> float: ...
 def dot(a: vec2 | vec3 | vec4, b: vec2 | vec3 | vec4) -> float:
     """Calculate the dot product of two vectors."""
     if not isinstance(a, type(b)):
-        raise TypeError(f"dot() requires matching vector types, got {type(a)} and {type(b)}")
+        raise TypeError(
+            f"dot() requires matching vector types, got {type(a)} and {type(b)}"
+        )
     return float(np.dot(a.data, b.data))
 
 

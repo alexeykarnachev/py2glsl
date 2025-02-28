@@ -17,6 +17,7 @@ from py2glsl.transpiler.errors import TranspilerError
 # Type variable for shader functions
 T = TypeVar("T")
 
+
 class ShaderFunction(Protocol):
     """Protocol for shader functions that can be converted to GLSL."""
 
@@ -58,14 +59,17 @@ def generate_simple_expr(node: ast.AST) -> str:
     if isinstance(node, ast.Constant):
         if isinstance(node.value, bool):
             return "true" if node.value else "false"  # GLSL uses lowercase
-        elif isinstance(node.value, (int, float)):
+        elif isinstance(node.value, int | float):
             return str(node.value)
         elif isinstance(node.value, str):
             return node.value
-    elif isinstance(node, ast.Call):
-        if isinstance(node.func, ast.Name) and node.func.id in {"vec2", "vec3", "vec4"}:
-            args = [generate_simple_expr(arg) for arg in node.args]
-            return f"{node.func.id}({', '.join(args)})"
+    elif (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"vec2", "vec3", "vec4"}
+    ):
+        args = [generate_simple_expr(arg) for arg in node.args]
+        return f"{node.func.id}({', '.join(args)})"
     raise TranspilerError("Unsupported expression in global or default value")
 
 
@@ -95,7 +99,7 @@ def parse_shader_code(
                 source = textwrap.dedent(inspect.getsource(obj))
                 source_lines.append(source)
             except (OSError, TypeError) as e:
-                raise TranspilerError(f"Failed to get source for {name}: {e}")
+                raise TranspilerError(f"Failed to get source for {name}: {e}") from e
         full_source = "\n".join(source_lines)
         tree = ast.parse(full_source)
         if not effective_main_func:
