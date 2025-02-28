@@ -297,6 +297,26 @@ def generate_call_expr(
     raise TranspilerError(f"Unknown function call: {func_name}")
 
 
+# Dictionary mapping AST node types to handler functions
+_EXPR_GENERATORS = {
+    ast.Name: lambda node, symbols, parent_precedence, collected: generate_name_expr(
+        node, symbols
+    ),
+    # Split long line into separate lines to fix line length issue
+    ast.Constant: lambda node, symbols, parent_precedence, collected: (
+        generate_constant_expr(node)
+    ),
+    ast.BinOp: generate_binary_op_expr,
+    ast.Compare: generate_compare_expr,
+    ast.BoolOp: generate_bool_op_expr,
+    ast.Call: lambda node, symbols, parent_precedence, collected: generate_call_expr(
+        node, symbols, collected
+    ),
+    ast.Attribute: generate_attribute_expr,
+    ast.IfExp: generate_if_expr,
+}
+
+
 def generate_expr(
     node: ast.AST,
     symbols: dict[str, str | None],
@@ -317,20 +337,8 @@ def generate_expr(
     Raises:
         TranspilerError: If unsupported expressions are encountered
     """
-    if isinstance(node, ast.Name):
-        return generate_name_expr(node, symbols)
-    elif isinstance(node, ast.Constant):
-        return generate_constant_expr(node)
-    elif isinstance(node, ast.BinOp):
-        return generate_binary_op_expr(node, symbols, parent_precedence, collected)
-    elif isinstance(node, ast.Compare):
-        return generate_compare_expr(node, symbols, parent_precedence, collected)
-    elif isinstance(node, ast.BoolOp):
-        return generate_bool_op_expr(node, symbols, parent_precedence, collected)
-    elif isinstance(node, ast.Call):
-        return generate_call_expr(node, symbols, collected)
-    elif isinstance(node, ast.Attribute):
-        return generate_attribute_expr(node, symbols, parent_precedence, collected)
-    elif isinstance(node, ast.IfExp):
-        return generate_if_expr(node, symbols, parent_precedence, collected)
-    raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
+    node_type = type(node)
+    generator = _EXPR_GENERATORS.get(node_type)
+    if generator:
+        return generator(node, symbols, parent_precedence, collected)
+    raise TranspilerError(f"Unsupported expression: {node_type.__name__}")

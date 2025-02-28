@@ -6,6 +6,8 @@ including assignments, loops, conditionals, and return statements.
 """
 
 import ast
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
 
 from py2glsl.transpiler.code_gen_expr import generate_attribute_expr, generate_expr
 from py2glsl.transpiler.errors import TranspilerError
@@ -381,6 +383,84 @@ def generate_return_statement(
     return f"{indent}return {expr};"
 
 
+# Dictionary mapping AST statement types to handler functions
+def _handle_break_stmt(
+    stmt: ast.Break,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
+) -> list[str]:
+    """Handle break statements."""
+    return [f"{indent}break;"]
+
+
+def _handle_pass_stmt(
+    stmt: ast.Pass,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
+) -> list[str]:
+    """Handle pass statements (no-op)."""
+    return [f"{indent}// Pass statement (no-op)"]
+
+
+def _handle_expr_stmt(
+    stmt: ast.Expr,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
+) -> list[str]:
+    """Handle expression statements (ignored in GLSL)."""
+    return []
+
+
+# Type aliases for handler functions
+T = TypeVar("T", bound=ast.AST)
+StmtHandler = Callable[[Any, dict[str, str | None], str, CollectedInfo], list[str]]
+StringStmtHandler = Callable[[Any, dict[str, str | None], str, CollectedInfo], str]
+
+
+# Using functions rather than lambdas for better readability
+def _append_handler(func: StringStmtHandler) -> StmtHandler:
+    """Create a handler that converts a single string result to a list.
+
+    Args:
+        func: Function that generates a single string of code
+
+    Returns:
+        Function that wraps the result in a list
+    """
+    return lambda stmt, symbols, indent, collected: [
+        func(stmt, symbols, indent, collected)
+    ]
+
+
+def _identity_handler(func: StmtHandler) -> StmtHandler:
+    """Create a handler that returns the result directly (already a list).
+
+    Args:
+        func: Function that generates a list of strings
+
+    Returns:
+        The same function (identity operation)
+    """
+    return func
+
+
+_STMT_GENERATORS = {
+    ast.Assign: _append_handler(generate_assignment),
+    ast.AnnAssign: _append_handler(generate_annotated_assignment),
+    ast.AugAssign: _append_handler(generate_augmented_assignment),
+    ast.For: _identity_handler(generate_for_loop),
+    ast.While: _identity_handler(generate_while_loop),
+    ast.If: _identity_handler(generate_if_statement),
+    ast.Return: _append_handler(generate_return_statement),
+    ast.Break: _handle_break_stmt,
+    ast.Pass: _handle_pass_stmt,
+    ast.Expr: _handle_expr_stmt,
+}
+
+
 def generate_body(
     body: list[ast.stmt], symbols: dict[str, str | None], collected: CollectedInfo
 ) -> list[str]:
@@ -401,38 +481,17 @@ def generate_body(
     indent = ""
 
     # Check for shader functions with only a pass statement in the top-level context
-    # For other contexts (e.g., within loops or conditionals), we'll handle pass
-    # statements differently
     if len(body) == 1 and isinstance(body[0], ast.Pass):
-        # Instead of raising an error, generate a no-op comment
         return ["// Pass statement (no-op)"]
 
     for stmt in body:
-        if isinstance(stmt, ast.Assign):
-            code.append(generate_assignment(stmt, symbols, indent, collected))
-        elif isinstance(stmt, ast.AnnAssign):
-            code.append(generate_annotated_assignment(stmt, symbols, indent, collected))
-        elif isinstance(stmt, ast.AugAssign):
-            code.append(generate_augmented_assignment(stmt, symbols, indent, collected))
-        elif isinstance(stmt, ast.For):
-            code.extend(generate_for_loop(stmt, symbols, indent, collected))
-        elif isinstance(stmt, ast.While):
-            code.extend(generate_while_loop(stmt, symbols, indent, collected))
-        elif isinstance(stmt, ast.If):
-            code.extend(generate_if_statement(stmt, symbols, indent, collected))
-        elif isinstance(stmt, ast.Return):
-            code.append(generate_return_statement(stmt, symbols, indent, collected))
-        elif isinstance(stmt, ast.Break):
-            code.append(f"{indent}break;")
-        elif isinstance(stmt, ast.Pass):
-            # For non-top-level Pass (e.g., within a loop in test_generate_for_loop),
-            # This case is not reachable for top-level Pass statements due to the
-            # check above
-            code.append(f"{indent}// Pass statement (no-op)")
-        elif isinstance(stmt, ast.Expr):
-            # Ignore expression statements
-            pass
+        stmt_type = type(stmt)
+        generator = _STMT_GENERATORS.get(stmt_type)
+        if generator:
+            # Use cast to help mypy understand the type
+            handler = cast(StmtHandler, generator)
+            code.extend(handler(stmt, symbols, indent, collected))
         else:
-            raise TranspilerError(f"Unsupported statement: {type(stmt).__name__}")
+            raise TranspilerError(f"Unsupported statement: {stmt_type.__name__}")
 
     return code
