@@ -2,6 +2,7 @@
 
 import pytest
 
+from py2glsl.builtins import length, max, min, mix, smoothstep, vec2, vec3, vec4
 from py2glsl.transpiler import transpile
 from py2glsl.transpiler.errors import TranspilerError
 
@@ -113,11 +114,11 @@ class TestBuiltinFunctions:
             v2 = vec2(1.0, 2.0)  # type: ignore
             v3 = vec3(1.0, 2.0, 3.0)  # type: ignore
             v4 = vec4(1.0, 2.0, 3.0, 4.0)  # type: ignore
-            
+
             len2 = length(v2)  # vec2 -> float
             len3 = length(v3)  # vec3 -> float
             len4 = length(v4)  # vec4 -> float
-            
+
             return vec4(len2, len3, len4, 1.0)  # type: ignore
 
         # Act
@@ -138,18 +139,19 @@ class TestBuiltinFunctions:
             b = 2.0
             min_float = min(a, b)  # float, float -> float
             max_float = max(a, b)  # float, float -> float
-            
+
             # Vector versions
             v2a = vec2(1.0, 3.0)  # type: ignore
             v2b = vec2(2.0, 2.0)  # type: ignore
             min_vec2 = min(v2a, v2b)  # vec2, vec2 -> vec2
             max_vec2 = max(v2a, v2b)  # vec2, vec2 -> vec2
-            
+
             # Test vec3 versions to cover all cases
             v3a = vec3(1.0, 3.0, 5.0)  # type: ignore
             v3b = vec3(2.0, 2.0, 4.0)  # type: ignore
+            # Only used to verify function resolution works
             min_vec3 = min(v3a, v3b)  # vec3, vec3 -> vec3
-            
+
             return vec4(min_float, max_float, min_vec2.x, max_vec2.y)  # type: ignore
 
         # Act
@@ -161,3 +163,4 @@ class TestBuiltinFunctions:
         assert "vec2 min_vec2 = min(v2a, v2b);" in glsl_code
         assert "vec2 max_vec2 = max(v2a, v2b);" in glsl_code
         assert "vec3 min_vec3 = min(v3a, v3b);" in glsl_code
+

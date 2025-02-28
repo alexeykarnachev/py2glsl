@@ -6,15 +6,13 @@ including names, constants, binary operations, function calls, and more.
 """
 
 import ast
-from typing import Dict
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS, OPERATOR_PRECEDENCE
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
-from py2glsl.transpiler.type_checker import get_expr_type
 
 
-def generate_name_expr(node: ast.Name, symbols: Dict[str, str | None]) -> str:
+def generate_name_expr(node: ast.Name, symbols: dict[str, str | None]) -> str:
     """Generate GLSL code for a name expression (variable).
 
     Args:
@@ -48,7 +46,7 @@ def generate_constant_expr(node: ast.Constant) -> str:
 
 def generate_binary_op_expr(
     node: ast.BinOp,
-    symbols: Dict[str, str | None],
+    symbols: dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -81,7 +79,7 @@ def generate_binary_op_expr(
 
 def generate_compare_expr(
     node: ast.Compare,
-    symbols: Dict[str, str | None],
+    symbols: dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -125,7 +123,7 @@ def generate_compare_expr(
 
 def generate_bool_op_expr(
     node: ast.BoolOp,
-    symbols: Dict[str, str | None],
+    symbols: dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -158,7 +156,7 @@ def generate_bool_op_expr(
 
 def generate_attribute_expr(
     node: ast.Attribute,
-    symbols: Dict[str, str | None],
+    symbols: dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -179,7 +177,7 @@ def generate_attribute_expr(
 
 def generate_if_expr(
     node: ast.IfExp,
-    symbols: Dict[str, str | None],
+    symbols: dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
@@ -204,7 +202,7 @@ def generate_if_expr(
 
 
 def generate_struct_constructor(
-    struct_name: str, node: ast.Call, symbols: Dict[str, str | None], collected: CollectedInfo
+    struct_name: str, node: ast.Call, symbols: dict[str, str | None], collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for a struct constructor.
 
@@ -265,7 +263,7 @@ def generate_struct_constructor(
 
 
 def generate_call_expr(
-    node: ast.Call, symbols: Dict[str, str | None], collected: CollectedInfo
+    node: ast.Call, symbols: dict[str, str | None], collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for a function call expression.
 
@@ -286,10 +284,7 @@ def generate_call_expr(
         else generate_expr(node.func, symbols, 0, collected)
     )
 
-    if func_name in collected.functions:
-        args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
-        return f"{func_name}({', '.join(args)})"
-    elif func_name in BUILTIN_FUNCTIONS:
+    if func_name in collected.functions or func_name in BUILTIN_FUNCTIONS:
         args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
         return f"{func_name}({', '.join(args)})"
     elif func_name in collected.structs:
@@ -299,7 +294,7 @@ def generate_call_expr(
 
 def generate_expr(
     node: ast.AST,
-    symbols: Dict[str, str | None],
+    symbols: dict[str, str | None],
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:

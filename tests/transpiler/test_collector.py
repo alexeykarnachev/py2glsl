@@ -1,16 +1,7 @@
 import ast
 import textwrap
-from dataclasses import dataclass
-
-import pytest
 
 from py2glsl.transpiler.collector import collect_info
-from py2glsl.transpiler.models import (
-    CollectedInfo,
-    FunctionInfo,
-    StructDefinition,
-    StructField,
-)
 
 
 class TestCollectInfo:

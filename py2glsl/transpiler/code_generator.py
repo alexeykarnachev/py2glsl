@@ -5,7 +5,6 @@ This module handles generation of GLSL code from the collected information,
 combining function bodies, struct definitions, and global constants.
 """
 
-from typing import Set, Tuple
 
 from loguru import logger
 
@@ -14,7 +13,7 @@ from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
 
 
-def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[str]]:
+def generate_glsl(collected: CollectedInfo, main_func: str) -> tuple[str, set[str]]:
     """Generate GLSL code from the collected information.
 
     Args:
@@ -79,20 +78,20 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> Tuple[str, Set[st
         node = func_info.node
         param_str = ", ".join(
             f"{p_type} {arg.arg}"
-            for p_type, arg in zip(func_info.param_types, node.args.args)
+            for p_type, arg in zip(func_info.param_types, node.args.args, strict=False)
         )
 
         # Initialize symbols with function parameters and global constants
         symbols = {
             arg.arg: p_type
-            for arg, p_type in zip(node.args.args, func_info.param_types)
+            for arg, p_type in zip(node.args.args, func_info.param_types, strict=False)
         }
-        
+
         # Add global constants to the symbols table
-        for name, (type_name, value) in collected.globals.items():
+        for name, (type_name, _value) in collected.globals.items():
             if type_name is not None:
                 symbols[name] = type_name
-            
+
         # Since body is List[ast.stmt] and not List[ast.AST], this is compatible with generate_body
         body_lines = generate_body(node.body, symbols, collected)
 

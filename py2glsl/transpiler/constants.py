@@ -5,14 +5,14 @@ This module contains dictionaries and definitions used throughout the transpiler
 including GLSL built-in functions and operator precedence mappings.
 """
 
-from typing import Dict, List, Tuple, Any, Union
+from typing import Any
 
 # Type alias for function signature
-FunctionSignature = Union[Tuple[str, List[str]], List[Tuple[str, List[str]]]]
+FunctionSignature = tuple[str, list[str]] | list[tuple[str, list[str]]]
 
 # Dictionary of built-in GLSL functions with return types and parameter types
 # Each function can have multiple overloads defined as a list of signatures
-BUILTIN_FUNCTIONS: Dict[str, Any] = {
+BUILTIN_FUNCTIONS: dict[str, Any] = {
     # Trigonometric functions
     "sin": ("float", ["float"]),
     "cos": ("float", ["float"]),
@@ -21,7 +21,7 @@ BUILTIN_FUNCTIONS: Dict[str, Any] = {
     "acos": ("float", ["float"]),
     "atan": ("float", ["float"]),
     "radians": ("float", ["float"]),
-    
+
     # Mathematical functions
     "abs": [
         ("float", ["float"]),
@@ -101,7 +101,7 @@ BUILTIN_FUNCTIONS: Dict[str, Any] = {
     "exp2": ("float", ["float"]),
     "log2": ("float", ["float"]),
     "round": ("float", ["float"]),
-    
+
     # Geometric functions
     "length": [
         ("float", ["vec2"]),
@@ -134,32 +134,32 @@ BUILTIN_FUNCTIONS: Dict[str, Any] = {
         ("vec3", ["vec3", "vec3", "float"]),
         ("vec4", ["vec4", "vec4", "float"])
     ],
-    
+
     # Type conversion functions
     "float": ("float", ["int"]),
     "int": ("int", ["float"]),
-    
+
     # Vector constructors
     "vec2": [
         ("vec2", ["float", "float"]),
-        ("vec2", ["float"]) # Same value for all components
+        ("vec2", ["float"])  # Same value for all components
     ],
     "vec3": [
         ("vec3", ["float", "float", "float"]),
         ("vec3", ["vec2", "float"]),
-        ("vec3", ["float"]) # Same value for all components
+        ("vec3", ["float"])  # Same value for all components
     ],
     "vec4": [
         ("vec4", ["float", "float", "float", "float"]),
-        ("vec4", ["vec3", "float"]), 
+        ("vec4", ["vec3", "float"]),
         ("vec4", ["vec2", "vec2"]),
-        ("vec4", ["float"]) # Same value for all components
+        ("vec4", ["float"])  # Same value for all components
     ]
 }
 
 
 # Operator precedence for generating correct expressions
-OPERATOR_PRECEDENCE: Dict[str, int] = {
+OPERATOR_PRECEDENCE: dict[str, int] = {
     # Assignment has lowest precedence
     "=": 1,
     # Logical operators

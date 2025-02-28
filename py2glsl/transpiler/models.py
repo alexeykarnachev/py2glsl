@@ -7,7 +7,6 @@ to represent functions, structs, fields, and collected information.
 
 import ast
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -22,7 +21,7 @@ class StructField:
 
     name: str
     type_name: str
-    default_value: Optional[str] = None
+    default_value: str | None = None
 
 
 @dataclass
@@ -35,7 +34,7 @@ class StructDefinition:
     """
 
     name: str
-    fields: List[StructField]
+    fields: list[StructField]
 
 
 @dataclass
@@ -50,8 +49,8 @@ class FunctionInfo:
     """
 
     name: str
-    return_type: Optional[str]
-    param_types: List[Optional[str]]
+    return_type: str | None
+    param_types: list[str | None]
     node: ast.FunctionDef
 
 
@@ -65,6 +64,6 @@ class CollectedInfo:
         globals: Dictionary mapping global variable names to (type, value)
     """
 
-    functions: Dict[str, FunctionInfo] = field(default_factory=dict)
-    structs: Dict[str, StructDefinition] = field(default_factory=dict)
-    globals: Dict[str, Tuple[str, str]] = field(default_factory=dict)
+    functions: dict[str, FunctionInfo] = field(default_factory=dict)
+    structs: dict[str, StructDefinition] = field(default_factory=dict)
+    globals: dict[str, tuple[str, str]] = field(default_factory=dict)

@@ -8,7 +8,7 @@ and extracting basic information like type annotations.
 import ast
 import inspect
 import textwrap
-from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar, Protocol, cast
+from typing import Any, Protocol, TypeVar
 
 from loguru import logger
 
@@ -19,13 +19,13 @@ T = TypeVar("T")
 
 class ShaderFunction(Protocol):
     """Protocol for shader functions that can be converted to GLSL."""
-    
+
     def __call__(self, *args: object, **kwargs: object) -> object:
         """Callable shader function protocol."""
         ...
 
 
-def get_annotation_type(annotation: Optional[ast.AST]) -> Optional[str]:
+def get_annotation_type(annotation: ast.AST | None) -> str | None:
     """Extract the type name from an AST annotation node.
 
     Args:
@@ -70,8 +70,8 @@ def generate_simple_expr(node: ast.AST) -> str:
 
 
 def parse_shader_code(
-    shader_input: Union[str, Dict[str, Any]], main_func: Optional[str] = None
-) -> Tuple[ast.AST, Optional[str]]:
+    shader_input: str | dict[str, Any], main_func: str | None = None
+) -> tuple[ast.AST, str | None]:
     """Parse the input Python code into an AST.
 
     Args:

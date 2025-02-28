@@ -11,7 +11,6 @@ class TestBuiltinFunctions:
         # Each entry can be a tuple (return_type, param_types) or a list of such tuples
         for func_name, func_info in BUILTIN_FUNCTIONS.items():
             assert isinstance(func_name, str)
-            
             # Handle both single signature and overloaded signatures
             if isinstance(func_info, tuple):
                 # Single signature
@@ -56,18 +55,15 @@ class TestBuiltinFunctions:
         # Check vec2 constructors (now a list of signatures)
         vec2_signatures = BUILTIN_FUNCTIONS["vec2"]
         assert isinstance(vec2_signatures, list)
-        
         # Find the 2-float constructor
         two_float_constructor = next(
             (sig for sig in vec2_signatures if sig[0] == "vec2" and len(sig[1]) == 2), None
         )
         assert two_float_constructor is not None
         assert all(param == "float" for param in two_float_constructor[1])
-        
         # Check vec3 constructors
         vec3_signatures = BUILTIN_FUNCTIONS["vec3"]
         assert isinstance(vec3_signatures, list)
-        
         # Check vec4 constructors
         vec4_signatures = BUILTIN_FUNCTIONS["vec4"]
         assert isinstance(vec4_signatures, list)

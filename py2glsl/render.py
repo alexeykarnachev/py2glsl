@@ -1,22 +1,25 @@
 import time
-from typing import Callable, Dict, Protocol, Union, cast, Sequence, Tuple, Set, TypeVar, overload, Literal, BinaryIO, Optional
+from collections.abc import Callable, Sequence
+from typing import Protocol, TypeVar, cast
 
 import glfw
 import moderngl
 import numpy as np
+from loguru import logger
 from numpy.typing import NDArray
 from PIL import Image
-from loguru import logger
 
-# Type for ModernGL window 
-GLFWwindow = TypeVar('GLFWwindow', bound=glfw._GLFWwindow)
+# Type for ModernGL window
+GLFWwindow = TypeVar("GLFWwindow", bound=glfw._GLFWwindow)
+
 
 # Define more specific protocol for ModernGL uniform handling
 class UniformProtocol(Protocol):
-    value: Union[float, int, bool, Tuple[float, float], Sequence[float]]
+    value: float | int | bool | tuple[float, float] | Sequence[float]
     array_length: int
     dimension: int
     dtype: str
+
 
 # Vertex shader source
 vertex_shader_source = """
@@ -34,19 +37,20 @@ logger.opt(colors=True).info(
 
 
 def animate(
-    shader_input: Union[Callable[..., None], str], 
-    used_uniforms: Optional[Set[str]] = None, 
-    size: Tuple[int, int] = (1200, 800),
-    window_title: str = "GLSL Shader"
+    shader_input: Callable[..., None] | str,
+    used_uniforms: set[str] | None = None,
+    size: tuple[int, int] = (1200, 800),
+    window_title: str = "GLSL Shader",
 ) -> None:
     """Run the shader with an animation loop and FPS calculation.
 
     Args:
         shader_input: Either a shader function or GLSL code string
-        used_uniforms: Set of uniform names used by the shader (only needed if shader_input is GLSL code)
+        used_uniforms: Set of uniform names used by the shader
+            (only needed if shader_input is GLSL code)
         size: Window size as (width, height) tuple
         window_title: Title for the display window
-        
+
     Note:
         This function opens a window and runs the shader in real-time.
         It will block until the window is closed.
@@ -86,7 +90,7 @@ def animate(
         )
         logger.info("Shader program compiled successfully")
         # Log available uniforms for debugging
-        available_uniforms = [name for name in program]
+        available_uniforms = list(program)
         logger.info(f"Available uniforms: {available_uniforms}")
     except Exception as e:
         logger.error(f"Shader compilation error: {e}")
@@ -166,14 +170,13 @@ def animate(
             ]:
                 try:
                     uniform = cast(UniformProtocol, program[uniform_name])
-                    if uniform.array_length == 1:  # Not an array uniform
-                        if uniform.dimension == 1:
-                            if uniform.dtype.startswith("f"):
-                                uniform.value = 1.0  # Default float value
-                            elif uniform.dtype.startswith("i"):
-                                uniform.value = 1  # Default int value
-                            elif uniform.dtype.startswith("b"):
-                                uniform.value = True  # Default bool value
+                    if uniform.array_length == 1 and uniform.dimension == 1:
+                        if uniform.dtype.startswith("f"):
+                            uniform.value = 1.0  # Default float value
+                        elif uniform.dtype.startswith("i"):
+                            uniform.value = 1  # Default int value
+                        elif uniform.dtype.startswith("b"):
+                            uniform.value = True  # Default bool value
                 except Exception as e:
                     logger.warning(f"Could not set uniform {uniform_name}: {e}")
 
@@ -185,13 +188,16 @@ def animate(
     glfw.terminate()
 
 
-def render_array(glsl_code: str, size: Tuple[int, int] = (1200, 800)) -> NDArray[np.uint8]:
+def render_array(
+    glsl_code: str,
+    size: tuple[int, int] = (1200, 800)
+) -> NDArray[np.uint8]:
     """Render the shader to a numpy array.
-    
+
     Args:
         glsl_code: GLSL code for the fragment shader
         size: Width and height of the output image
-        
+
     Returns:
         A numpy RGBA array of shape (height, width, 4) with values in range 0-255
     """
@@ -201,38 +207,37 @@ def render_array(glsl_code: str, size: Tuple[int, int] = (1200, 800)) -> NDArray
 
 
 def render_gif(
-    glsl_code: str, 
-    size: Tuple[int, int] = (1200, 800), 
-    duration: float = 5.0, 
+    glsl_code: str,
+    size: tuple[int, int] = (1200, 800),
+    duration: float = 5.0,
     fps: int = 30,
-    output_path: Optional[str] = None
+    output_path: str | None = None,
 ) -> Image.Image:
     """Render the shader to an animated GIF.
-    
+
     Args:
         glsl_code: GLSL code for the fragment shader
         size: Width and height of the output image
         duration: Duration of the GIF in seconds
         fps: Frames per second
         output_path: Optional path to save the GIF
-        
+
     Returns:
         A PIL Image object containing the animated GIF
     """
     logger.info("Rendering to GIF")
-    
+
     # Calculate number of frames
     num_frames = int(duration * fps)
-    
+
     # Placeholder - would actually render the shader at different timestamps
     frames = []
-    for i in range(num_frames):
-        # Create a blank frame with a gradient based on frame number
+    for _i in range(num_frames):
+        # For each frame, you would actually set time uniform and render shader
         frame_array = np.zeros((*size[::-1], 3), dtype=np.uint8)
-        frame_array[:, :, 0] = int(255 * i / num_frames)  # Red channel varies with time
-        frame = Image.fromarray(frame_array, mode='RGB')
+        frame = Image.fromarray(frame_array, mode="RGB")
         frames.append(frame)
-    
+
     # Create a simple animation
     result = frames[0].copy()
     if output_path:
@@ -240,23 +245,23 @@ def render_gif(
             output_path,
             save_all=True,
             append_images=frames[1:],
-            duration=int(1000/fps),  # milliseconds per frame
-            loop=0  # loop forever
+            duration=int(1000 / fps),  # milliseconds per frame
+            loop=0,  # loop forever
         )
-    
+
     return result
 
 
 def render_video(
-    glsl_code: str, 
-    size: Tuple[int, int] = (1200, 800), 
-    duration: float = 5.0, 
+    glsl_code: str,
+    size: tuple[int, int] = (1200, 800),
+    duration: float = 5.0,
     fps: int = 30,
     output_path: str = "shader_output.mp4",
-    codec: str = "h264"
+    codec: str = "h264",
 ) -> str:
     """Render the shader to a video file.
-    
+
     Args:
         glsl_code: GLSL code for the fragment shader
         size: Width and height of the output image
@@ -264,81 +269,76 @@ def render_video(
         fps: Frames per second
         output_path: Path to save the video file
         codec: Video codec to use (e.g., 'h264', 'vp9')
-        
+
     Returns:
         Path to the generated video file
     """
     logger.info(f"Rendering to video file {output_path} with {codec} codec")
-    
+
     try:
         import imageio
-        writer = imageio.get_writer(output_path, fps=fps, codec=codec, 
-                                  quality=8, pixelformat='yuv420p')
-        
+
+        writer = imageio.get_writer(
+            output_path, fps=fps, codec=codec, quality=8, pixelformat="yuv420p"
+        )
+
         # Calculate number of frames
         num_frames = int(duration * fps)
-        
+
         # For each frame, render the shader at the appropriate time
-        for i in range(num_frames):
-            time_value = i / fps
-            
-            # Placeholder - would actually render the shader for this timestamp
-            # Create a simple gradient for demonstration
+        for _i in range(num_frames):
+
+            # Placeholder - would actually render the shader using time_value
+            # Create a blank frame that would be filled by actual shader code
             frame = np.zeros((*size[::-1], 3), dtype=np.uint8)
-            frame[:, :, 0] = int(255 * i / num_frames)  # Red varies with time
-            frame[:, :, 1] = int(255 * (1 - i / num_frames))  # Green inversely varies
-            
+
             writer.append_data(frame)
-            
+
         writer.close()
         logger.info(f"Video saved to {output_path}")
-        
+
     except ImportError:
-        logger.warning("imageio module not available. Video rendering requires imageio.")
+        logger.warning(
+            "imageio module not available. Video rendering requires imageio."
+        )
         # Create an empty file to indicate the operation was attempted
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write("# Video rendering requires imageio module")
-    
+
     return output_path
 
 
 def render_image(
-    glsl_code: str, 
-    size: Tuple[int, int] = (1200, 800),
-    output_path: Optional[str] = None,
-    format: str = "PNG"
+    glsl_code: str,
+    size: tuple[int, int] = (1200, 800),
+    output_path: str | None = None,
+    image_format: str = "PNG",
 ) -> Image.Image:
     """Render the shader to a single image.
-    
+
     Args:
         glsl_code: GLSL code for the fragment shader
         size: Width and height of the output image (width, height)
         output_path: Optional path to save the image
-        format: Output format when saving (PNG, JPEG, etc.)
-        
+        image_format: Output format when saving (PNG, JPEG, etc.)
+
     Returns:
         A PIL Image object containing the rendered image
     """
     logger.info("Rendering shader to image")
-    
+
     # Placeholder implementation - would actually render the shader
-    # Create a simple gradient image
+    # Create a blank image that would be filled by actual shader code
     width, height = size
     array = np.zeros((height, width, 3), dtype=np.uint8)
-    
-    # Create a simple gradient
-    for y in range(height):
-        for x in range(width):
-            array[y, x, 0] = int(255 * x / width)  # Red varies with x
-            array[y, x, 1] = int(255 * y / height)  # Green varies with y
-            array[y, x, 2] = int(255 * (x + y) / (width + height))  # Blue varies with both
-    
+
     # Convert to PIL Image
-    image = Image.fromarray(array, mode='RGB')
-    
+    image = Image.fromarray(array, mode="RGB")
+
     # Save if output path is provided
     if output_path:
-        image.save(output_path, format=format)
+        image.save(output_path, format=image_format)
         logger.info(f"Image saved to {output_path}")
-    
+
     return image
+

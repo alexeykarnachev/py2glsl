@@ -6,7 +6,6 @@ and validating type compatibility in operations.
 """
 
 import ast
-from typing import Dict
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS
 from py2glsl.transpiler.errors import TranspilerError
@@ -14,7 +13,7 @@ from py2glsl.transpiler.models import CollectedInfo
 
 
 def get_expr_type(
-    node: ast.AST, symbols: Dict[str, str | None], collected: CollectedInfo
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
 ) -> str:
     """Determine the GLSL type of an expression.
 
@@ -75,29 +74,29 @@ def get_expr_type(
             if func_name in BUILTIN_FUNCTIONS:
                 # Get the function signatures (could be a single tuple or a list of tuples)
                 func_signatures = BUILTIN_FUNCTIONS[func_name]
-                
+
                 # If it's a single signature tuple (not overloaded)
                 if isinstance(func_signatures, tuple):
                     return_type: str = func_signatures[0]  # Return the single return type
                     return return_type
-                
+
                 # For overloaded functions, determine parameter types and find the matching signature
                 arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
-                
+
                 for signature in func_signatures:
                     return_type, param_types = signature
-                    
+
                     # Skip if argument count doesn't match
                     if len(arg_types) != len(param_types):
                         continue
-                    
+
                     # Check if the arguments match the parameter types
-                    if all(arg_type == param_type or 
+                    if all(arg_type == param_type or
                            (arg_type in ["float", "int"] and param_type in ["float", "int"])
-                           for arg_type, param_type in zip(arg_types, param_types)):
+                           for arg_type, param_type in zip(arg_types, param_types, strict=False)):
                         return_type_str: str = return_type
                         return return_type_str
-                
+
                 # If we're here, no matching overload was found
                 raise TranspilerError(
                     f"No matching overload for function {func_name} with argument types {arg_types}"
@@ -162,7 +161,7 @@ def get_expr_type(
 
         return true_type
 
-    elif isinstance(node, ast.Compare) or isinstance(node, ast.BoolOp):
+    elif isinstance(node, (ast.Compare, ast.BoolOp)):
         return "bool"
 
     raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")

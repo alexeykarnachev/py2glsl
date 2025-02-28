@@ -6,7 +6,6 @@ including assignments, loops, conditionals, and return statements.
 """
 
 import ast
-from typing import Dict, List, Union
 
 from py2glsl.transpiler.code_gen_expr import generate_attribute_expr, generate_expr
 from py2glsl.transpiler.errors import TranspilerError
@@ -15,7 +14,7 @@ from py2glsl.transpiler.type_checker import get_expr_type
 
 
 def generate_assignment(
-    node: ast.Assign, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
+    node: ast.Assign, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for an assignment statement.
 
@@ -59,7 +58,7 @@ def generate_assignment(
 
 
 def generate_list_declaration(
-    node: ast.Assign, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
+    node: ast.Assign, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for list assignment.
 
@@ -116,7 +115,7 @@ def generate_list_declaration(
 
 def generate_annotated_assignment(
     stmt: ast.AnnAssign,
-    symbols: Dict[str, str | None],
+    symbols: dict[str, str | None],
     indent: str,
     collected: CollectedInfo,
 ) -> str:
@@ -162,7 +161,7 @@ def get_annotation_type(annotation: ast.AST) -> str:
 
 
 def generate_augmented_assignment(
-    stmt: ast.AugAssign, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
+    stmt: ast.AugAssign, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for an augmented assignment (e.g., +=, -=).
 
@@ -190,8 +189,8 @@ def generate_augmented_assignment(
 
 
 def generate_for_loop(
-    stmt: ast.For, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
-) -> List[str]:
+    stmt: ast.For, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+) -> list[str]:
     """Generate GLSL code for a for loop, supporting both list and range-based iterations.
 
     Args:
@@ -274,8 +273,8 @@ def generate_for_loop(
 
 
 def generate_while_loop(
-    stmt: ast.While, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
-) -> List[str]:
+    stmt: ast.While, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+) -> list[str]:
     """Generate GLSL code for a while loop.
 
     Args:
@@ -301,8 +300,8 @@ def generate_while_loop(
 
 
 def generate_if_statement(
-    stmt: ast.If, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
-) -> List[str]:
+    stmt: ast.If, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
+) -> list[str]:
     """Generate GLSL code for an if statement.
 
     Args:
@@ -336,7 +335,7 @@ def generate_if_statement(
 
 
 def generate_return_statement(
-    stmt: ast.Return, symbols: Dict[str, str | None], indent: str, collected: CollectedInfo
+    stmt: ast.Return, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> str:
     """Generate GLSL code for a return statement.
 
@@ -356,8 +355,8 @@ def generate_return_statement(
 
 
 def generate_body(
-    body: List[ast.stmt], symbols: Dict[str, str | None], collected: CollectedInfo
-) -> List[str]:
+    body: list[ast.stmt], symbols: dict[str, str | None], collected: CollectedInfo
+) -> list[str]:
     """Generate GLSL code for a function body.
 
     Args:

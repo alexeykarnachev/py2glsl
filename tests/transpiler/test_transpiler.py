@@ -1,11 +1,10 @@
-import ast
+from builtins import max as python_max  # Using Python's built-in max
 from dataclasses import dataclass
 
 import pytest
 
+from py2glsl.builtins import dot, normalize, vec2, vec3, vec4
 from py2glsl.transpiler import transpile
-from py2glsl.transpiler.code_generator import generate_glsl
-from py2glsl.transpiler.collector import collect_info
 from py2glsl.transpiler.errors import TranspilerError
 
 

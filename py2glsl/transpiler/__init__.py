@@ -5,21 +5,22 @@ This module provides the top-level interface for transpiling Python code to GLSL
 """
 
 import inspect
-from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 from loguru import logger
 
-from py2glsl.transpiler.ast_parser import parse_shader_code, ShaderFunction
+from py2glsl.transpiler.ast_parser import ShaderFunction, parse_shader_code
 from py2glsl.transpiler.code_generator import generate_glsl
 from py2glsl.transpiler.collector import collect_info
 from py2glsl.transpiler.errors import TranspilerError
 
 
 def transpile(
-    *args: Union[str, Callable[..., Any], Type[Any], object],
-    main_func: Optional[str] = None,
+    *args: str | Callable[..., Any] | type[Any] | object,
+    main_func: str | None = None,
     **kwargs: Any,
-) -> Tuple[str, Set[str]]:
+) -> tuple[str, set[str]]:
     """Transpile Python code to GLSL shader code.
 
     This is the main entry point for the transpiler. It accepts various forms of input:
@@ -60,19 +61,19 @@ def transpile(
 
     global_constants = {}
     for name, value in kwargs.items():
-        if name != "main_func" and not callable(value) and not isinstance(value, type):
-            if isinstance(value, (int, float, bool)):
-                global_constants[name] = value
+        if (name != "main_func" and not callable(value) and not isinstance(value, type)
+                and isinstance(value, (int, float, bool))):
+            global_constants[name] = value
 
-    shader_input: Union[str, Dict[str, Union[Callable[..., Any], Type[Any]]], None] = None
-    effective_main_func: Optional[str] = main_func
+    shader_input: str | dict[str, Callable[..., Any] | type[Any]] | None = None
+    effective_main_func: str | None = main_func
 
     if len(args) == 1:
         if isinstance(args[0], str):
             shader_input = args[0]
         elif inspect.ismodule(args[0]):
             module = args[0]
-            context: Dict[str, Union[Callable[..., Any], Type[Any]]] = {}
+            context: dict[str, Callable[..., Any] | type[Any]] = {}
             if hasattr(module, "__all__"):
                 context = {name: getattr(module, name) for name in module.__all__}
             else:
@@ -89,7 +90,7 @@ def transpile(
             if callable(main_item) or isinstance(main_item, type):
                 if hasattr(main_item, "__name__"):
                     # Check for test functions
-                    if hasattr(main_item, "__name__") and main_item.__name__.startswith("test_"):
+                    if main_item.__name__.startswith("test_"):
                         raise TranspilerError(
                             "Test functions/classes are not supported in transpilation"
                         )
@@ -99,7 +100,7 @@ def transpile(
             else:
                 raise TranspilerError("Unsupported item type")
     elif len(args) > 1:
-        shader_input_dict: Dict[str, Union[Callable[..., Any], Type[Any]]] = {}
+        shader_input_dict: dict[str, Callable[..., Any] | type[Any]] = {}
         for item in args:
             if callable(item) or isinstance(item, type):
                 if hasattr(item, "__name__"):
@@ -114,11 +115,11 @@ def transpile(
 
     if shader_input is None:
         raise TranspilerError("No shader input provided")
-    
+
     # We need to handle the different types that could come through
     # to parse_shader_code correctly
     tree, effective_main_func = parse_shader_code(
-        shader_input, 
+        shader_input,
         effective_main_func
     )
 
