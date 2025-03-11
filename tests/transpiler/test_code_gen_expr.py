@@ -15,6 +15,7 @@ from py2glsl.transpiler.code_gen_expr import (
     generate_if_expr,
     generate_name_expr,
     generate_struct_constructor,
+    generate_unary_op_expr,
 )
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
@@ -493,6 +494,58 @@ class TestGenerateStructConstructor:
             generate_struct_constructor("TestStruct", node, symbols, collected_info)
 
 
+class TestGenerateUnaryOpExpr:
+    """Tests for the generate_unary_op_expr function."""
+
+    def test_generate_unary_op_expr_minus(self, symbols, collected_info):
+        """Test generating code for unary minus operation."""
+        # Arrange
+        node = ast.parse("-time", mode="eval").body
+
+        # Act
+        result = generate_unary_op_expr(node, symbols, 0, collected_info)
+
+        # Assert
+        assert result == "-time"
+
+    def test_generate_unary_op_expr_not(self, symbols, collected_info):
+        """Test generating code for logical not operation."""
+        # Arrange
+        node = ast.parse("not flag", mode="eval").body
+
+        # Act
+        result = generate_unary_op_expr(node, symbols, 0, collected_info)
+
+        # Assert
+        assert result == "!flag"
+
+    def test_generate_unary_op_expr_with_precedence(self, symbols, collected_info):
+        """Test generating code for unary operation with precedence considerations."""
+        # Arrange
+        node = ast.parse("-time", mode="eval").body
+
+        # Act - with higher parent precedence (e.g., function call precedence is 9)
+        result_high = generate_unary_op_expr(node, symbols, 9, collected_info)
+        # Act - with lower parent precedence (e.g., addition precedence is 6)
+        result_low = generate_unary_op_expr(node, symbols, 6, collected_info)
+
+        # Assert
+        assert result_high == "(-time)"  # Wrapped due to higher precedence
+        assert result_low == "-time"     # Not wrapped due to lower precedence
+
+    def test_generate_unary_op_expr_unsupported(self, symbols, collected_info):
+        """Test that unsupported unary operations raise TranspilerError."""
+        # Arrange - ast.UAdd (unary plus) is not supported
+        node = ast.UnaryOp(
+            op=ast.UAdd(),
+            operand=ast.Name(id="time", ctx=ast.Load()),
+        )
+
+        # Act & Assert
+        with pytest.raises(TranspilerError, match="Unsupported unary op"):
+            generate_unary_op_expr(node, symbols, 0, collected_info)
+
+
 class TestGenerateExpr:
     """Tests for the generate_expr function."""
 
@@ -583,6 +636,20 @@ class TestGenerateExpr:
 
         # Assert
         assert result == "flag ? uv : uv * 2.0"
+
+    def test_generate_expr_unary_op(self, symbols, collected_info):
+        """Test generating code for unary operation expression."""
+        # Arrange
+        node_minus = ast.parse("-time", mode="eval").body
+        node_not = ast.parse("not flag", mode="eval").body
+
+        # Act
+        result_minus = generate_expr(node_minus, symbols, 0, collected_info)
+        result_not = generate_expr(node_not, symbols, 0, collected_info)
+
+        # Assert
+        assert result_minus == "-time"
+        assert result_not == "!flag"
 
     def test_generate_expr_unsupported(self, symbols, collected_info):
         """Test that unsupported expressions raise TranspilerError."""

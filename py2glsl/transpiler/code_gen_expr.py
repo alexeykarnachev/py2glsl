@@ -298,6 +298,38 @@ def generate_call_expr(
     raise TranspilerError(f"Unknown function call: {func_name}")
 
 
+def generate_unary_op_expr(
+    node: ast.UnaryOp,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    """Generate GLSL code for a unary operation expression.
+
+    Args:
+        node: AST unary operation node
+        symbols: Dictionary of variable names to their types
+        parent_precedence: Precedence level of the parent operation
+        collected: Information about functions, structs, and globals
+
+    Returns:
+        Generated GLSL code for the unary operation expression
+
+    Raises:
+        TranspilerError: If the unary operation is not supported
+    """
+    op_map = {ast.USub: "-", ast.Not: "!"}
+    op = op_map.get(type(node.op))
+    if not op:
+        raise TranspilerError(f"Unsupported unary op: {type(node.op).__name__}")
+
+    precedence = OPERATOR_PRECEDENCE["unary"]
+    operand = generate_expr(node.operand, symbols, precedence, collected)
+
+    expr = f"{op}{operand}"
+    return f"({expr})" if precedence < parent_precedence else expr
+
+
 # Type for expression generator functions
 ExprGenerator = Callable[[ast.AST, dict[str, str | None], int, CollectedInfo], str]
 
@@ -392,6 +424,17 @@ def _ifexp_expr_wrapper(
     raise TypeError(f"Expected ast.IfExp, got {type(node).__name__}")
 
 
+def _unary_op_expr_wrapper(
+    node: ast.AST,
+    symbols: dict[str, str | None],
+    parent_precedence: int,
+    collected: CollectedInfo,
+) -> str:
+    if isinstance(node, ast.UnaryOp):
+        return generate_unary_op_expr(node, symbols, parent_precedence, collected)
+    raise TypeError(f"Expected ast.UnaryOp, got {type(node).__name__}")
+
+
 # Dictionary mapping AST node types to handler functions that all accept ast.AST
 _EXPR_GENERATORS: dict[type[ast.AST], ExprGenerator] = {
     ast.Name: _name_expr_wrapper,
@@ -402,6 +445,7 @@ _EXPR_GENERATORS: dict[type[ast.AST], ExprGenerator] = {
     ast.Call: _call_expr_wrapper,
     ast.Attribute: _attribute_expr_wrapper,
     ast.IfExp: _ifexp_expr_wrapper,
+    ast.UnaryOp: _unary_op_expr_wrapper,
 }
 
 
