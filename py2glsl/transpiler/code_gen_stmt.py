@@ -514,6 +514,16 @@ def _handle_break_stmt(
     return [f"{indent}break;"]
 
 
+def _handle_continue_stmt(
+    stmt: ast.Continue,
+    symbols: dict[str, str | None],
+    indent: str,
+    collected: CollectedInfo,
+) -> list[str]:
+    """Handle continue statements."""
+    return [f"{indent}continue;"]
+
+
 def _handle_pass_stmt(
     stmt: ast.Pass,
     symbols: dict[str, str | None],
@@ -576,6 +586,7 @@ _STMT_GENERATORS = {
     ast.If: _identity_handler(generate_if_statement),
     ast.Return: _append_handler(generate_return_statement),
     ast.Break: _handle_break_stmt,
+    ast.Continue: _handle_continue_stmt,
     ast.Pass: _handle_pass_stmt,
     ast.Expr: _handle_expr_stmt,
 }
