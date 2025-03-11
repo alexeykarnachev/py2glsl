@@ -668,6 +668,34 @@ for item in some_list:
         with pytest.raises(TranspilerError, match="Type mismatch in list elements"):
             generate_body(node, symbols.copy(), collected_info)
 
+    def test_generate_body_with_continue(self, symbols, collected_info):
+        """Test generating code for a body with a continue statement in a loop."""
+        # Arrange
+        code = """
+while count < 10:
+    if count < 5:
+        count += 1
+        continue
+    count += 2
+"""
+        node = ast.parse(code).body
+
+        # Act
+        result = generate_body(node, symbols.copy(), collected_info)
+
+        # Assert
+        expected = [
+            "while (count < 10) {",
+            "    if (count < 5) {",
+            "        count = count + 1;",
+            "        continue;",
+            "    }",
+            "    count = count + 2;",
+            "}"
+        ]
+        for line in expected:
+            assert line in result, f"Expected line not found: {line}"
+
 
 class TestGenerateListDeclaration:
     """Tests for the generate_list_declaration function."""
@@ -712,3 +740,4 @@ class TestGenerateListDeclaration:
         # Act & Assert
         with pytest.raises(TranspilerError, match="Type mismatch in list elements"):
             generate_list_declaration(node, symbols, "    ", collected_info)
+
