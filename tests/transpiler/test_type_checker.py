@@ -193,6 +193,30 @@ class TestGetExprType:
         node_bool_op = ast.parse("flag and count > 0", mode="eval").body
         assert get_expr_type(node_bool_op, symbols, collected_info) == "bool"
 
+    def test_unary_op_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
+        """Test determining type of unary operation expressions."""
+        # Test with unary minus on a float
+        node_neg_float = ast.parse("-time", mode="eval").body
+        assert get_expr_type(node_neg_float, symbols, collected_info) == "float"
+
+        # Test with unary minus on an int
+        node_neg_int = ast.parse("-count", mode="eval").body
+        assert get_expr_type(node_neg_int, symbols, collected_info) == "int"
+
+        # Test with unary minus on a vector
+        node_neg_vec = ast.parse("-uv", mode="eval").body
+        assert get_expr_type(node_neg_vec, symbols, collected_info) == "vec2"
+
+        # Test with logical not
+        node_not = ast.parse("not flag", mode="eval").body
+        assert get_expr_type(node_not, symbols, collected_info) == "bool"
+
+        # Test with unary plus
+        node_pos = ast.parse("+time", mode="eval").body
+        assert get_expr_type(node_pos, symbols, collected_info) == "float"
+
     def test_unsupported_expr_type(self, symbols, collected_info):
         """Test that unsupported expressions raise an error."""
 
