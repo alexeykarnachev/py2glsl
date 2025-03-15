@@ -5,6 +5,8 @@ This module handles generation of GLSL code from the collected information,
 combining function bodies, struct definitions, and global constants.
 """
 
+import ast
+
 from loguru import logger
 
 from py2glsl.transpiler.code_gen_stmt import generate_body
@@ -166,6 +168,28 @@ def _create_symbols_dict(
     return symbols
 
 
+def _find_function_calls(ast_node: ast.AST, collected: CollectedInfo) -> set[str]:
+    """Find all function calls within an AST node.
+
+    Args:
+        ast_node: The AST node to search
+        collected: Information about functions, structs, and globals
+
+    Returns:
+        Set of function names that are called within the node
+    """
+    called_functions = set()
+
+    class FunctionCallVisitor(ast.NodeVisitor):
+        def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+            if isinstance(node.func, ast.Name) and node.func.id in collected.functions:
+                called_functions.add(node.func.id)
+            self.generic_visit(node)
+
+    FunctionCallVisitor().visit(ast_node)
+    return called_functions
+
+
 def _generate_functions(collected: CollectedInfo, main_func: str) -> list[str]:
     """Generate all function definitions.
 
@@ -178,11 +202,39 @@ def _generate_functions(collected: CollectedInfo, main_func: str) -> list[str]:
     """
     lines = [""]  # Start with blank line for readability
 
+    # Build dependency graph
+    dependencies = {}
     for func_name, func_info in collected.functions.items():
-        is_main = func_name == main_func
-        func_lines = _generate_function(func_name, func_info, is_main, collected)
-        lines.extend(func_lines)
+        dependencies[func_name] = _find_function_calls(func_info.node, collected)
 
+    # Topological sort
+    emitted = set()
+    function_lines = []
+
+    def emit_function(name: str) -> None:
+        if name in emitted:
+            return
+
+        # First emit dependencies
+        for dep in dependencies.get(name, set()):
+            emit_function(dep)
+
+        # Then emit this function
+        is_main = name == main_func
+        func_info = collected.functions[name]
+        func_lines = _generate_function(name, func_info, is_main, collected)
+        function_lines.extend(func_lines)
+        function_lines.append("")  # Add blank line for readability
+        emitted.add(name)
+
+    # Start with main function and its dependencies
+    emit_function(main_func)
+
+    # Add any remaining functions that weren't dependencies of main
+    for func_name in collected.functions:
+        emit_function(func_name)
+
+    lines.extend(function_lines)
     return lines
 
 

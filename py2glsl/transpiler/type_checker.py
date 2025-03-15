@@ -310,6 +310,33 @@ def _get_compare_boolop_type(
     return "bool"
 
 
+def _get_unaryop_type(
+    node: ast.UnaryOp, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    """Determine the type of a unary operation expression.
+
+    Args:
+        node: AST unary operation node
+        symbols: Dictionary of variable names to their types
+        collected: Information about functions, structs, and globals
+
+    Returns:
+        The GLSL type of the unary operation
+    """
+    operand_type = get_expr_type(node.operand, symbols, collected)
+
+    # For logical not (not x), the result is always bool
+    if isinstance(node.op, ast.Not):
+        return "bool"
+
+    # For other operations (+x, -x, ~x), the result type is the same as the operand
+    # Numeric operations preserve their type
+    if operand_type in ["int", "float"] or operand_type.startswith("vec"):
+        return operand_type
+
+    raise TranspilerError(f"Unsupported unary operation on type: {operand_type}")
+
+
 # Type for a generic AST node handler
 TypeChecker = Callable[[ast.AST, dict[str, str | None], CollectedInfo], str]
 
@@ -371,11 +398,20 @@ def _compare_boolop_type_wrapper(
     raise TypeError(f"Expected ast.Compare or ast.BoolOp, got {type(node).__name__}")
 
 
+def _unaryop_type_wrapper(
+    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    if isinstance(node, ast.UnaryOp):
+        return _get_unaryop_type(node, symbols, collected)
+    raise TypeError(f"Expected ast.UnaryOp, got {type(node).__name__}")
+
+
 # Map of AST node types to their type checker functions with proper typing
 _TYPE_CHECKERS: dict[type[ast.AST], TypeChecker] = {
     ast.Name: _name_type_wrapper,
     ast.Constant: _constant_type_wrapper,
     ast.BinOp: _binop_type_wrapper,
+    ast.UnaryOp: _unaryop_type_wrapper,
     ast.Call: _call_type_wrapper,
     ast.Attribute: _attribute_type_wrapper,
     ast.IfExp: _ifexp_type_wrapper,
