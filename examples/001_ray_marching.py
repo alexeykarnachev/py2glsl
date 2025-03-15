@@ -224,7 +224,7 @@ if __name__ == "__main__":
         # Main function
         main_func="main_shader",
     )
-    animate(glsl_code, used_uniforms=used_uniforms)
+    animate(glsl_code)
 
     # Optional: For debugging
     print("Generated GLSL code:")
