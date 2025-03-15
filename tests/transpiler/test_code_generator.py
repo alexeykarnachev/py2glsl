@@ -15,7 +15,7 @@ from py2glsl.transpiler.models import (
 
 
 @pytest.fixture
-def basic_collected_info():
+def basic_collected_info() -> CollectedInfo:
     """Fixture providing a basic collected info for testing."""
     info = CollectedInfo()
 
@@ -61,7 +61,7 @@ def basic_collected_info():
 
 
 @pytest.fixture
-def complex_collected_info():
+def complex_collected_info() -> CollectedInfo:
     """Fixture providing a more complex collected info for testing."""
     info = CollectedInfo()
 
@@ -193,7 +193,7 @@ def complex_collected_info():
 class TestGenerateGLSL:
     """Tests for the generate_glsl function."""
 
-    def test_generate_simple_shader(self, basic_collected_info):
+    def test_generate_simple_shader(self, basic_collected_info: CollectedInfo) -> None:
         """Test generating GLSL code for a simple shader."""
         # Act
         glsl_code, used_uniforms = generate_glsl(basic_collected_info, "shader")
@@ -207,7 +207,9 @@ class TestGenerateGLSL:
         assert "fragColor = shader(vs_uv, u_time);" in glsl_code
         assert used_uniforms == {"u_time"}
 
-    def test_generate_complex_shader(self, complex_collected_info):
+    def test_generate_complex_shader(
+        self, complex_collected_info: CollectedInfo
+    ) -> None:
         """Test generating GLSL code for a complex shader."""
         # Act
         glsl_code, used_uniforms = generate_glsl(complex_collected_info, "main_shader")
@@ -251,7 +253,9 @@ class TestGenerateGLSL:
         # Check used uniforms
         assert used_uniforms == {"u_time", "u_material"}
 
-    def test_missing_helper_return_type(self, basic_collected_info):
+    def test_missing_helper_return_type(
+        self, basic_collected_info: CollectedInfo
+    ) -> None:
         """Test that missing return type on helper function raises an error."""
         # Arrange
         helper_node = ast.FunctionDef(
@@ -290,7 +294,7 @@ class TestGenerateGLSL:
         ):
             generate_glsl(basic_collected_info, "shader")
 
-    def test_empty_function_body(self, basic_collected_info):
+    def test_empty_function_body(self, basic_collected_info: CollectedInfo) -> None:
         """Test that empty function body raises an error."""
         # Arrange
         empty_body_node = ast.FunctionDef(
@@ -318,7 +322,9 @@ class TestGenerateGLSL:
         with pytest.raises(TranspilerError, match="Empty function body not supported"):
             generate_glsl(basic_collected_info, "empty_func")
 
-    def test_version_directive_first_line(self, basic_collected_info):
+    def test_version_directive_first_line(
+        self, basic_collected_info: CollectedInfo
+    ) -> None:
         """Test that version directive is the first line of generated code."""
         # Act
         glsl_code, _ = generate_glsl(basic_collected_info, "shader")

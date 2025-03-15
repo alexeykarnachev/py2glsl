@@ -15,7 +15,7 @@ from py2glsl.transpiler.type_checker import get_expr_type
 
 
 @pytest.fixture
-def symbols():
+def symbols() -> dict[str, str | None]:
     """Fixture providing a sample symbol table."""
     return {
         "uv": "vec2",
@@ -28,7 +28,7 @@ def symbols():
 
 
 @pytest.fixture
-def collected_info():
+def collected_info() -> CollectedInfo:
     """Fixture providing a sample collected info structure."""
     info = CollectedInfo()
 
@@ -63,7 +63,9 @@ def collected_info():
 class TestGetExprType:
     """Tests for the get_expr_type function."""
 
-    def test_name_expr_type(self, symbols, collected_info):
+    def test_name_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of name expressions."""
         # Test with a vec2 variable
         node_vec2 = ast.parse("uv", mode="eval").body
@@ -81,13 +83,17 @@ class TestGetExprType:
         node_bool = ast.parse("flag", mode="eval").body
         assert get_expr_type(node_bool, symbols, collected_info) == "bool"
 
-    def test_undefined_variable(self, symbols, collected_info):
+    def test_undefined_variable(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test that accessing an undefined variable raises an error."""
         node = ast.parse("undefined_var", mode="eval").body
         with pytest.raises(TranspilerError, match="Undefined variable: undefined_var"):
             get_expr_type(node, symbols, collected_info)
 
-    def test_constant_expr_type(self, symbols, collected_info):
+    def test_constant_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of constant expressions."""
         # Test with an integer constant
         node_int = ast.parse("42", mode="eval").body
@@ -103,7 +109,9 @@ class TestGetExprType:
         assert get_expr_type(node_true, symbols, collected_info) == "bool"
         assert get_expr_type(node_false, symbols, collected_info) == "bool"
 
-    def test_binary_op_expr_type(self, symbols, collected_info):
+    def test_binary_op_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of binary operations."""
         # Test with vec2 + vec2
         node_vec_add = ast.parse("uv + uv", mode="eval").body
@@ -121,7 +129,9 @@ class TestGetExprType:
         node_int_add = ast.parse("count + count", mode="eval").body
         assert get_expr_type(node_int_add, symbols, collected_info) == "int"
 
-    def test_call_expr_type(self, symbols, collected_info):
+    def test_call_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of function call expressions."""
         # Test with built-in function
         node_sin = ast.parse("sin(time)", mode="eval").body
@@ -140,7 +150,9 @@ class TestGetExprType:
         with pytest.raises(TranspilerError, match="Unknown function: unknown_func"):
             get_expr_type(node_unknown, symbols, collected_info)
 
-    def test_attribute_expr_type(self, symbols, collected_info):
+    def test_attribute_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of attribute access expressions."""
         # Test with struct field access
         node_struct_field = ast.parse("test_struct.position", mode="eval").body
@@ -170,7 +182,9 @@ class TestGetExprType:
         ):
             get_expr_type(node_unknown_field, symbols, collected_info)
 
-    def test_if_expr_type(self, symbols, collected_info):
+    def test_if_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of conditional expressions."""
         # Test with matching types
         node_if_match = ast.parse("uv if flag else uv", mode="eval").body
@@ -181,13 +195,17 @@ class TestGetExprType:
         with pytest.raises(TranspilerError, match="Ternary expression types mismatch"):
             get_expr_type(node_if_mismatch, symbols, collected_info)
 
-    def test_compare_expr_type(self, symbols, collected_info):
+    def test_compare_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of comparison expressions."""
         # Test with a comparison
         node_compare = ast.parse("time > 1.0", mode="eval").body
         assert get_expr_type(node_compare, symbols, collected_info) == "bool"
 
-    def test_bool_op_expr_type(self, symbols, collected_info):
+    def test_bool_op_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test determining type of boolean operation expressions."""
         # Test with a boolean operation
         node_bool_op = ast.parse("flag and count > 0", mode="eval").body
@@ -217,7 +235,9 @@ class TestGetExprType:
         node_pos = ast.parse("+time", mode="eval").body
         assert get_expr_type(node_pos, symbols, collected_info) == "float"
 
-    def test_unsupported_expr_type(self, symbols, collected_info):
+    def test_unsupported_expr_type(
+        self, symbols: dict[str, str | None], collected_info: CollectedInfo
+    ) -> None:
         """Test that unsupported expressions raise an error."""
 
         # Create a node type that's not handled by get_expr_type
