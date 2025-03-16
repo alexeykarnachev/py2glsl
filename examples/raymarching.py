@@ -13,7 +13,7 @@ Run with:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 
@@ -162,8 +162,13 @@ def attenuate(d: float, coeffs: vec3) -> float:
 # Default mouse position
 DEFAULT_MOUSE: vec2 = vec2(0.5, 0.5)
 
+
 def main_shader(
-    vs_uv: vec2, u_time: float, u_aspect: float, u_mouse: vec2 = DEFAULT_MOUSE
+    vs_uv: vec2,
+    u_time: float,
+    u_aspect: float,
+    u_mouse: vec2 = DEFAULT_MOUSE,
+    animation_speed: float = 0.5,  # Optional animation speed control
 ) -> vec4:
     """Main shader function.
 
@@ -172,6 +177,7 @@ def main_shader(
         u_time: Current time in seconds
         u_aspect: Aspect ratio (width/height)
         u_mouse: Mouse position normalized (0-1), optional
+        animation_speed: Controls how fast the animation plays, default 1.0
 
     Returns:
         Final color (RGBA)
@@ -184,10 +190,16 @@ def main_shader(
     fov = radians(70.0)
     screen_dist = 1.0 / tan(0.5 * fov)
 
-    # Normalize camera movement - loop every 2π seconds
-    # Using sin/cos with raw time automatically loops
-    t = u_time
-    cam_pos = vec3(5.0 * sin(t), 5.0, 5.0 * cos(t))
+    # Apply animation speed to make consistent animations
+    # This lets us control the speed from the application
+    # while keeping the same motion pattern across all backends
+    # animation_speed is provided via uniform
+    t = u_time * animation_speed
+
+    # Calculate camera position - rotating around the origin
+    # We're only using sin/cos of time so it automatically loops
+    radius = 5.0
+    cam_pos = vec3(radius * sin(t), radius, radius * cos(t))
     look_at = vec3(0.0, 0.0, 0.0)
 
     # Camera basis vectors
@@ -317,17 +329,25 @@ def main(
     # Handle different output modes
     # Set a consistent time offset to ensure animations are consistent
     # This matches the starting point for all rendering modes
+    # Set the animation speeds and offsets
+    # This controls the position in the animation cycle
     time_offset = 0.0
+    animation_speed = 0.5  # Slow down for smoother animations
+    # Set up animation speed as a uniform parameter
+    # Using cast to handle type compatibility with the render functions
+    animation_uniforms = {"animation_speed": animation_speed}
+    render_uniforms = cast(dict[str, float | tuple[float, ...]], animation_uniforms)
 
     if save_image:
-        # Render a still image
+        # Render a still image at a specific time in the cycle
         print(f"Rendering still image to {save_image}...")
         render_image(
             shader_input=glsl_code,  # Use the pre-transpiled GLSL code
             size=(width, height),
-            time=time_offset + 2.0,  # Set specific time value for the still image
+            time=time_offset + 1.0,  # Freeze at a nice angle
             backend_type=backend_type,
             output_path=str(save_image),
+            uniforms=render_uniforms,
         )
         print(f"Image saved to {save_image}")
     elif save_video:
@@ -341,6 +361,7 @@ def main(
             backend_type=backend_type,
             output_path=str(save_video),
             time_offset=time_offset,  # Use consistent time offset
+            uniforms=render_uniforms,  # Pass the animation speed
         )
         print(f"Video saved to {save_video}")
     elif save_gif:
@@ -354,13 +375,19 @@ def main(
             backend_type=backend_type,
             output_path=str(save_gif),
             time_offset=time_offset,  # Use consistent time offset
+            uniforms=render_uniforms,  # Pass the animation speed
         )
         print(f"GIF saved to {save_gif}")
     else:
         # Run interactive animation - glfw.get_time() is used here
         print("Running interactive animation (press ESC to exit)...")
-        # No custom uniforms needed, time comes from glfw.get_time()
-        animate(glsl_code, backend_type=backend_type, size=(width, height))
+        # Pass animation speed for consistent behavior with GIF/video
+        animate(
+            shader_input=glsl_code,
+            backend_type=backend_type,
+            size=(width, height),
+            uniforms=render_uniforms,
+        )
 
 
 if __name__ == "__main__":
