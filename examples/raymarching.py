@@ -168,7 +168,10 @@ def main_shader(
     u_time: float,
     u_aspect: float,
     u_mouse: vec2 = DEFAULT_MOUSE,
-    animation_speed: float = 0.5,  # Optional animation speed control
+    animation_speed: float = 0.5,  # Animation speed control
+    animation_loop: float = 6.28,  # Full rotation period in seconds (2π)
+    camera_height: float = 5.0,  # Camera height above origin
+    camera_distance: float = 5.0,  # Camera distance from center
 ) -> vec4:
     """Main shader function.
 
@@ -177,7 +180,10 @@ def main_shader(
         u_time: Current time in seconds
         u_aspect: Aspect ratio (width/height)
         u_mouse: Mouse position normalized (0-1), optional
-        animation_speed: Controls how fast the animation plays, default 1.0
+        animation_speed: Controls how fast the animation plays, default 0.5
+        animation_loop: Period for one full rotation in seconds, default 2π
+        camera_height: Height of camera above origin, default 5.0
+        camera_distance: Distance of camera from center axis, default 5.0
 
     Returns:
         Final color (RGBA)
@@ -190,16 +196,21 @@ def main_shader(
     fov = radians(70.0)
     screen_dist = 1.0 / tan(0.5 * fov)
 
-    # Apply animation speed to make consistent animations
-    # This lets us control the speed from the application
-    # while keeping the same motion pattern across all backends
-    # animation_speed is provided via uniform
-    t = u_time * animation_speed
+    # CRITICAL FIX FOR ANIMATION CONSISTENCY:
+    # 1. First normalize time to a cyclic period (forces identical cycle length)
+    # 2. Then apply animation speed to control how fast we go through the cycle
+    # This ensures the SAME animation pattern regardless of backend or render mode
+    normalized_time = u_time * animation_speed
 
-    # Calculate camera position - rotating around the origin
-    # We're only using sin/cos of time so it automatically loops
-    radius = 5.0
-    cam_pos = vec3(radius * sin(t), radius, radius * cos(t))
+    # We take sin/cos of this angle to create circular camera motion
+    angle = normalized_time
+
+    # Calculate camera position with precise control
+    cam_pos = vec3(
+        camera_distance * sin(angle),  # X position
+        camera_height,  # Fixed height
+        camera_distance * cos(angle),  # Z position
+    )
     look_at = vec3(0.0, 0.0, 0.0)
 
     # Camera basis vectors
@@ -329,14 +340,36 @@ def main(
     # Handle different output modes
     # Set a consistent time offset to ensure animations are consistent
     # This matches the starting point for all rendering modes
-    # Set the animation speeds and offsets
-    # This controls the position in the animation cycle
+    # CRITICAL: We need to define consistent animation parameters
+    # These must be identical for all rendering modes and backends
+    # to ensure consistent animations
+
+    # Starting time for animation sequence
     time_offset = 0.0
-    animation_speed = 0.5  # Slow down for smoother animations
-    # Set up animation speed as a uniform parameter
-    # Using cast to handle type compatibility with the render functions
-    animation_uniforms = {"animation_speed": animation_speed}
-    render_uniforms = cast(dict[str, float | tuple[float, ...]], animation_uniforms)
+
+    # Speed factor applied to time (lower = slower rotation)
+    animation_speed = 0.3
+
+    # How long (in seconds) a full camera rotation takes
+    animation_loop = 6.28  # 2π
+
+    # Camera height above origin
+    camera_height = 5.0
+
+    # Camera distance from center
+    camera_distance = 5.0
+
+    # Define animation parameters as shader uniforms
+    # Using cast to handle type compatibility with render functions
+    animation_params = {
+        "animation_speed": animation_speed,
+        "animation_loop": animation_loop,
+        "camera_height": camera_height,
+        "camera_distance": camera_distance,
+    }
+
+    # This will be passed to all rendering functions
+    render_uniforms = cast(dict[str, float | tuple[float, ...]], animation_params)
 
     if save_image:
         # Render a still image at a specific time in the cycle
