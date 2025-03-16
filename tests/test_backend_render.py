@@ -1,19 +1,18 @@
-"""Tests for backend rendering, ensuring consistent results within each backend.
+"""Tests for backend rendering, ensuring consistent visual results across backends.
 
-These tests verify that each backend (standard GLSL and Shadertoy) produces
-consistent visual output over time. Each backend has its own reference images
-since OpenGL and OpenGL ES may produce visually different results due to
-implementation details and precision differences.
+These tests verify that shaders produce consistent visual output regardless of
+which backend (standard GLSL or Shadertoy) is used. We use a single set of reference
+images that both backends should match within tolerance.
 
 The test works as follows:
 1. Define test shaders with different characteristics
-2. Generate reference images for each backend separately
-3. Test each backend by comparing its output to its own reference image
-4. Assert that differences are within tolerance
+2. Generate reference images using any backend (if they don't exist)
+3. Test each backend by comparing its output to the reference image
+4. Assert that differences are within a reasonable tolerance
 
-If the reference images don't exist, they'll be generated on the first run.
-When backend code is modified, these tests will catch any visual regressions
-within each backend type.
+The goal is to ensure that users can write code once using the py2glsl API
+and have it produce the expected visual result regardless of which backend
+is used for rendering.
 """
 
 import os
@@ -33,12 +32,12 @@ from py2glsl.transpiler.backends.models import BackendType
 
 # Directory setup
 TEST_DIR = Path(__file__).parent
-BACKEND_REFERENCE_DIR = TEST_DIR / "backend_reference"
+REFERENCE_DIR = TEST_DIR / "reference"
 # Make sure the directory exists
-BACKEND_REFERENCE_DIR.mkdir(exist_ok=True)
+REFERENCE_DIR.mkdir(exist_ok=True)
 
 TEST_SIZE = (320, 240)
-TOLERANCE = 10  # Allow for precision differences between OpenGL and OpenGL ES
+TOLERANCE = 30  # Higher tolerance for cross-backend visual similarity
 
 # Set environment variables to help ModernGL handle contexts
 os.environ["MODERNGL_FORCE_STANDALONE"] = "1"
@@ -152,16 +151,17 @@ TEST_SHADERS = {
 }
 
 
-def get_backend_reference_path(name: str, backend_type: BackendType) -> Path:
-    """Get the path to a backend-specific reference image."""
-    filename = f"{name}_{backend_type.name.lower()}.png"
-    return BACKEND_REFERENCE_DIR / filename
+def get_reference_path(name: str) -> Path:
+    """Get the path to a backend-agnostic shader reference image."""
+    filename = f"shader_{name}.png"
+    return REFERENCE_DIR / filename
 
 
 def render_safe(
     shader_func: Callable[[vec2, float, float], vec4],
     backend_type: BackendType,
     attempts: int = 3,
+    fixed_time: float = 0.5,  # Use consistent time for tests
 ) -> np.ndarray:
     """Safely render a shader with error handling and retries.
 
@@ -181,9 +181,10 @@ def render_safe(
             if attempt > 0:
                 time.sleep(0.5)
 
-            # Attempt to render
+            # Ensure we use the same exact time for both backends
+            # to get consistent results for time-dependent shaders
             result = render_array(
-                shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
+                shader_func, size=TEST_SIZE, time=fixed_time, backend_type=backend_type
             )
             return result
         except Exception as e:
@@ -201,23 +202,26 @@ def _test_backend_render(
     name: str,
     backend_type: BackendType,
 ) -> None:
-    """Test that a shader renders consistently within a specific backend."""
+    """Test that a shader renders visually consistent regardless of backend."""
     try:
         # Skip if no GPU is available
         if not HAS_GPU:
             pytest.skip("GPU not available - skipping rendering test")
 
-        # Use backend-specific reference images
-        ref_path = get_backend_reference_path(name, backend_type)
+        # Use backend-agnostic reference images
+        ref_path = get_reference_path(name)
 
         # Generate reference image if it doesn't exist
+        # Always use the standard backend for reference generation
         if not ref_path.exists():
-            # Render with the specified backend
-            current_array = render_safe(shader_func, backend_type)
+            # We use the standard backend for reference images as the baseline
+            reference_backend = BackendType.STANDARD
+            current_array = render_safe(shader_func, reference_backend)
             Image.fromarray(current_array).save(ref_path)
             print(f"Generated reference image at {ref_path}")
-            # No need to test further as we just created the reference
-            return
+            # If we just created a reference with this backend, no need to test
+            if backend_type == reference_backend:
+                return
 
         # Load reference image
         ref_array = np.array(Image.open(ref_path).convert("RGBA"))
@@ -228,10 +232,13 @@ def _test_backend_render(
         # Compare current render to saved reference
         diff = np.abs(current_array.astype(int) - ref_array.astype(int))
         max_diff = np.max(diff)
-        print(f"Maximum difference for {backend_type.name}: {max_diff}")
+        mean_diff = np.mean(diff)
+        print(
+            f"Backend {backend_type.name}: max diff: {max_diff}, mean: {mean_diff:.2f}"
+        )
 
         error_msg = (
-            f"{backend_type.name} backend render differs from reference "
+            f"{backend_type.name} backend render visually differs from reference "
             f"beyond tolerance {TOLERANCE}"
         )
         assert np.all(diff <= TOLERANCE), error_msg
@@ -248,7 +255,7 @@ def test_shader_backend(
     shader_func: Callable[[vec2, float, float], vec4],
     backend_type: BackendType,
 ) -> None:
-    """Test that a shader renders consistently with a specific backend."""
+    """Test that a shader renders consistently across backends."""
     _test_backend_render(shader_func, shader_name, backend_type)
 
 

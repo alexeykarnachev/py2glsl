@@ -21,8 +21,7 @@ void main() {
 """
 
 shadertoy_vertex_shader = """
-#version 300 es
-precision mediump float;
+#version 330 core
 in vec2 in_position;
 out vec2 vs_uv;
 void main() {
@@ -87,10 +86,12 @@ def _init_context(
 
         # Set OpenGL version based on whether we're using GLES
         if use_gles:
-            # Use OpenGL ES 3.0
-            glfw.window_hint(glfw.CLIENT_API, glfw.OPENGL_ES_API)
+            # Use OpenGL compatibility profile for Shadertoy
+            # Note: We don't use ES API when windowed as it's not well supported
             glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 0)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+            glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
         else:
             # Use OpenGL 4.6 Core profile
             glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
@@ -107,8 +108,8 @@ def _init_context(
     else:
         window = None
         if use_gles:
-            # Use OpenGL ES 3.0 for standalone
-            ctx = moderngl.create_context(standalone=True, require=300)
+            # Use OpenGL 3.3 Core for Shadertoy (more compatible than ES)
+            ctx = moderngl.create_context(standalone=True, require=330)
         else:
             # Use OpenGL 4.6 for standalone
             ctx = moderngl.create_context(standalone=True, require=460)
@@ -139,6 +140,13 @@ def _compile_program(
 
     try:
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
+        # Store the backend type with the program for later reference
+        if backend_type:
+            # Add custom attribute to store backend type
+            # This is safe because we control both Program creation and attribute usage
+            # We have to use a bit of a hack with moderngl.Program
+            # pylint: disable=protected-access
+            program._backend_type = backend_type  # type: ignore
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
         return program
@@ -191,15 +199,39 @@ def _render_frame(
     # If it's a context, no need to call use()
     ctx.clear(0.0, 0.0, 0.0, 1.0)
 
+    from py2glsl.transpiler.backends.models import BackendType
+
     uniforms = uniforms or {}
-    default_uniforms = {
-        "u_resolution": size,
-        "u_time": time,
-        "u_aspect": size[0] / size[1],
-    }
-    if mouse_pos and mouse_uv:
-        default_uniforms["u_mouse_pos"] = tuple(mouse_pos)
-        default_uniforms["u_mouse_uv"] = tuple(mouse_uv)
+    default_uniforms = {}
+
+    # Set uniforms based on backend type
+    # Check if we're using the Shadertoy backend
+    has_backend = hasattr(program, "_backend_type")
+    # We have to use a bit of a hack with moderngl.Program
+    # pylint: disable=protected-access
+    is_shadertoy = has_backend and program._backend_type == BackendType.SHADERTOY  # type: ignore
+    if is_shadertoy:
+        # Shadertoy uniforms
+        default_uniforms = {
+            "iResolution": (size[0], size[1], 0.0),  # x, y, pixel_ratio
+            "iTime": time,
+        }
+        if mouse_pos and mouse_uv:
+            # Shadertoy uses iMouse(x, y, click_x, click_y)
+            # We don't track clicks, so use zeros for click coords
+            default_uniforms["iMouse"] = (mouse_pos[0], mouse_pos[1], 0.0, 0.0)
+    else:
+        # Standard uniforms
+        default_uniforms = {
+            "u_resolution": size,
+            "u_time": time,
+            "u_aspect": size[0] / size[1],
+        }
+        if mouse_pos and mouse_uv:
+            default_uniforms["u_mouse_pos"] = tuple(mouse_pos)
+            default_uniforms["u_mouse_uv"] = tuple(mouse_uv)
+
+    # Add any user-provided uniforms
     default_uniforms.update(uniforms)
 
     for name, value in default_uniforms.items():
@@ -207,16 +239,18 @@ def _render_frame(
             # We need to handle moderngl uniform types which may be different
             uniform = program[name]
             try:
-                # Try the most common approach first
-                uniform.value = value
-            except (AttributeError, TypeError):
-                try:
-                    # Some uniform types use write method
+                # Try the most common approach first - for moderngl.Uniform
+                if hasattr(uniform, "value"):
+                    uniform.value = value
+                # Some uniform types use write method
+                elif hasattr(uniform, "write"):
                     uniform.write(value)
-                except (AttributeError, TypeError):
-                    # Log but don't fail - this could be a problem with specific
-                    # uniform types that we don't handle yet
-                    logger.warning(f"Could not set uniform {name} to {value}")
+                else:
+                    # For types we don't know how to handle, log a warning
+                    logger.warning(f"Unknown uniform type for {name}, can't set value")
+            except (AttributeError, TypeError) as e:
+                # Log but don't fail
+                logger.warning(f"Could not set uniform {name} to {value}: {e}")
 
     vao.render(moderngl.TRIANGLE_STRIP)
     if isinstance(target, moderngl.Framebuffer):

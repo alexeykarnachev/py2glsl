@@ -80,12 +80,14 @@ def test_shadertoy_backend_generation(basic_collected_info: CollectedInfo) -> No
     glsl_code, uniforms = backend.generate_code(basic_collected_info, "main")
 
     # Verify basic structure
-    assert "#version 300 es" in glsl_code
+    assert "#version 330 core" in glsl_code
+    # We keep the precision qualifiers for compatibility with real Shadertoy
     assert "precision mediump float;" in glsl_code
     assert "uniform float iTime;" in glsl_code
     assert "vec4 main(vec2 vs_uv, float u_time)" in glsl_code
-    assert "mainImage(vec2 fragCoord)" in glsl_code
+    assert "vec4 mainImage(vec2 fragCoord)" in glsl_code
     assert "vec2 vs_uv = fragCoord / iResolution.xy;" in glsl_code
+    assert "vec2 fragCoord = vs_uv * iResolution.xy;" in glsl_code
     assert "out vec4 fragColor;" in glsl_code
 
     # Verify uniforms

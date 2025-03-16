@@ -22,13 +22,16 @@ class ShadertoyBackend(GLSLBackend):
         """Generate Shadertoy entry point.
 
         For use in actual Shadertoy, we would generate mainImage(), but for local
-        rendering
-        we need to use a standard main() function that wraps it.
+        rendering we need to use a standard main() function that wraps it.
+
+        In Shadertoy, mainImage() receives fragCoord and transforms it to UV
+        coordinates, but for local rendering we pass vs_uv from the vertex shader
+        to maintain consistency.
         """
+        # Define mainImage function taking fragCoord (Shadertoy format)
         lines = ["\n// Shadertoy mainImage function"]
         lines.append("vec4 mainImage(vec2 fragCoord) {")
-
-        # Convert fragCoord to vs_uv
+        lines.append("    // Transform Shadertoy coordinates to UV coordinates")
         lines.append("    vec2 vs_uv = fragCoord / iResolution.xy;")
 
         # Build args list with transformations
@@ -48,9 +51,15 @@ class ShadertoyBackend(GLSLBackend):
 
         # Add regular main function to work with OpenGL
         lines.append("\n// Standard entry point for OpenGL")
+        lines.append("in vec2 vs_uv;")  # Declare input from vertex shader
         lines.append("out vec4 fragColor;")  # Declare the output variable
         lines.append("void main() {")
-        lines.append("    fragColor = mainImage(gl_FragCoord.xy);")
+        # When rendering locally, we convert the vs_uv to gl_FragCoord-like coordinates
+        lines.append(
+            "    // Convert vs_uv to fragCoord-like coordinates for Shadertoy"
+        )
+        lines.append("    vec2 fragCoord = vs_uv * iResolution.xy;")
+        lines.append("    fragColor = mainImage(fragCoord);")
         lines.append("}")
         return lines
 
@@ -59,7 +68,7 @@ def create_shadertoy_backend() -> ShadertoyBackend:
     """Create a Shadertoy GLSL backend."""
     config = BackendConfig(
         name="shadertoy",
-        version_directive="#version 300 es",
+        version_directive="#version 330 core",
         entry_point=EntryPointConfig(
             input_variables={"fragCoord": "vec2"},
             output_variables={"fragColor": "vec4"},
@@ -74,6 +83,8 @@ def create_shadertoy_backend() -> ShadertoyBackend:
             "iChannel3": "sampler2D",
             "iFrame": "int",
         },
+        # Note: We keep GLSL ES style precision qualifiers in the source code
+        # for Shadertoy compatibility, but use OpenGL 3.3 core for desktop rendering
         preprocessor_defines={
             "precision mediump float": None,
             "precision mediump int": None,

@@ -1,4 +1,21 @@
+"""Enhanced ray marching example demonstrating py2glsl backends.
+
+This example shows a 3D ray marching scene that can be rendered with
+different backends (standard OpenGL or Shadertoy).
+
+Run with:
+    python examples/raymarching.py
+    python examples/raymarching.py --backend shadertoy
+    python examples/raymarching.py --save-image output.png
+    python examples/raymarching.py --save-video output.mp4
+    python examples/raymarching.py --save-gif output.gif
+"""
+
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated
+
+import typer
 
 from py2glsl.builtins import (
     abs,
@@ -16,8 +33,9 @@ from py2glsl.builtins import (
     vec3,
     vec4,
 )
-from py2glsl.render import animate
-from py2glsl.transpiler import transpile  # Import transpile explicitly
+from py2glsl.render import animate, render_gif, render_image, render_video
+from py2glsl.transpiler import transpile
+from py2glsl.transpiler.backends.models import BackendType
 
 # Global constants - these need to be properly annotated and passed to the transpiler
 PI: float = 3.141592
@@ -141,13 +159,19 @@ def attenuate(d: float, coeffs: vec3) -> float:
     return 1.0 / (coeffs.x + coeffs.y * d + coeffs.z * d * d)
 
 
-def main_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+# Default mouse position
+DEFAULT_MOUSE: vec2 = vec2(0.5, 0.5)
+
+def main_shader(
+    vs_uv: vec2, u_time: float, u_aspect: float, u_mouse: vec2 = DEFAULT_MOUSE
+) -> vec4:
     """Main shader function.
 
     Args:
         vs_uv: UV coordinates (0-1)
         u_time: Current time in seconds
         u_aspect: Aspect ratio (width/height)
+        u_mouse: Mouse position normalized (0-1), optional
 
     Returns:
         Final color (RGBA)
@@ -202,10 +226,66 @@ def main_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
         # Background color - simple gradient
         color = vec3(0.1, 0.2, 0.3) * (1.0 - length(screen_pos) * 0.5)
 
-    return vec4(color.x, color.y, color.z, 1.0)  # Fixed vec4 construction
+    return vec4(color.x, color.y, color.z, 1.0)
 
 
-if __name__ == "__main__":
+def app() -> None:
+    """CLI application entry point."""
+    typer.run(main)
+
+
+def main(
+    backend: Annotated[
+        str,
+        typer.Option("--backend", "-b", help="Backend to use (standard or shadertoy)"),
+    ] = "standard",
+    save_image: Annotated[
+        Path | None,
+        typer.Option(
+            "--save-image", "-i", help="Save a still image to the specified path"
+        ),
+    ] = None,
+    save_video: Annotated[
+        Path | None,
+        typer.Option("--save-video", "-v", help="Save a video to the specified path"),
+    ] = None,
+    save_gif: Annotated[
+        Path | None,
+        typer.Option(
+            "--save-gif", "-g", help="Save an animated GIF to the specified path"
+        ),
+    ] = None,
+    width: Annotated[
+        int, typer.Option("--width", "-w", help="Width of the output window/image")
+    ] = 800,
+    height: Annotated[
+        int, typer.Option("--height", "-h", help="Height of the output window/image")
+    ] = 600,
+    duration: Annotated[
+        float,
+        typer.Option("--duration", "-d", help="Duration of the video/GIF in seconds"),
+    ] = 10.0,
+    fps: Annotated[
+        int, typer.Option("--fps", help="Frames per second for video/GIF")
+    ] = 30,
+) -> None:
+    """Run the ray marching example with the specified backend and options.
+
+    Args:
+        backend: Backend to use ("standard" or "shadertoy")
+        save_image: Save a still image to the specified path
+        save_video: Save a video to the specified path
+        save_gif: Save an animated GIF to the specified path
+        width: Width of the output window/image
+        height: Height of the output window/image
+        duration: Duration of the video/GIF in seconds
+        fps: Frames per second for video/GIF
+    """
+    # Determine the backend type
+    backend_type = BackendType.STANDARD
+    if backend.lower() == "shadertoy":
+        backend_type = BackendType.SHADERTOY
+
     # Pass all functions, the struct AND GLOBAL CONSTANTS explicitly to transpile
     glsl_code, used_uniforms = transpile(
         # Functions
@@ -223,9 +303,54 @@ if __name__ == "__main__":
         NORMAL_DERIVATIVE_STEP=NORMAL_DERIVATIVE_STEP,
         # Main function
         main_func="main_shader",
+        # Backend specification
+        backend_type=backend_type,
     )
-    animate(glsl_code)
 
-    # Optional: For debugging
-    print("Generated GLSL code:")
-    print(glsl_code)
+    print(f"Using {backend} backend (BackendType.{backend_type.name})")
+    print(f"Used uniforms: {used_uniforms}")
+
+    # Handle different output modes
+    if save_image:
+        # Render a still image
+        print(f"Rendering still image to {save_image}...")
+        render_image(
+            shader_input=glsl_code,  # Use the pre-transpiled GLSL code
+            size=(width, height),
+            time=2.0,  # Set specific time value for the still image
+            backend_type=backend_type,
+            output_path=str(save_image),
+        )
+        print(f"Image saved to {save_image}")
+    elif save_video:
+        # Render a video
+        print(f"Rendering {duration}s video at {fps}fps to {save_video}...")
+        render_video(
+            shader_input=glsl_code,  # Use the pre-transpiled GLSL code
+            size=(width, height),
+            duration=duration,
+            fps=fps,
+            backend_type=backend_type,
+            output_path=str(save_video),
+        )
+        print(f"Video saved to {save_video}")
+    elif save_gif:
+        # Render an animated GIF
+        print(f"Rendering {duration}s GIF at {fps}fps to {save_gif}...")
+        render_gif(
+            shader_input=glsl_code,  # Use the pre-transpiled GLSL code
+            size=(width, height),
+            duration=duration,
+            fps=fps,
+            backend_type=backend_type,
+            output_path=str(save_gif),
+        )
+        print(f"GIF saved to {save_gif}")
+    else:
+        # Run interactive animation
+        print("Running interactive animation (press ESC to exit)...")
+        animate(glsl_code, backend_type=backend_type, size=(width, height))
+
+
+if __name__ == "__main__":
+    app()
