@@ -184,9 +184,11 @@ def _determine_shader_input(
 def transpile(
     *args: str | Callable[..., Any] | type[Any] | object,
     main_func: str | None = None,
+    backend_type: Any = None,
+    backend_options: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> tuple[str, set[str]]:
-    """Transpile Python code to GLSL shader code.
+    """Transpile Python code to shader code.
 
     This is the main entry point for the transpiler. It accepts various forms of input:
     - A string containing Python code
@@ -196,12 +198,14 @@ def transpile(
     Args:
         *args: The Python code or callables to transpile
         main_func: Name of the main function to use as shader entry point
+        backend_type: The backend type to use for code generation (default: STANDARD)
+        backend_options: Options to pass to the backend
         **kwargs: Additional keyword arguments:
             - Additional functions/classes to include
             - Global constants to include in the shader
 
     Returns:
-        Tuple of (generated GLSL code, set of used uniform variables)
+        Tuple of (generated shader code, set of used uniform variables)
 
     Raises:
         TranspilerError: If transpilation fails
@@ -219,9 +223,21 @@ def transpile(
 
         # Include global constants
         glsl_code, uniforms = transpile(my_shader_func, PI=3.14159, MAX_STEPS=100)
+
+        # Use Shadertoy backend
+        from py2glsl.transpiler.backends.models import BackendType
+        glsl_code, uniforms = transpile(my_shader_func, backend_type=BackendType.SHADERTOY)
     """
+    # Lazy import backends to avoid circular imports
+    from py2glsl.transpiler.backends import create_backend
+    from py2glsl.transpiler.backends.models import BackendType
+
+    if backend_type is None:
+        backend_type = BackendType.STANDARD
+
     logger.debug(
-        f"Transpiling with args: {args}, main_func: {main_func}, kwargs: {kwargs}"
+        f"Transpiling with args: {args}, main_func: {main_func}, "
+        f"backend_type: {backend_type}, kwargs: {kwargs}"
     )
 
     # Extract global constants from kwargs
@@ -245,6 +261,9 @@ def transpile(
             f"Main function '{effective_main_func}' not found in collected functions"
         )
 
-    # Generate GLSL code
-    glsl_code, uniforms = generate_glsl(collected, effective_main_func)
-    return glsl_code, uniforms
+    # Create the appropriate backend
+    backend = create_backend(backend_type)
+
+    # Generate shader code using the backend
+    shader_code, uniforms = backend.generate_code(collected, effective_main_func)
+    return shader_code, uniforms

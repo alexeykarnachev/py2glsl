@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable
+from typing import Any
 
 import glfw
 import imageio
@@ -9,7 +10,7 @@ from loguru import logger
 from numpy.typing import NDArray
 from PIL import Image
 
-vertex_shader_source = """
+standard_vertex_shader = """
 #version 460 core
 in vec2 in_position;
 out vec2 vs_uv;
@@ -18,33 +19,84 @@ void main() {
     gl_Position = vec4(in_position, 0.0, 1.0);
 }
 """
+
+shadertoy_vertex_shader = """
+#version 300 es
+precision mediump float;
+in vec2 in_position;
+out vec2 vs_uv;
+void main() {
+    vs_uv = (in_position + 1.0) * 0.5;
+    gl_Position = vec4(in_position, 0.0, 1.0);
+}
+"""
+
+# Default to standard vertex shader
+vertex_shader_source = standard_vertex_shader
 logger.opt(colors=True).info(
     f"<blue>Vertex Shader GLSL:\n{vertex_shader_source}</blue>"
 )
 
 
-def _prepare_shader_code(shader_input: Callable[..., None] | str) -> str:
-    """Prepare shader code from input."""
+def _prepare_shader_code(
+    shader_input: Callable[..., Any] | str,
+    backend_type: Any = None,
+) -> str:
+    """Prepare shader code from input.
+
+    Args:
+        shader_input: Shader function or GLSL string
+        backend_type: Backend type to use for transpilation
+
+    Returns:
+        Generated GLSL code
+    """
     if callable(shader_input):
         from py2glsl.transpiler import transpile
 
-        glsl_code, _ = transpile(shader_input)
+        if backend_type is not None:
+            glsl_code, _ = transpile(shader_input, backend_type=backend_type)
+        else:
+            glsl_code, _ = transpile(shader_input)
     else:
         glsl_code = shader_input
     return glsl_code
 
 
 def _init_context(
-    size: tuple[int, int], windowed: bool, window_title: str = "GLSL Shader"
+    size: tuple[int, int],
+    windowed: bool,
+    window_title: str = "GLSL Shader",
+    use_gles: bool = False,
 ) -> tuple[moderngl.Context, glfw._GLFWwindow | None]:
-    """Initialize ModernGL context and optional GLFW window."""
+    """Initialize ModernGL context and optional GLFW window.
+
+    Args:
+        size: Window size as (width, height)
+        windowed: Whether to create a window or use offscreen rendering
+        window_title: Title of the window
+        use_gles: Whether to use OpenGL ES (for Shadertoy compatibility)
+
+    Returns:
+        Tuple of (ModernGL context, GLFW window or None)
+    """
     if windowed:
         if not glfw.init():
             logger.error("Failed to initialize GLFW")
             raise RuntimeError("Failed to initialize GLFW")
-        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
-        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 6)
-        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+
+        # Set OpenGL version based on whether we're using GLES
+        if use_gles:
+            # Use OpenGL ES 3.0
+            glfw.window_hint(glfw.CLIENT_API, glfw.OPENGL_ES_API)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 0)
+        else:
+            # Use OpenGL 4.6 Core profile
+            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 6)
+            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+
         window = glfw.create_window(size[0], size[1], window_title, None, None)
         if not window:
             logger.error("Failed to create GLFW window")
@@ -54,16 +106,39 @@ def _init_context(
         ctx = moderngl.create_context()
     else:
         window = None
-        ctx = moderngl.create_context(standalone=True, require=460)
+        if use_gles:
+            # Use OpenGL ES 3.0 for standalone
+            ctx = moderngl.create_context(standalone=True, require=300, backend="egl")
+        else:
+            # Use OpenGL 4.6 for standalone
+            ctx = moderngl.create_context(standalone=True, require=460)
     return ctx, window
 
 
-def _compile_program(ctx: moderngl.Context, glsl_code: str) -> moderngl.Program:
-    """Compile shader program."""
+def _compile_program(
+    ctx: moderngl.Context,
+    glsl_code: str,
+    backend_type: Any = None,
+) -> moderngl.Program:
+    """Compile shader program.
+
+    Args:
+        ctx: ModernGL context
+        glsl_code: Fragment shader code
+        backend_type: Backend type used to generate the shader
+
+    Returns:
+        Compiled shader program
+    """
+    # Determine which vertex shader to use based on backend type
+    from py2glsl.transpiler.backends.models import BackendType
+
+    vertex_shader = standard_vertex_shader
+    if backend_type == BackendType.SHADERTOY:
+        vertex_shader = shadertoy_vertex_shader
+
     try:
-        program = ctx.program(
-            vertex_shader=vertex_shader_source, fragment_shader=glsl_code
-        )
+        program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
         return program
@@ -156,15 +231,31 @@ def _cleanup(
 
 
 def animate(
-    shader_input: Callable[..., None] | str,
+    shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     window_title: str = "GLSL Shader",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    backend_type: Any = None,
 ) -> None:
-    """Run a real-time shader animation in a window."""
-    glsl_code = _prepare_shader_code(shader_input)
-    ctx, window = _init_context(size, windowed=True, window_title=window_title)
-    program = _compile_program(ctx, glsl_code)
+    """Run a real-time shader animation in a window.
+
+    Args:
+        shader_input: Shader function or GLSL string
+        size: Window size as (width, height)
+        window_title: Title of the window
+        uniforms: Additional uniform values to pass to the shader
+        backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
+    """
+    from py2glsl.transpiler.backends.models import BackendType
+
+    # Determine if we should use OpenGL ES for Shadertoy
+    use_gles = backend_type == BackendType.SHADERTOY
+
+    glsl_code = _prepare_shader_code(shader_input, backend_type)
+    ctx, window = _init_context(
+        size, windowed=True, window_title=window_title, use_gles=use_gles
+    )
+    program = _compile_program(ctx, glsl_code, backend_type)
     vbo, vao = _setup_primitives(ctx, program)
     mouse_pos, mouse_uv = _setup_mouse_tracking(window, size)
 
@@ -198,16 +289,33 @@ def animate(
 
 
 def render_array(
-    shader_input: Callable[..., None] | str,
+    shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     time: float = 0.0,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    backend_type: Any = None,
 ) -> NDArray[np.uint8]:
-    """Render shader to a numpy array."""
+    """Render shader to a numpy array.
+
+    Args:
+        shader_input: Shader function or GLSL string
+        size: Image size as (width, height)
+        time: Shader time value
+        uniforms: Additional uniform values to pass to the shader
+        backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
+
+    Returns:
+        Numpy array containing the rendered image
+    """
+    from py2glsl.transpiler.backends.models import BackendType
+
+    # Determine if we should use OpenGL ES for Shadertoy
+    use_gles = backend_type == BackendType.SHADERTOY
+
     logger.info("Rendering to array")
-    glsl_code = _prepare_shader_code(shader_input)
-    ctx, _ = _init_context(size, windowed=False)
-    program = _compile_program(ctx, glsl_code)
+    glsl_code = _prepare_shader_code(shader_input, backend_type)
+    ctx, _ = _init_context(size, windowed=False, use_gles=use_gles)
+    program = _compile_program(ctx, glsl_code, backend_type)
     vbo, vao = _setup_primitives(ctx, program)
     fbo = ctx.simple_framebuffer(size)
 
@@ -218,18 +326,37 @@ def render_array(
 
 
 def render_image(
-    shader_input: Callable[..., None] | str,
+    shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     time: float = 0.0,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
     image_format: str = "PNG",
+    backend_type: Any = None,
 ) -> Image.Image:
-    """Render shader to a PIL Image."""
+    """Render shader to a PIL Image.
+
+    Args:
+        shader_input: Shader function or GLSL string
+        size: Image size as (width, height)
+        time: Shader time value
+        uniforms: Additional uniform values to pass to the shader
+        output_path: Path to save the image, if desired
+        image_format: Format to save the image in (e.g., "PNG", "JPEG")
+        backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
+
+    Returns:
+        PIL Image containing the rendered image
+    """
+    from py2glsl.transpiler.backends.models import BackendType
+
+    # Determine if we should use OpenGL ES for Shadertoy
+    use_gles = backend_type == BackendType.SHADERTOY
+
     logger.info("Rendering to image")
-    glsl_code = _prepare_shader_code(shader_input)
-    ctx, _ = _init_context(size, windowed=False)
-    program = _compile_program(ctx, glsl_code)
+    glsl_code = _prepare_shader_code(shader_input, backend_type)
+    ctx, _ = _init_context(size, windowed=False, use_gles=use_gles)
+    program = _compile_program(ctx, glsl_code, backend_type)
     vbo, vao = _setup_primitives(ctx, program)
     fbo = ctx.simple_framebuffer(size)
 
@@ -246,18 +373,37 @@ def render_image(
 
 
 def render_gif(
-    shader_input: Callable[..., None] | str,
+    shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     duration: float = 5.0,
     fps: int = 30,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
+    backend_type: Any = None,
 ) -> tuple[Image.Image, list[NDArray[np.uint8]]]:
-    """Render shader to an animated GIF, returning first frame and raw frames."""
+    """Render shader to an animated GIF, returning first frame and raw frames.
+
+    Args:
+        shader_input: Shader function or GLSL string
+        size: Image size as (width, height)
+        duration: Animation duration in seconds
+        fps: Frames per second
+        uniforms: Additional uniform values to pass to the shader
+        output_path: Path to save the GIF, if desired
+        backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
+
+    Returns:
+        Tuple of (first frame as PIL Image, list of raw frames as numpy arrays)
+    """
+    from py2glsl.transpiler.backends.models import BackendType
+
+    # Determine if we should use OpenGL ES for Shadertoy
+    use_gles = backend_type == BackendType.SHADERTOY
+
     logger.info("Rendering to GIF")
-    glsl_code = _prepare_shader_code(shader_input)
-    ctx, _ = _init_context(size, windowed=False)
-    program = _compile_program(ctx, glsl_code)
+    glsl_code = _prepare_shader_code(shader_input, backend_type)
+    ctx, _ = _init_context(size, windowed=False, use_gles=use_gles)
+    program = _compile_program(ctx, glsl_code, backend_type)
     vbo, vao = _setup_primitives(ctx, program)
     fbo = ctx.simple_framebuffer(size)
 
@@ -266,8 +412,8 @@ def render_gif(
         raw_frames = []
         pil_frames = []
         for i in range(num_frames):
-            time = i / fps
-            array = _render_frame(ctx, program, vao, fbo, size, time, uniforms)
+            frame_time = i / fps
+            array = _render_frame(ctx, program, vao, fbo, size, frame_time, uniforms)
             assert array is not None
             raw_frames.append(array)
             pil_frames.append(Image.fromarray(array, mode="RGBA"))
@@ -287,7 +433,7 @@ def render_gif(
 
 
 def render_video(
-    shader_input: Callable[..., None] | str,
+    shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     duration: float = 5.0,
     fps: int = 30,
@@ -296,12 +442,34 @@ def render_video(
     quality: int = 8,
     pixel_format: str = "yuv420p",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    backend_type: Any = None,
 ) -> tuple[str, list[NDArray[np.uint8]]]:
-    """Render shader to a video file, returning path and raw frames."""
+    """Render shader to a video file, returning path and raw frames.
+
+    Args:
+        shader_input: Shader function or GLSL string
+        size: Image size as (width, height)
+        duration: Video duration in seconds
+        fps: Frames per second
+        output_path: Path to save the video
+        codec: Video codec (e.g., "h264", "vp9")
+        quality: Video quality (0-10, higher is better)
+        pixel_format: Pixel format (e.g., "yuv420p")
+        uniforms: Additional uniform values to pass to the shader
+        backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
+
+    Returns:
+        Tuple of (output path, list of raw frames as numpy arrays)
+    """
+    from py2glsl.transpiler.backends.models import BackendType
+
+    # Determine if we should use OpenGL ES for Shadertoy
+    use_gles = backend_type == BackendType.SHADERTOY
+
     logger.info(f"Rendering to video file {output_path} with {codec} codec")
-    glsl_code = _prepare_shader_code(shader_input)
-    ctx, _ = _init_context(size, windowed=False)
-    program = _compile_program(ctx, glsl_code)
+    glsl_code = _prepare_shader_code(shader_input, backend_type)
+    ctx, _ = _init_context(size, windowed=False, use_gles=use_gles)
+    program = _compile_program(ctx, glsl_code, backend_type)
     vbo, vao = _setup_primitives(ctx, program)
     fbo = ctx.simple_framebuffer(size)
 
@@ -316,8 +484,8 @@ def render_video(
         num_frames = int(duration * fps)
         raw_frames = []
         for i in range(num_frames):
-            time = i / fps
-            array = _render_frame(ctx, program, vao, fbo, size, time, uniforms)
+            frame_time = i / fps
+            array = _render_frame(ctx, program, vao, fbo, size, frame_time, uniforms)
             assert array is not None
             raw_frames.append(array)
             writer.append_data(array)

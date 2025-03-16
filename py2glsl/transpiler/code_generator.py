@@ -1,17 +1,28 @@
 """
 GLSL code generation for complete shader programs.
 
+DEPRECATED: This module is deprecated and will be removed in a future version.
+Please use the new backend system in py2glsl.transpiler.backends instead.
+
 This module handles generation of GLSL code from the collected information,
 combining function bodies, struct definitions, and global constants.
 """
 
 import ast
+import warnings
 
 from loguru import logger
 
 from py2glsl.transpiler.code_gen_stmt import generate_body
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo, FunctionInfo
+
+warnings.warn(
+    "The code_generator module is deprecated and will be removed in a future version. "
+    "Please use the new backend system in py2glsl.transpiler.backends instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def _generate_version_directive() -> list[str]:
@@ -262,6 +273,9 @@ def _generate_main_entry(main_func: str, main_func_info: FunctionInfo) -> list[s
 def generate_glsl(collected: CollectedInfo, main_func: str) -> tuple[str, set[str]]:
     """Generate GLSL code from the collected information.
 
+    DEPRECATED: This function is deprecated and will be removed in a future version.
+    Please use the new backend system in py2glsl.transpiler.backends instead.
+
     Args:
         collected: Information about functions, structs, and globals
         main_func: Name of the main function to use as shader entry point
@@ -272,31 +286,16 @@ def generate_glsl(collected: CollectedInfo, main_func: str) -> tuple[str, set[st
     Raises:
         TranspilerError: If there are issues generating valid GLSL
     """
-    logger.debug(f"Starting GLSL generation for main function: {main_func}")
-
-    # Validate main function
-    main_func_info = collected.functions[main_func]
-    if not main_func_info.node.body:
-        raise TranspilerError("Empty function body not supported in GLSL")
-
-    # Generate each section of the shader
-    version_lines = _generate_version_directive()
-    uniform_lines, used_uniforms = _generate_uniforms(main_func_info)
-    global_lines = _generate_globals(collected)
-    struct_lines = _generate_structs(collected)
-    function_lines = _generate_functions(collected, main_func)
-    main_entry_lines = _generate_main_entry(main_func, main_func_info)
-
-    # Combine all sections
-    all_lines = (
-        version_lines
-        + uniform_lines
-        + global_lines
-        + struct_lines
-        + function_lines
-        + main_entry_lines
+    warnings.warn(
+        "The generate_glsl function is deprecated and will be removed in a future version. "
+        "Please use the new backend system in py2glsl.transpiler.backends instead.",
+        DeprecationWarning,
+        stacklevel=2,
     )
 
-    # Join lines into a single string
-    glsl_code = "\n".join(all_lines)
-    return glsl_code, used_uniforms
+    # Use the new backend system to generate the code
+    from py2glsl.transpiler.backends import create_backend
+    from py2glsl.transpiler.backends.models import BackendType
+
+    backend = create_backend(BackendType.STANDARD)
+    return backend.generate_code(collected, main_func)
