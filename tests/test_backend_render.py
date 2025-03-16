@@ -17,6 +17,8 @@ within each backend type.
 """
 
 import os
+import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Generator
 from pathlib import Path
@@ -38,18 +40,61 @@ BACKEND_REFERENCE_DIR.mkdir(exist_ok=True)
 TEST_SIZE = (320, 240)
 TOLERANCE = 10  # Allow for precision differences between OpenGL and OpenGL ES
 
-# Set an environment variable to help ModernGL handle contexts in tests
+# Set environment variables to help ModernGL handle contexts
 os.environ["MODERNGL_FORCE_STANDALONE"] = "1"
+os.environ["PYOPENGL_PLATFORM"] = (
+    "egl"  # Use EGL platform to avoid display requirements
+)
+
+# Skip these tests when running in CI or without proper GPU
+HAS_GPU = os.environ.get("HAS_GPU", "1") == "1"
+
+# Mark the entire module for special handling
+pytestmark = [
+    pytest.mark.gpu,  # Mark all tests as requiring a GPU
+    pytest.mark.backend,  # Mark all tests as backend tests
+]
 
 
-# Create a fixture to ensure tests don't interfere with each other
-@pytest.fixture(autouse=True)
-def cleanup_between_tests() -> Generator[None, None, None]:
-    """Cleanup ModernGL contexts between tests."""
-    # Setup - nothing needed
-    yield
-    # Teardown - add a short delay between tests
-    time.sleep(0.2)
+def _run_isolated_test(shader_name: str, backend_name: str) -> bool:
+    """Run a single test in isolation using subprocess."""
+    # Run the test in a separate process to ensure full isolation
+    cmd = [
+        "python",
+        "-m",
+        "pytest",
+        f"tests/test_backend_render.py::test_shader_backend[{backend_name}-{shader_name}-{shader_name}_test_shader]",
+        "-v",
+    ]
+
+    # Run the command
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+    # If the test failed, print the output
+    if result.returncode != 0:
+        print(f"Isolated test failed: {' '.join(cmd)}")
+        print(f"STDOUT: {result.stdout}")
+        print(f"STDERR: {result.stderr}")
+
+    return result.returncode == 0
+
+
+@pytest.fixture(scope="module", autouse=True)
+def isolation() -> Generator[None, None, None]:
+    """Ensure tests in this module run in isolation."""
+    # Save the original current directory
+    orig_dir = os.getcwd()
+
+    # Create a temporary directory for isolated execution
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        os.chdir(tmpdirname)
+        try:
+            yield
+        finally:
+            # Return to the original directory
+            os.chdir(orig_dir)
+            # Sleep after all tests in this module to ensure cleanup
+            time.sleep(0.5)
 
 
 # Define available backends for testing
@@ -120,20 +165,32 @@ def render_safe(
     Since ModernGL context handling can be flaky in tests, this function
     provides retry logic and better error handling.
     """
+    # Skip if no GPU is available
+    if not HAS_GPU:
+        pytest.skip("GPU not available - skipping rendering test")
+
+    # For mypy
+    result = None
+
     for attempt in range(attempts):
         try:
             # Add a small delay between attempts to let previous contexts be cleaned up
             if attempt > 0:
                 time.sleep(0.5)
 
-            return render_array(
+            # Attempt to render
+            result = render_array(
                 shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
             )
+            return result
         except Exception as e:
             if attempt == attempts - 1:  # Last attempt
-                print(f"Failed to render after {attempts} attempts: {e!s}")
-                raise
+                pytest.fail(f"Failed to render after {attempts} attempts: {e!s}")
             print(f"Render attempt {attempt + 1} failed: {e!s}, retrying...")
+
+    # This should never happen but makes mypy happy
+    assert result is not None
+    return result
 
 
 def _test_backend_render(
@@ -143,6 +200,10 @@ def _test_backend_render(
 ) -> None:
     """Test that a shader renders consistently within a specific backend."""
     try:
+        # Skip if no GPU is available
+        if not HAS_GPU:
+            pytest.skip("GPU not available - skipping rendering test")
+
         # Use backend-specific reference images
         ref_path = get_backend_reference_path(name, backend_type)
 
@@ -186,3 +247,25 @@ def test_shader_backend(
 ) -> None:
     """Test that a shader renders consistently with a specific backend."""
     _test_backend_render(shader_func, shader_name, backend_type)
+
+
+# Special test that runs each test in isolation using subprocesses
+# to ensure complete isolation of OpenGL contexts
+@pytest.mark.skip(reason="Subprocess tests are only for diagnostic use")
+def test_all_backends_in_isolation() -> None:
+    """Run all shader and backend combinations in isolation."""
+    # This test only runs tests individually to verify each one passes
+    # It helps diagnose issues with OpenGL context that may occur when
+    # tests are run together.
+    if not HAS_GPU:
+        pytest.skip("GPU not available - skipping isolation tests")
+
+    failures = 0
+    for shader_name in TEST_SHADERS:
+        for backend in BACKENDS:
+            backend_name = f"BackendType.{backend.name}"
+            success = _run_isolated_test(shader_name, backend_name)
+            if not success:
+                failures += 1
+
+    assert failures == 0, f"{failures} tests failed when run in isolation"
