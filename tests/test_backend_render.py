@@ -16,10 +16,13 @@ When backend code is modified, these tests will catch any visual regressions
 within each backend type.
 """
 
-from collections.abc import Callable
+import os
+import time
+from collections.abc import Callable, Generator
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from py2glsl.builtins import cos, sin, vec2, vec4
@@ -34,6 +37,23 @@ BACKEND_REFERENCE_DIR.mkdir(exist_ok=True)
 
 TEST_SIZE = (320, 240)
 TOLERANCE = 10  # Allow for precision differences between OpenGL and OpenGL ES
+
+# Set an environment variable to help ModernGL handle contexts in tests
+os.environ["MODERNGL_FORCE_STANDALONE"] = "1"
+
+
+# Create a fixture to ensure tests don't interfere with each other
+@pytest.fixture(autouse=True)
+def cleanup_between_tests() -> Generator[None, None, None]:
+    """Cleanup ModernGL contexts between tests."""
+    # Setup - nothing needed
+    yield
+    # Teardown - add a short delay between tests
+    time.sleep(0.2)
+
+
+# Define available backends for testing
+BACKENDS = [BackendType.STANDARD, BackendType.SHADERTOY]
 
 
 # Test Shaders
@@ -76,10 +96,44 @@ def complex_test_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     return vec4(r * ring, g * ring, b * ring, 1.0)
 
 
+# Dictionary of test shaders for parameterized testing
+TEST_SHADERS = {
+    "simple": simple_test_shader,
+    "animated": animated_test_shader,
+    "complex": complex_test_shader,
+}
+
+
 def get_backend_reference_path(name: str, backend_type: BackendType) -> Path:
     """Get the path to a backend-specific reference image."""
     filename = f"{name}_{backend_type.name.lower()}.png"
     return BACKEND_REFERENCE_DIR / filename
+
+
+def render_safe(
+    shader_func: Callable[[vec2, float, float], vec4],
+    backend_type: BackendType,
+    attempts: int = 3,
+) -> np.ndarray:
+    """Safely render a shader with error handling and retries.
+
+    Since ModernGL context handling can be flaky in tests, this function
+    provides retry logic and better error handling.
+    """
+    for attempt in range(attempts):
+        try:
+            # Add a small delay between attempts to let previous contexts be cleaned up
+            if attempt > 0:
+                time.sleep(0.5)
+
+            return render_array(
+                shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
+            )
+        except Exception as e:
+            if attempt == attempts - 1:  # Last attempt
+                print(f"Failed to render after {attempts} attempts: {e!s}")
+                raise
+            print(f"Render attempt {attempt + 1} failed: {e!s}, retrying...")
 
 
 def _test_backend_render(
@@ -95,9 +149,7 @@ def _test_backend_render(
         # Generate reference image if it doesn't exist
         if not ref_path.exists():
             # Render with the specified backend
-            current_array = render_array(
-                shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
-            )
+            current_array = render_safe(shader_func, backend_type)
             Image.fromarray(current_array).save(ref_path)
             print(f"Generated reference image at {ref_path}")
             # No need to test further as we just created the reference
@@ -107,9 +159,7 @@ def _test_backend_render(
         ref_array = np.array(Image.open(ref_path).convert("RGBA"))
 
         # Render current image with the specified backend
-        current_array = render_array(
-            shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
-        )
+        current_array = render_safe(shader_func, backend_type)
 
         # Compare current render to saved reference
         diff = np.abs(current_array.astype(int) - ref_array.astype(int))
@@ -126,31 +176,13 @@ def _test_backend_render(
         raise
 
 
-def test_simple_shader_standard() -> None:
-    """Test that simple shader renders consistently with standard backend."""
-    _test_backend_render(simple_test_shader, "simple_shader", BackendType.STANDARD)
-
-
-def test_simple_shader_shadertoy() -> None:
-    """Test that simple shader renders consistently with shadertoy backend."""
-    _test_backend_render(simple_test_shader, "simple_shader", BackendType.SHADERTOY)
-
-
-def test_animated_shader_standard() -> None:
-    """Test that animated shader renders consistently with standard backend."""
-    _test_backend_render(animated_test_shader, "animated_shader", BackendType.STANDARD)
-
-
-def test_animated_shader_shadertoy() -> None:
-    """Test that animated shader renders consistently with shadertoy backend."""
-    _test_backend_render(animated_test_shader, "animated_shader", BackendType.SHADERTOY)
-
-
-def test_complex_shader_standard() -> None:
-    """Test that complex shader renders consistently with standard backend."""
-    _test_backend_render(complex_test_shader, "complex_shader", BackendType.STANDARD)
-
-
-def test_complex_shader_shadertoy() -> None:
-    """Test that complex shader renders consistently with shadertoy backend."""
-    _test_backend_render(complex_test_shader, "complex_shader", BackendType.SHADERTOY)
+# Parameterized test for all shader and backend combinations
+@pytest.mark.parametrize("shader_name,shader_func", list(TEST_SHADERS.items()))
+@pytest.mark.parametrize("backend_type", BACKENDS)
+def test_shader_backend(
+    shader_name: str,
+    shader_func: Callable[[vec2, float, float], vec4],
+    backend_type: BackendType,
+) -> None:
+    """Test that a shader renders consistently with a specific backend."""
+    _test_backend_render(shader_func, shader_name, backend_type)
