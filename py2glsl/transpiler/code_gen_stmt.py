@@ -253,8 +253,7 @@ def _generate_list_iteration_loop(
 
     # Generate loop header
     code.append(
-        f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; "
-        f"++{index_var}) {{"
+        f"{indent}for (int {index_var} = 0; {index_var} < {size_var}; ++{index_var}) {{"
     )
 
     # Generate item assignment
@@ -346,8 +345,7 @@ def _generate_range_iteration_loop(
 
     # Generate loop header
     code.append(
-        f"{indent}for (int {target} = {start}; {target} < {end}; "
-        f"{target} += {step}) {{"
+        f"{indent}for (int {target} = {start}; {target} < {end}; {target} += {step}) {{"
     )
 
     # Generate loop body

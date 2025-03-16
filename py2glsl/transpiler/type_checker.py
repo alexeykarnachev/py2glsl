@@ -129,8 +129,7 @@ def _find_matching_signature(
 
     # If we're here, no matching overload was found
     raise TranspilerError(
-        f"No matching overload for function {func_name} with "
-        f"argument types {arg_types}"
+        f"No matching overload for function {func_name} with argument types {arg_types}"
     )
 
 
