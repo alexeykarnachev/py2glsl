@@ -311,13 +311,17 @@ def main(
     print(f"Used uniforms: {used_uniforms}")
 
     # Handle different output modes
+    # Set a consistent time offset to ensure animations are consistent
+    # This matches the starting point for all rendering modes
+    time_offset = 0.0
+
     if save_image:
         # Render a still image
         print(f"Rendering still image to {save_image}...")
         render_image(
             shader_input=glsl_code,  # Use the pre-transpiled GLSL code
             size=(width, height),
-            time=2.0,  # Set specific time value for the still image
+            time=time_offset + 2.0,  # Set specific time value for the still image
             backend_type=backend_type,
             output_path=str(save_image),
         )
@@ -332,6 +336,7 @@ def main(
             fps=fps,
             backend_type=backend_type,
             output_path=str(save_video),
+            time_offset=time_offset,  # Use consistent time offset
         )
         print(f"Video saved to {save_video}")
     elif save_gif:
@@ -344,11 +349,13 @@ def main(
             fps=fps,
             backend_type=backend_type,
             output_path=str(save_gif),
+            time_offset=time_offset,  # Use consistent time offset
         )
         print(f"GIF saved to {save_gif}")
     else:
-        # Run interactive animation
+        # Run interactive animation - glfw.get_time() is used here
         print("Running interactive animation (press ESC to exit)...")
+        # No custom uniforms needed, time comes from glfw.get_time()
         animate(glsl_code, backend_type=backend_type, size=(width, height))
 
 

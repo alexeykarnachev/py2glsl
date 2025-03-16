@@ -435,6 +435,7 @@ def render_gif(
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
     backend_type: Any = None,
+    time_offset: float = 0.0,
 ) -> tuple[Image.Image, list[NDArray[np.uint8]]]:
     """Render shader to an animated GIF, returning first frame and raw frames.
 
@@ -446,6 +447,7 @@ def render_gif(
         uniforms: Additional uniform values to pass to the shader
         output_path: Path to save the GIF, if desired
         backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
+        time_offset: Starting time for the animation (seconds)
 
     Returns:
         Tuple of (first frame as PIL Image, list of raw frames as numpy arrays)
@@ -467,7 +469,8 @@ def render_gif(
         raw_frames = []
         pil_frames = []
         for i in range(num_frames):
-            frame_time = i / fps
+            # Add offset to make animations consistent with interactive mode
+            frame_time = time_offset + (i / fps)
             array = _render_frame(ctx, program, vao, fbo, size, frame_time, uniforms)
             assert array is not None
             raw_frames.append(array)
@@ -498,6 +501,7 @@ def render_video(
     pixel_format: str = "yuv420p",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     backend_type: Any = None,
+    time_offset: float = 0.0,
 ) -> tuple[str, list[NDArray[np.uint8]]]:
     """Render shader to a video file, returning path and raw frames.
 
@@ -512,6 +516,7 @@ def render_video(
         pixel_format: Pixel format (e.g., "yuv420p")
         uniforms: Additional uniform values to pass to the shader
         backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
+        time_offset: Starting time for the animation (seconds)
 
     Returns:
         Tuple of (output path, list of raw frames as numpy arrays)
@@ -539,7 +544,8 @@ def render_video(
         num_frames = int(duration * fps)
         raw_frames = []
         for i in range(num_frames):
-            frame_time = i / fps
+            # Add offset to make animations consistent with interactive mode
+            frame_time = time_offset + (i / fps)
             array = _render_frame(ctx, program, vao, fbo, size, frame_time, uniforms)
             assert array is not None
             raw_frames.append(array)
