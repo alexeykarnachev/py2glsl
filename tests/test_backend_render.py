@@ -47,7 +47,9 @@ os.environ["PYOPENGL_PLATFORM"] = (
 )
 
 # Skip these tests when running in CI or without proper GPU
-HAS_GPU = os.environ.get("HAS_GPU", "1") == "1"
+# Check if we should skip GPU tests
+# Set NO_GPU=1 to skip GPU tests
+HAS_GPU = os.environ.get("NO_GPU", "0") != "1"
 
 # Mark the entire module for special handling
 pytestmark = [
@@ -63,7 +65,8 @@ def _run_isolated_test(shader_name: str, backend_name: str) -> bool:
         "python",
         "-m",
         "pytest",
-        f"tests/test_backend_render.py::test_shader_backend[{backend_name}-{shader_name}-{shader_name}_test_shader]",
+        # Use the full working directory path with the test file
+        f"{Path.cwd()}/tests/test_backend_render.py::test_shader_backend[{backend_name}-{shader_name}-{shader_name}_test_shader]",
         "-v",
     ]
 
@@ -249,23 +252,14 @@ def test_shader_backend(
     _test_backend_render(shader_func, shader_name, backend_type)
 
 
-# Special test that runs each test in isolation using subprocesses
-# to ensure complete isolation of OpenGL contexts
-@pytest.mark.skip(reason="Subprocess tests are only for diagnostic use")
-def test_all_backends_in_isolation() -> None:
-    """Run all shader and backend combinations in isolation."""
-    # This test only runs tests individually to verify each one passes
-    # It helps diagnose issues with OpenGL context that may occur when
-    # tests are run together.
+# Direct testing approach instead of subprocess isolation
+def test_all_backends_direct() -> None:
+    """Test all shader and backend combinations directly."""
+    # This is a simpler approach that just runs all the tests directly
     if not HAS_GPU:
-        pytest.skip("GPU not available - skipping isolation tests")
+        pytest.skip("GPU not available - skipping backend tests")
 
-    failures = 0
-    for shader_name in TEST_SHADERS:
-        for backend in BACKENDS:
-            backend_name = f"BackendType.{backend.name}"
-            success = _run_isolated_test(shader_name, backend_name)
-            if not success:
-                failures += 1
-
-    assert failures == 0, f"{failures} tests failed when run in isolation"
+    for shader_name, shader_func in TEST_SHADERS.items():
+        for backend_type in BACKENDS:
+            # Run the test directly
+            _test_backend_render(shader_func, shader_name, backend_type)
