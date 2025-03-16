@@ -183,7 +183,11 @@ def main_shader(
     # Camera setup
     fov = radians(70.0)
     screen_dist = 1.0 / tan(0.5 * fov)
-    cam_pos = vec3(5.0 * sin(u_time), 5.0, 5.0 * cos(u_time))
+
+    # Normalize camera movement - loop every 2π seconds
+    # Using sin/cos with raw time automatically loops
+    t = u_time
+    cam_pos = vec3(5.0 * sin(t), 5.0, 5.0 * cos(t))
     look_at = vec3(0.0, 0.0, 0.0)
 
     # Camera basis vectors
