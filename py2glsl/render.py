@@ -259,7 +259,15 @@ def _render_frame(
     vao.render(moderngl.TRIANGLE_STRIP)
     if isinstance(target, moderngl.Framebuffer):
         data = target.read(components=4, dtype="f1")
-        return np.frombuffer(data, dtype=np.uint8).reshape(size[1], size[0], 4)
+        # Reshape the data to image dimensions
+        img = np.frombuffer(data, dtype=np.uint8).reshape(size[1], size[0], 4)
+
+        # CRITICAL FIX: Flip the image vertically
+        # OpenGL has Y=0 at the bottom, but image formats have Y=0 at the top
+        # Ensures consistent orientation across all output formats
+        img = np.flipud(img)
+
+        return img
     return None
 
 
