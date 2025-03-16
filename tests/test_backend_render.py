@@ -1,24 +1,23 @@
 """Tests for backend rendering, ensuring consistent results within each backend.
 
-These tests ensure that each backend (standard GLSL and Shadertoy) produces
-consistent rendering results over time. Rather than comparing results across
-backends directly (which may differ due to precision differences), we test
-that each backend renders shaders consistently when compared to its own
-reference images.
+These tests verify that each backend (standard GLSL and Shadertoy) produces
+consistent visual output over time. Each backend has its own reference images
+since OpenGL and OpenGL ES may produce visually different results due to
+implementation details and precision differences.
 
 The test works as follows:
 1. Define test shaders with different characteristics
-2. Render each shader with each backend
-3. Store reference images in the backend_reference directory
-4. On subsequent runs, compare current renders to the references
+2. Generate reference images for each backend separately
+3. Test each backend by comparing its output to its own reference image
+4. Assert that differences are within tolerance
 
 If the reference images don't exist, they'll be generated on the first run.
-When the backend code is modified, these tests will catch any visual regressions.
+When backend code is modified, these tests will catch any visual regressions
+within each backend type.
 """
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -77,23 +76,10 @@ def complex_test_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     return vec4(r * ring, g * ring, b * ring, 1.0)
 
 
-def save_reference_image(
-    filename: str,
-    shader_func: Callable[[vec2, float, float], vec4],
-    backend_type: BackendType,
-) -> np.ndarray[np.uint8, Any]:
-    """Generate and save a reference image for a specific backend."""
-    ref_path = BACKEND_REFERENCE_DIR / filename
-
-    result_array = render_array(
-        shader_func,
-        size=TEST_SIZE,
-        time=0.5,  # Use a fixed time value for consistency
-        backend_type=backend_type,
-    )
-
-    Image.fromarray(result_array).save(ref_path)
-    return result_array
+def get_backend_reference_path(name: str, backend_type: BackendType) -> Path:
+    """Get the path to a backend-specific reference image."""
+    filename = f"{name}_{backend_type.name.lower()}.png"
+    return BACKEND_REFERENCE_DIR / filename
 
 
 def _test_backend_render(
@@ -101,33 +87,43 @@ def _test_backend_render(
     name: str,
     backend_type: BackendType,
 ) -> None:
-    """Test that a shader renders consistently with a specific backend."""
-    # Set up paths
-    filename = f"{name}_{backend_type.name.lower()}.png"
-    ref_path = BACKEND_REFERENCE_DIR / filename
+    """Test that a shader renders consistently within a specific backend."""
+    try:
+        # Use backend-specific reference images
+        ref_path = get_backend_reference_path(name, backend_type)
 
-    # Generate reference image if it doesn't exist
-    if not ref_path.exists():
-        ref_array = save_reference_image(filename, shader_func, backend_type)
-        print(f"Generated new reference image at {ref_path}")
-    else:
+        # Generate reference image if it doesn't exist
+        if not ref_path.exists():
+            # Render with the specified backend
+            current_array = render_array(
+                shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
+            )
+            Image.fromarray(current_array).save(ref_path)
+            print(f"Generated reference image at {ref_path}")
+            # No need to test further as we just created the reference
+            return
+
+        # Load reference image
         ref_array = np.array(Image.open(ref_path).convert("RGBA"))
 
-    # Render current image
-    current_array = render_array(
-        shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
-    )
+        # Render current image with the specified backend
+        current_array = render_array(
+            shader_func, size=TEST_SIZE, time=0.5, backend_type=backend_type
+        )
 
-    # Compare current render to saved reference
-    diff = np.abs(current_array.astype(int) - ref_array.astype(int))
-    max_diff = np.max(diff)
-    print(f"Maximum difference for {backend_type.name}: {max_diff}")
+        # Compare current render to saved reference
+        diff = np.abs(current_array.astype(int) - ref_array.astype(int))
+        max_diff = np.max(diff)
+        print(f"Maximum difference for {backend_type.name}: {max_diff}")
 
-    error_msg = (
-        f"{backend_type.name} backend render differs from reference "
-        f"beyond tolerance {TOLERANCE}"
-    )
-    assert np.all(diff <= TOLERANCE), error_msg
+        error_msg = (
+            f"{backend_type.name} backend render differs from reference "
+            f"beyond tolerance {TOLERANCE}"
+        )
+        assert np.all(diff <= TOLERANCE), error_msg
+    except Exception as e:
+        print(f"Error in test_backend_render for {backend_type.name}: {e!s}")
+        raise
 
 
 def test_simple_shader_standard() -> None:
