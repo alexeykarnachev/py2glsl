@@ -2,7 +2,8 @@
 
 import ast
 
-from py2glsl.transpiler.code_generator import generate_glsl
+from py2glsl.transpiler.backends import create_backend
+from py2glsl.transpiler.backends.models import BackendType
 from py2glsl.transpiler.models import CollectedInfo, FunctionInfo
 
 
@@ -118,7 +119,8 @@ def test_function_dependency_order() -> None:
     )
 
     # Act
-    glsl_code, _ = generate_glsl(info, "main_func")
+    backend = create_backend(BackendType.STANDARD)
+    glsl_code, _ = backend.generate_code(info, "main_func")
 
     # Assert - Check that functions are in correct dependency order
     # helper2 should appear before helper1, which should appear before main_func

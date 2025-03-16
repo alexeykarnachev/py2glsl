@@ -1,6 +1,5 @@
 import ast
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Tuple
 
 from py2glsl.transpiler.backends.models import BackendConfig
 from py2glsl.transpiler.errors import TranspilerError
@@ -13,7 +12,7 @@ class Backend(ABC):
     @abstractmethod
     def generate_code(
         self, collected: CollectedInfo, main_func: str
-    ) -> Tuple[str, Set[str]]:
+    ) -> tuple[str, set[str]]:
         """Generate shader code from collected information.
 
         Args:
@@ -34,7 +33,7 @@ class GLSLBackend(Backend):
 
     def generate_code(
         self, collected: CollectedInfo, main_func: str
-    ) -> Tuple[str, Set[str]]:
+    ) -> tuple[str, set[str]]:
         """Generate GLSL code from collected information.
 
         Args:
@@ -93,15 +92,15 @@ class GLSLBackend(Backend):
         glsl_code = "\n".join(all_lines)
         return glsl_code, used_uniforms
 
-    def generate_version_directive(self) -> List[str]:
+    def generate_version_directive(self) -> list[str]:
         """Generate version directive."""
         return [f"{self.config.version_directive}\n"]
 
-    def generate_extensions(self) -> List[str]:
+    def generate_extensions(self) -> list[str]:
         """Generate extension directives."""
         return [f"#extension {ext} : enable" for ext in self.config.extensions]
 
-    def generate_preprocessor_defines(self) -> List[str]:
+    def generate_preprocessor_defines(self) -> list[str]:
         """Generate preprocessor defines."""
         lines = []
         for name, value in self.config.preprocessor_defines.items():
@@ -113,7 +112,7 @@ class GLSLBackend(Backend):
                 lines.append(f"#define {name} {value if value else ''}")
         return lines
 
-    def generate_predefined_uniforms(self) -> Tuple[List[str], Set[str]]:
+    def generate_predefined_uniforms(self) -> tuple[list[str], set[str]]:
         """Generate predefined uniform declarations."""
         lines = []
         uniforms = set()
@@ -125,7 +124,7 @@ class GLSLBackend(Backend):
     @abstractmethod
     def generate_entry_point(
         self, main_func: str, main_func_info: FunctionInfo
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate shader entry point.
 
         Args:
@@ -139,7 +138,7 @@ class GLSLBackend(Backend):
 
     def _generate_uniforms(
         self, main_func_info: FunctionInfo
-    ) -> Tuple[List[str], Set[str]]:
+    ) -> tuple[list[str], set[str]]:
         """Generate uniform variable declarations.
 
         Args:
@@ -159,7 +158,7 @@ class GLSLBackend(Backend):
 
         return lines, used_uniforms
 
-    def _generate_globals(self, collected: CollectedInfo) -> List[str]:
+    def _generate_globals(self, collected: CollectedInfo) -> list[str]:
         """Generate global constant declarations.
 
         Args:
@@ -177,7 +176,7 @@ class GLSLBackend(Backend):
 
         return lines
 
-    def _generate_structs(self, collected: CollectedInfo) -> List[str]:
+    def _generate_structs(self, collected: CollectedInfo) -> list[str]:
         """Generate struct definitions.
 
         Args:
@@ -204,7 +203,7 @@ class GLSLBackend(Backend):
         func_info: FunctionInfo,
         is_main: bool,
         collected: CollectedInfo,
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate a function definition.
 
         Args:
@@ -255,7 +254,7 @@ class GLSLBackend(Backend):
 
     def _create_symbols_dict(
         self, func_info: FunctionInfo, collected: CollectedInfo
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, str | None]:
         """Create a symbols dictionary for a function.
 
         Args:
@@ -282,7 +281,7 @@ class GLSLBackend(Backend):
 
     def _find_function_calls(
         self, ast_node: ast.AST, collected: CollectedInfo
-    ) -> Set[str]:
+    ) -> set[str]:
         """Find all function calls within an AST node.
 
         Args:
@@ -308,7 +307,7 @@ class GLSLBackend(Backend):
 
     def _generate_functions(
         self, collected: CollectedInfo, main_func: str
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate all function definitions.
 
         Args:

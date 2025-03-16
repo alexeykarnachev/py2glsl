@@ -1,10 +1,11 @@
-"""Tests for the transpiler code_generator module."""
+"""Tests for the transpiler code generation functionality."""
 
 import ast
 
 import pytest
 
-from py2glsl.transpiler.code_generator import generate_glsl
+from py2glsl.transpiler.backends import create_backend
+from py2glsl.transpiler.backends.models import BackendType
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
     CollectedInfo,
@@ -196,7 +197,8 @@ class TestGenerateGLSL:
     def test_generate_simple_shader(self, basic_collected_info: CollectedInfo) -> None:
         """Test generating GLSL code for a simple shader."""
         # Act
-        glsl_code, used_uniforms = generate_glsl(basic_collected_info, "shader")
+        backend = create_backend(BackendType.STANDARD)
+        glsl_code, used_uniforms = backend.generate_code(basic_collected_info, "shader")
 
         # Assert
         assert "#version 460 core" in glsl_code
@@ -212,7 +214,10 @@ class TestGenerateGLSL:
     ) -> None:
         """Test generating GLSL code for a complex shader."""
         # Act
-        glsl_code, used_uniforms = generate_glsl(complex_collected_info, "main_shader")
+        backend = create_backend(BackendType.STANDARD)
+        glsl_code, used_uniforms = backend.generate_code(
+            complex_collected_info, "main_shader"
+        )
 
         # Assert
         assert "#version 460 core" in glsl_code
@@ -288,11 +293,12 @@ class TestGenerateGLSL:
         )
 
         # Act & Assert
+        backend = create_backend(BackendType.STANDARD)
         with pytest.raises(
             TranspilerError,
             match="Helper function 'helper' lacks return type annotation",
         ):
-            generate_glsl(basic_collected_info, "shader")
+            backend.generate_code(basic_collected_info, "shader")
 
     def test_empty_function_body(self, basic_collected_info: CollectedInfo) -> None:
         """Test that empty function body raises an error."""
@@ -319,15 +325,17 @@ class TestGenerateGLSL:
         )
 
         # Act & Assert
+        backend = create_backend(BackendType.STANDARD)
         with pytest.raises(TranspilerError, match="Empty function body not supported"):
-            generate_glsl(basic_collected_info, "empty_func")
+            backend.generate_code(basic_collected_info, "empty_func")
 
     def test_version_directive_first_line(
         self, basic_collected_info: CollectedInfo
     ) -> None:
         """Test that version directive is the first line of generated code."""
         # Act
-        glsl_code, _ = generate_glsl(basic_collected_info, "shader")
+        backend = create_backend(BackendType.STANDARD)
+        glsl_code, _ = backend.generate_code(basic_collected_info, "shader")
 
         # Assert
         lines = glsl_code.split("\n")
@@ -445,7 +453,8 @@ class TestGenerateGLSL:
         )
 
         # Act
-        glsl_code, _ = generate_glsl(info, "main_func")
+        backend = create_backend(BackendType.STANDARD)
+        glsl_code, _ = backend.generate_code(info, "main_func")
 
         # Assert - Check that functions are in correct dependency order
         # helper2 should appear before helper1, which should appear before main_func

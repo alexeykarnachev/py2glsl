@@ -44,3 +44,13 @@
   ```
 - This ensures that changes don't break the actual shader generation and rendering
 - Always address root causes methodically rather than implementing quick fixes, and verify all affected parts of the codebase
+
+## GPU Testing
+- GPU tests (`@pytest.mark.gpu`) run by default as part of the regular test suite
+- To skip GPU tests (e.g., in environments without a GPU): `pytest -k "not gpu"` or set `NO_GPU=1 pytest`
+- When adding GPU-intensive tests:
+  1. Use the `@pytest.mark.gpu` decorator to mark tests that require a GPU
+  2. Use isolated test directories to avoid file conflicts
+  3. Implement retry logic for stability
+  4. Clean up OpenGL resources properly to avoid context issues
+  5. Always check for `HAS_GPU` condition before running GPU-intensive operations in tests

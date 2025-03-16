@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from py2glsl.transpiler.backends.base import GLSLBackend
 from py2glsl.transpiler.backends.models import BackendConfig, EntryPointConfig
 from py2glsl.transpiler.models import FunctionInfo
@@ -11,7 +9,7 @@ class ShadertoyBackend(GLSLBackend):
     def __init__(self, config: BackendConfig):
         super().__init__(config)
         # Mapping from standard uniform names to Shadertoy equivalents
-        self.uniform_mapping: Dict[str, str] = {
+        self.uniform_mapping: dict[str, str] = {
             "u_time": "iTime",
             "u_resolution": "iResolution.xy",
             "u_mouse_pos": "iMouse.xy",
@@ -20,10 +18,11 @@ class ShadertoyBackend(GLSLBackend):
 
     def generate_entry_point(
         self, main_func: str, main_func_info: FunctionInfo
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate Shadertoy entry point.
 
-        For use in actual Shadertoy, we would generate mainImage(), but for local rendering
+        For use in actual Shadertoy, we would generate mainImage(), but for local
+        rendering
         we need to use a standard main() function that wraps it.
         """
         lines = ["\n// Shadertoy mainImage function"]

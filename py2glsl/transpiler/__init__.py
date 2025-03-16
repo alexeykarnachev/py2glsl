@@ -12,7 +12,6 @@ from typing import Any, cast
 from loguru import logger
 
 from py2glsl.transpiler.ast_parser import ShaderFunction, parse_shader_code
-from py2glsl.transpiler.code_generator import generate_glsl
 from py2glsl.transpiler.collector import collect_info
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
@@ -226,7 +225,9 @@ def transpile(
 
         # Use Shadertoy backend
         from py2glsl.transpiler.backends.models import BackendType
-        glsl_code, uniforms = transpile(my_shader_func, backend_type=BackendType.SHADERTOY)
+        glsl_code, uniforms = transpile(
+            my_shader_func, backend_type=BackendType.SHADERTOY
+        )
     """
     # Lazy import backends to avoid circular imports
     from py2glsl.transpiler.backends import create_backend

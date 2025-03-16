@@ -8,8 +8,8 @@ from py2glsl.transpiler.backends.glsl.standard import (
 )
 
 __all__ = [
-    "StandardGLSLBackend",
     "ShadertoyBackend",
-    "create_standard_backend",
+    "StandardGLSLBackend",
     "create_shadertoy_backend",
+    "create_standard_backend",
 ]

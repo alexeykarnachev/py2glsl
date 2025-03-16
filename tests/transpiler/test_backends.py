@@ -1,7 +1,6 @@
 """Tests for the transpiler backends module."""
 
 import ast
-from typing import Any
 
 import pytest
 

@@ -1,5 +1,3 @@
-from typing import List
-
 from py2glsl.transpiler.backends.base import GLSLBackend
 from py2glsl.transpiler.backends.models import BackendConfig, EntryPointConfig
 from py2glsl.transpiler.models import FunctionInfo
@@ -10,7 +8,7 @@ class StandardGLSLBackend(GLSLBackend):
 
     def generate_entry_point(
         self, main_func: str, main_func_info: FunctionInfo
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate standard GLSL entry point."""
         lines = ["\nin vec2 vs_uv;\nout vec4 fragColor;\n\nvoid main() {"]
         main_call_args = [arg.arg for arg in main_func_info.node.args.args]

@@ -108,7 +108,7 @@ def _init_context(
         window = None
         if use_gles:
             # Use OpenGL ES 3.0 for standalone
-            ctx = moderngl.create_context(standalone=True, require=300, backend="egl")
+            ctx = moderngl.create_context(standalone=True, require=300)
         else:
             # Use OpenGL 4.6 for standalone
             ctx = moderngl.create_context(standalone=True, require=460)
@@ -186,7 +186,9 @@ def _render_frame(
     mouse_uv: list[float] | None = None,
 ) -> NDArray[np.uint8] | None:
     """Render a single frame."""
-    target.use()
+    if isinstance(target, moderngl.Framebuffer):
+        target.use()
+    # If it's a context, no need to call use()
     ctx.clear(0.0, 0.0, 0.0, 1.0)
 
     uniforms = uniforms or {}
@@ -202,7 +204,19 @@ def _render_frame(
 
     for name, value in default_uniforms.items():
         if name in program:
-            program[name].value = value
+            # We need to handle moderngl uniform types which may be different
+            uniform = program[name]
+            try:
+                # Try the most common approach first
+                uniform.value = value
+            except (AttributeError, TypeError):
+                try:
+                    # Some uniform types use write method
+                    uniform.write(value)
+                except (AttributeError, TypeError):
+                    # Log but don't fail - this could be a problem with specific
+                    # uniform types that we don't handle yet
+                    logger.warning(f"Could not set uniform {name} to {value}")
 
     vao.render(moderngl.TRIANGLE_STRIP)
     if isinstance(target, moderngl.Framebuffer):
@@ -320,7 +334,10 @@ def render_array(
     fbo = ctx.simple_framebuffer(size)
 
     try:
-        return _render_frame(ctx, program, vao, fbo, size, time, uniforms)
+        result = _render_frame(ctx, program, vao, fbo, size, time, uniforms)
+        if result is None:
+            raise RuntimeError("Rendering failed to produce an image")
+        return result
     finally:
         _cleanup(ctx, program, vbo, vao, fbo)
 
