@@ -65,7 +65,7 @@ def test_standard_backend_generation(basic_collected_info: CollectedInfo) -> Non
     assert "uniform float u_time;" in glsl_code
     assert "vec4 main(vec2 vs_uv, float u_time)" in glsl_code
     assert "void main()" in glsl_code
-    assert "fragColor = main(vs_uv, u_time);" in glsl_code
+    assert "fragColor = main(vs_uv, u_time);" in glsl_code  # Output in standard backend
 
     # Verify uniforms
     assert "u_time" in uniforms
@@ -85,10 +85,18 @@ def test_shadertoy_backend_generation(basic_collected_info: CollectedInfo) -> No
     assert "precision mediump float;" in glsl_code
     assert "uniform float iTime;" in glsl_code
     assert "vec4 main(vec2 vs_uv, float u_time)" in glsl_code
-    assert "vec4 mainImage(vec2 fragCoord)" in glsl_code
-    assert "vec2 vs_uv = fragCoord / iResolution.xy;" in glsl_code
-    assert "vec2 fragCoord = vs_uv * iResolution.xy;" in glsl_code
-    assert "out vec4 fragColor;" in glsl_code
+    assert "void mainImage(out vec4 fragColor, in vec2 fragCoord)" in glsl_code
+    # Check for proper coordinate conversion in both directions
+    assert (
+        "vec2 vs_uv = fragCoord / iResolution.xy;" in glsl_code
+    )  # Shadertoy coords to UVs
+    assert (
+        "vec2 fragCoord = vs_uv * iResolution.xy;" in glsl_code
+    )  # UVs to Shadertoy coords
+
+    # Check for result assignment in mainImage
+    assert "vec4 result = main(vs_uv, iTime);" in glsl_code
+    assert "fragColor = result;" in glsl_code
 
     # Verify uniforms
     assert "iTime" in uniforms
