@@ -145,7 +145,8 @@ def _compile_program(
             # Add custom attribute to store backend type
             # This is safe because we control both Program creation and attribute usage
             # We have to use a bit of a hack with moderngl.Program
-            # pylint: disable=protected-access
+            # The moderngl.Program object doesn't have this attribute in type
+            # definitions, but it does allow for custom attributes at runtime
             setattr(program, "_backend_type", backend_type)
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
@@ -208,10 +209,11 @@ def _render_frame(
     # Check if we're using the Shadertoy backend
     has_backend = hasattr(program, "_backend_type")
     # We have to use a bit of a hack with moderngl.Program
-    # pylint: disable=protected-access
     is_shadertoy = False
     if has_backend:
-        is_shadertoy = getattr(program, "_backend_type") == BackendType.SHADERTOY
+        # The Program object allows custom attributes at runtime
+        backend_type = getattr(program, "_backend_type")
+        is_shadertoy = backend_type == BackendType.SHADERTOY
     if is_shadertoy:
         # Shadertoy uniforms
         default_uniforms = {
