@@ -12,12 +12,12 @@ from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
 
 
-def generate_name_expr(node: ast.Name, symbols: dict[str, str | None]) -> str:
+def generate_name_expr(node: ast.Name, _symbols: dict[str, str | None]) -> str:
     """Generate GLSL code for a name expression (variable).
 
     Args:
         node: AST name node
-        symbols: Dictionary of variable names to their types
+        _symbols: Dictionary of variable names to their types (unused)
 
     Returns:
         Generated GLSL code for the name expression
@@ -157,7 +157,7 @@ def generate_bool_op_expr(
 def generate_attribute_expr(
     node: ast.Attribute,
     symbols: dict[str, str | None],
-    parent_precedence: int,
+    _parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
     """Generate GLSL code for an attribute access expression.
@@ -165,7 +165,7 @@ def generate_attribute_expr(
     Args:
         node: AST attribute node
         symbols: Dictionary of variable names to their types
-        parent_precedence: Precedence level of the parent operation
+        _parent_precedence: Precedence level of the parent operation (unused)
         collected: Information about functions, structs, and globals
 
     Returns:
