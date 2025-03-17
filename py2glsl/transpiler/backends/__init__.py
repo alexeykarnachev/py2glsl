@@ -1,12 +1,7 @@
-from py2glsl.transpiler.backends.base import Backend, GLSLBackend
+from py2glsl.transpiler.backends.base import Backend
 from py2glsl.transpiler.backends.glsl.shadertoy import create_shadertoy_backend
 from py2glsl.transpiler.backends.glsl.standard import create_standard_backend
 from py2glsl.transpiler.backends.models import BackendType
-from py2glsl.transpiler.backends.render import (
-    BaseRenderBackend,
-    RenderBackend,
-    UniformProvider,
-)
 
 
 def create_backend(backend_type: BackendType = BackendType.STANDARD) -> Backend:

@@ -7,11 +7,11 @@ shaders.
 
 import inspect
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 from loguru import logger
 
-from py2glsl.transpiler.ast_parser import ShaderFunction, parse_shader_code
+from py2glsl.transpiler.ast_parser import parse_shader_code
 from py2glsl.transpiler.collector import collect_info
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
@@ -184,7 +184,6 @@ def transpile(
     *args: str | Callable[..., Any] | type[Any] | object,
     main_func: str | None = None,
     backend_type: Any = None,
-    backend_options: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> tuple[str, set[str]]:
     """Transpile Python code to shader code.
@@ -198,7 +197,6 @@ def transpile(
         *args: The Python code or callables to transpile
         main_func: Name of the main function to use as shader entry point
         backend_type: The backend type to use for code generation (default: STANDARD)
-        backend_options: Options to pass to the backend
         **kwargs: Additional keyword arguments:
             - Additional functions/classes to include
             - Global constants to include in the shader
