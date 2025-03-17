@@ -56,7 +56,7 @@ def generate_assignment(
         else:
             return f"{indent}{target_name} = {value_str};"
     elif isinstance(target, ast.Attribute):
-        target_str = generate_attribute_expr(target, symbols, 0, collected)
+        target_str = generate_attribute_expr(target, symbols, collected)
         return f"{indent}{target_str} = {value_str};"
     else:
         raise TranspilerError(f"Unsupported assignment target: {type(target).__name__}")

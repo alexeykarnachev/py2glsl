@@ -53,19 +53,19 @@ class ExpressionTypeChecker(ast.NodeVisitor):
 
     def visit_Constant(self, node: ast.Constant) -> None:
         """Get the type of a constant expression."""
-        self._result = _get_constant_type(node, self.symbols, self.collected)
+        self._result = _get_constant_type(node)
 
     def visit_BinOp(self, node: ast.BinOp) -> None:
         """Get the type of a binary operation expression."""
         self._result = _get_binop_type(node, self.symbols, self.collected)
 
-    def visit_Compare(self, node: ast.Compare) -> None:
+    def visit_Compare(self, _node: ast.Compare) -> None:
         """Get the type of a comparison expression."""
-        self._result = _get_compare_boolop_type(node, self.symbols, self.collected)
+        self._result = _get_compare_boolop_type()
 
-    def visit_BoolOp(self, node: ast.BoolOp) -> None:
+    def visit_BoolOp(self, _node: ast.BoolOp) -> None:
         """Get the type of a boolean operation expression."""
-        self._result = _get_compare_boolop_type(node, self.symbols, self.collected)
+        self._result = _get_compare_boolop_type()
 
     def visit_Call(self, node: ast.Call) -> None:
         """Get the type of a function call expression."""
@@ -112,14 +112,12 @@ def _get_name_type(
 
 
 def _get_constant_type(
-    node: ast.Constant, _symbols: dict[str, str | None], _collected: CollectedInfo
+    node: ast.Constant
 ) -> str:
     """Determine the type of a constant expression.
 
     Args:
         node: AST constant node
-        _symbols: Dictionary of variable names to their types (unused)
-        _collected: Information about functions, structs, and globals (unused)
 
     Returns:
         The GLSL type of the constant
@@ -362,17 +360,8 @@ def _get_ifexp_type(
     return true_type
 
 
-def _get_compare_boolop_type(
-    _node: ast.Compare | ast.BoolOp,
-    _symbols: dict[str, str | None],
-    _collected: CollectedInfo,
-) -> str:
+def _get_compare_boolop_type() -> str:
     """Determine the type of a comparison or boolean operation.
-
-    Args:
-        _node: AST comparison or boolean operation node (unused)
-        _symbols: Dictionary of variable names to their types (unused)
-        _collected: Information about functions, structs, and globals (unused)
 
     Returns:
         The GLSL type of the operation (always "bool")

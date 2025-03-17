@@ -75,13 +75,13 @@ def collected_info():
 class TestGenerateNameExpr:
     """Tests for the generate_name_expr function."""
 
-    def test_generate_name_expr(self, symbols):
+    def test_generate_name_expr(self):
         """Test generating code for a name expression."""
         # Arrange
         node = ast.Name(id="uv", ctx=ast.Load())
 
         # Act
-        result = generate_name_expr(node, symbols)
+        result = generate_name_expr(node)
 
         # Assert
         assert result == "uv"
@@ -311,7 +311,7 @@ class TestGenerateAttributeExpr:
         node = ast.parse("test_struct.position", mode="eval").body
 
         # Act
-        result = generate_attribute_expr(node, symbols, 0, collected_info)
+        result = generate_attribute_expr(node, symbols, collected_info)
 
         # Assert
         assert result == "test_struct.position"
@@ -322,7 +322,7 @@ class TestGenerateAttributeExpr:
         node = ast.parse("uv.x", mode="eval").body
 
         # Act
-        result = generate_attribute_expr(node, symbols, 0, collected_info)
+        result = generate_attribute_expr(node, symbols, collected_info)
 
         # Assert
         assert result == "uv.x"
@@ -333,7 +333,7 @@ class TestGenerateAttributeExpr:
         node = ast.parse("color.rgb", mode="eval").body
 
         # Act
-        result = generate_attribute_expr(node, symbols, 0, collected_info)
+        result = generate_attribute_expr(node, symbols, collected_info)
 
         # Assert
         assert result == "color.rgb"
@@ -352,7 +352,7 @@ class TestGenerateAttributeExpr:
         )
 
         # Act
-        result = generate_attribute_expr(node, symbols, 0, collected_info)
+        result = generate_attribute_expr(node, symbols, collected_info)
 
         # Assert
         assert result == "test_struct.position.y"

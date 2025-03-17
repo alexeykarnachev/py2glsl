@@ -12,12 +12,11 @@ from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
 
 
-def generate_name_expr(node: ast.Name, _symbols: dict[str, str | None]) -> str:
+def generate_name_expr(node: ast.Name) -> str:
     """Generate GLSL code for a name expression (variable).
 
     Args:
         node: AST name node
-        _symbols: Dictionary of variable names to their types (unused)
 
     Returns:
         Generated GLSL code for the name expression
@@ -157,7 +156,6 @@ def generate_bool_op_expr(
 def generate_attribute_expr(
     node: ast.Attribute,
     symbols: dict[str, str | None],
-    _parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
     """Generate GLSL code for an attribute access expression.
@@ -165,7 +163,6 @@ def generate_attribute_expr(
     Args:
         node: AST attribute node
         symbols: Dictionary of variable names to their types
-        _parent_precedence: Precedence level of the parent operation (unused)
         collected: Information about functions, structs, and globals
 
     Returns:
@@ -373,7 +370,7 @@ class ExpressionCodeGenerator(ast.NodeVisitor):
 
     def visit_Name(self, node: ast.Name) -> None:
         """Handle Name nodes by delegating to generate_name_expr."""
-        self._result = generate_name_expr(node, self.symbols)
+        self._result = generate_name_expr(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
         """Handle Constant nodes by delegating to generate_constant_expr."""
@@ -404,7 +401,7 @@ class ExpressionCodeGenerator(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute) -> None:
         """Handle Attribute nodes by delegating to generate_attribute_expr."""
         self._result = generate_attribute_expr(
-            node, self.symbols, self.parent_precedence, self.collected
+            node, self.symbols, self.collected
         )
 
     def visit_IfExp(self, node: ast.IfExp) -> None:
