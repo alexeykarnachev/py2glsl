@@ -92,6 +92,7 @@ def parse_shader_code(
     tree = None
     effective_main_func = main_func
 
+    # Process dictionary of functions/classes
     if isinstance(shader_input, dict):
         source_lines = []
         for name, obj in shader_input.items():
@@ -107,6 +108,7 @@ def parse_shader_code(
                 if isinstance(node, ast.FunctionDef):
                     effective_main_func = node.name
                     break
+    # Process string input (direct Python code)
     elif isinstance(shader_input, str):
         shader_code = textwrap.dedent(shader_input)
         if not shader_code:
