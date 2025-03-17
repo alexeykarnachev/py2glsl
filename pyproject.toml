@@ -75,7 +75,7 @@ select = [
     "F841",  # unused variables
 ]
 ignore = []
-per-file-ignores = { "__init__.py" = ["F401"], "tests/*" = ["PLR2004"], "py2glsl/builtins.py" = ["N801", "PLR0911"] }
+per-file-ignores = { "__init__.py" = ["F401"], "tests/*" = ["PLR2004"], "py2glsl/builtins.py" = ["N801", "PLR0911"], "py2glsl/transpiler/code_gen_expr.py" = ["N802"], "py2glsl/transpiler/type_checker.py" = ["N802"] }
 
 [tool.ruff.format]
 quote-style = "double"

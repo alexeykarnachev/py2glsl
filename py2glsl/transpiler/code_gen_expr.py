@@ -6,7 +6,6 @@ including names, constants, binary operations, function calls, and more.
 """
 
 import ast
-from collections.abc import Callable
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS, OPERATOR_PRECEDENCE
 from py2glsl.transpiler.errors import TranspilerError
@@ -330,123 +329,101 @@ def generate_unary_op_expr(
     return f"({expr})" if precedence < parent_precedence else expr
 
 
-# Type for expression generator functions
-ExprGenerator = Callable[[ast.AST, dict[str, str | None], int, CollectedInfo], str]
+# Implementation of the Visitor pattern for expression generation
+class ExpressionCodeGenerator:
+    """Visitor class for generating GLSL code from AST expressions."""
 
+    def __init__(
+        self,
+        symbols: dict[str, str | None],
+        parent_precedence: int,
+        collected: CollectedInfo,
+    ):
+        """Initialize the expression code generator.
 
-# Create helper functions with the right signatures
-def _name_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.Name):
-        return generate_name_expr(node, symbols)
-    raise TypeError(f"Expected ast.Name, got {type(node).__name__}")
+        Args:
+            symbols: Dictionary of variable names to their types
+            parent_precedence: Precedence level of the parent operation
+            collected: Information about functions, structs, and globals
+        """
+        self.symbols = symbols
+        self.parent_precedence = parent_precedence
+        self.collected = collected
 
+    def visit(self, node: ast.AST) -> str:
+        """Visit an AST node and dispatch to the appropriate handler.
 
-def _constant_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.Constant):
+        Args:
+            node: The AST node to process
+
+        Returns:
+            The generated GLSL code
+
+        Raises:
+            TranspilerError: If the expression type is not supported
+        """
+        method_name = f"visit_{type(node).__name__}"
+        handler = getattr(self, method_name, self.generic_visit)
+        return handler(node)
+
+    def generic_visit(self, node: ast.AST) -> str:
+        """Handler for unsupported node types.
+
+        Args:
+            node: The AST node
+
+        Raises:
+            TranspilerError: Always raised for unsupported nodes
+        """
+        raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
+
+    def visit_Name(self, node: ast.Name) -> str:
+        """Handle Name nodes by delegating to generate_name_expr."""
+        return generate_name_expr(node, self.symbols)
+
+    def visit_Constant(self, node: ast.Constant) -> str:
+        """Handle Constant nodes by delegating to generate_constant_expr."""
         return generate_constant_expr(node)
-    raise TypeError(f"Expected ast.Constant, got {type(node).__name__}")
 
+    def visit_BinOp(self, node: ast.BinOp) -> str:
+        """Handle BinOp nodes by delegating to generate_binary_op_expr."""
+        return generate_binary_op_expr(
+            node, self.symbols, self.parent_precedence, self.collected
+        )
 
-def _call_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.Call):
-        return generate_call_expr(node, symbols, collected)
-    raise TypeError(f"Expected ast.Call, got {type(node).__name__}")
+    def visit_Compare(self, node: ast.Compare) -> str:
+        """Handle Compare nodes by delegating to generate_compare_expr."""
+        return generate_compare_expr(
+            node, self.symbols, self.parent_precedence, self.collected
+        )
 
+    def visit_BoolOp(self, node: ast.BoolOp) -> str:
+        """Handle BoolOp nodes by delegating to generate_bool_op_expr."""
+        return generate_bool_op_expr(
+            node, self.symbols, self.parent_precedence, self.collected
+        )
 
-# Create wrapper functions for other expressions
-def _binop_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.BinOp):
-        return generate_binary_op_expr(node, symbols, parent_precedence, collected)
-    raise TypeError(f"Expected ast.BinOp, got {type(node).__name__}")
+    def visit_Call(self, node: ast.Call) -> str:
+        """Handle Call nodes by delegating to generate_call_expr."""
+        return generate_call_expr(node, self.symbols, self.collected)
 
+    def visit_Attribute(self, node: ast.Attribute) -> str:
+        """Handle Attribute nodes by delegating to generate_attribute_expr."""
+        return generate_attribute_expr(
+            node, self.symbols, self.parent_precedence, self.collected
+        )
 
-def _compare_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.Compare):
-        return generate_compare_expr(node, symbols, parent_precedence, collected)
-    raise TypeError(f"Expected ast.Compare, got {type(node).__name__}")
+    def visit_IfExp(self, node: ast.IfExp) -> str:
+        """Handle IfExp nodes by delegating to generate_if_expr."""
+        return generate_if_expr(
+            node, self.symbols, self.parent_precedence, self.collected
+        )
 
-
-def _boolop_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.BoolOp):
-        return generate_bool_op_expr(node, symbols, parent_precedence, collected)
-    raise TypeError(f"Expected ast.BoolOp, got {type(node).__name__}")
-
-
-def _attribute_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.Attribute):
-        return generate_attribute_expr(node, symbols, parent_precedence, collected)
-    raise TypeError(f"Expected ast.Attribute, got {type(node).__name__}")
-
-
-def _ifexp_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.IfExp):
-        return generate_if_expr(node, symbols, parent_precedence, collected)
-    raise TypeError(f"Expected ast.IfExp, got {type(node).__name__}")
-
-
-def _unary_op_expr_wrapper(
-    node: ast.AST,
-    symbols: dict[str, str | None],
-    parent_precedence: int,
-    collected: CollectedInfo,
-) -> str:
-    if isinstance(node, ast.UnaryOp):
-        return generate_unary_op_expr(node, symbols, parent_precedence, collected)
-    raise TypeError(f"Expected ast.UnaryOp, got {type(node).__name__}")
-
-
-# Dictionary mapping AST node types to handler functions that all accept ast.AST
-_EXPR_GENERATORS: dict[type[ast.AST], ExprGenerator] = {
-    ast.Name: _name_expr_wrapper,
-    ast.Constant: _constant_expr_wrapper,
-    ast.BinOp: _binop_expr_wrapper,
-    ast.Compare: _compare_expr_wrapper,
-    ast.BoolOp: _boolop_expr_wrapper,
-    ast.Call: _call_expr_wrapper,
-    ast.Attribute: _attribute_expr_wrapper,
-    ast.IfExp: _ifexp_expr_wrapper,
-    ast.UnaryOp: _unary_op_expr_wrapper,
-}
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> str:
+        """Handle UnaryOp nodes by delegating to generate_unary_op_expr."""
+        return generate_unary_op_expr(
+            node, self.symbols, self.parent_precedence, self.collected
+        )
 
 
 def generate_expr(
@@ -469,8 +446,6 @@ def generate_expr(
     Raises:
         TranspilerError: If unsupported expressions are encountered
     """
-    node_type = type(node)
-    if node_type in _EXPR_GENERATORS:
-        generator = _EXPR_GENERATORS[node_type]
-        return generator(node, symbols, parent_precedence, collected)
-    raise TranspilerError(f"Unsupported expression: {node_type.__name__}")
+    # Create a generator instance and visit the node
+    generator = ExpressionCodeGenerator(symbols, parent_precedence, collected)
+    return generator.visit(node)
