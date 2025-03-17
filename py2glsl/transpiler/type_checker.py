@@ -112,14 +112,14 @@ def _get_name_type(
 
 
 def _get_constant_type(
-    node: ast.Constant, symbols: dict[str, str | None], collected: CollectedInfo
+    node: ast.Constant, _symbols: dict[str, str | None], _collected: CollectedInfo
 ) -> str:
     """Determine the type of a constant expression.
 
     Args:
         node: AST constant node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
+        _symbols: Dictionary of variable names to their types (unused)
+        _collected: Information about functions, structs, and globals (unused)
 
     Returns:
         The GLSL type of the constant
@@ -363,16 +363,16 @@ def _get_ifexp_type(
 
 
 def _get_compare_boolop_type(
-    node: ast.Compare | ast.BoolOp,
-    symbols: dict[str, str | None],
-    collected: CollectedInfo,
+    _node: ast.Compare | ast.BoolOp,
+    _symbols: dict[str, str | None],
+    _collected: CollectedInfo,
 ) -> str:
     """Determine the type of a comparison or boolean operation.
 
     Args:
-        node: AST comparison or boolean operation node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
+        _node: AST comparison or boolean operation node (unused)
+        _symbols: Dictionary of variable names to their types (unused)
+        _collected: Information about functions, structs, and globals (unused)
 
     Returns:
         The GLSL type of the operation (always "bool")
