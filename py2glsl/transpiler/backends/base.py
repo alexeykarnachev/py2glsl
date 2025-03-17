@@ -273,7 +273,7 @@ class GLSLBackend(Backend):
         }
 
         # Add global constants to the symbols table
-        for name, (type_name, _value) in collected.globals.items():
+        for name, (type_name, _) in collected.globals.items():
             if type_name is not None:
                 symbols[name] = type_name
 
