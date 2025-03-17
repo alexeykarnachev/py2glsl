@@ -14,7 +14,7 @@ from py2glsl.transpiler.models import CollectedInfo
 
 
 # Implementation of the Visitor pattern for type checking
-class ExpressionTypeChecker:
+class ExpressionTypeChecker(ast.NodeVisitor):
     """Visitor class for determining the type of AST expressions."""
 
     def __init__(self, symbols: dict[str, str | None], collected: CollectedInfo):
@@ -26,25 +26,18 @@ class ExpressionTypeChecker:
         """
         self.symbols = symbols
         self.collected = collected
+        self._result = ""  # Store the result type
 
-    def visit(self, node: ast.AST) -> str:
-        """Visit an AST node and determine its type.
-
-        Args:
-            node: The AST node to process
+    @property
+    def result(self) -> str:
+        """Get the result type.
 
         Returns:
-            The GLSL type of the expression
-
-        Raises:
-            TranspilerError: If the expression type is not supported or if
-                type checking fails
+            The determined GLSL type
         """
-        method_name = f"visit_{type(node).__name__}"
-        handler = getattr(self, method_name, self.generic_visit)
-        return handler(node)
+        return self._result
 
-    def generic_visit(self, node: ast.AST) -> str:
+    def generic_visit(self, node: ast.AST) -> None:
         """Handler for unsupported node types.
 
         Args:
@@ -55,41 +48,41 @@ class ExpressionTypeChecker:
         """
         raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")
 
-    def visit_Name(self, node: ast.Name) -> str:
+    def visit_Name(self, node: ast.Name) -> None:
         """Get the type of a name expression."""
-        return _get_name_type(node, self.symbols, self.collected)
+        self._result = _get_name_type(node, self.symbols, self.collected)
 
-    def visit_Constant(self, node: ast.Constant) -> str:
+    def visit_Constant(self, node: ast.Constant) -> None:
         """Get the type of a constant expression."""
-        return _get_constant_type(node, self.symbols, self.collected)
+        self._result = _get_constant_type(node, self.symbols, self.collected)
 
-    def visit_BinOp(self, node: ast.BinOp) -> str:
+    def visit_BinOp(self, node: ast.BinOp) -> None:
         """Get the type of a binary operation expression."""
-        return _get_binop_type(node, self.symbols, self.collected)
+        self._result = _get_binop_type(node, self.symbols, self.collected)
 
-    def visit_Compare(self, node: ast.Compare) -> str:
+    def visit_Compare(self, node: ast.Compare) -> None:
         """Get the type of a comparison expression."""
-        return _get_compare_boolop_type(node, self.symbols, self.collected)
+        self._result = _get_compare_boolop_type(node, self.symbols, self.collected)
 
-    def visit_BoolOp(self, node: ast.BoolOp) -> str:
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:
         """Get the type of a boolean operation expression."""
-        return _get_compare_boolop_type(node, self.symbols, self.collected)
+        self._result = _get_compare_boolop_type(node, self.symbols, self.collected)
 
-    def visit_Call(self, node: ast.Call) -> str:
+    def visit_Call(self, node: ast.Call) -> None:
         """Get the type of a function call expression."""
-        return _get_call_type(node, self.symbols, self.collected)
+        self._result = _get_call_type(node, self.symbols, self.collected)
 
-    def visit_Attribute(self, node: ast.Attribute) -> str:
+    def visit_Attribute(self, node: ast.Attribute) -> None:
         """Get the type of an attribute access expression."""
-        return _get_attribute_type(node, self.symbols, self.collected)
+        self._result = _get_attribute_type(node, self.symbols, self.collected)
 
-    def visit_IfExp(self, node: ast.IfExp) -> str:
+    def visit_IfExp(self, node: ast.IfExp) -> None:
         """Get the type of a conditional expression."""
-        return _get_ifexp_type(node, self.symbols, self.collected)
+        self._result = _get_ifexp_type(node, self.symbols, self.collected)
 
-    def visit_UnaryOp(self, node: ast.UnaryOp) -> str:
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
         """Get the type of a unary operation expression."""
-        return _get_unaryop_type(node, self.symbols, self.collected)
+        self._result = _get_unaryop_type(node, self.symbols, self.collected)
 
 
 def _get_name_type(
@@ -519,4 +512,5 @@ def get_expr_type(
     """
     # Create a type checker and visit the node
     checker = ExpressionTypeChecker(symbols, collected)
-    return checker.visit(node)
+    checker.visit(node)
+    return checker.result

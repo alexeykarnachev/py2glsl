@@ -330,7 +330,7 @@ def generate_unary_op_expr(
 
 
 # Implementation of the Visitor pattern for expression generation
-class ExpressionCodeGenerator:
+class ExpressionCodeGenerator(ast.NodeVisitor):
     """Visitor class for generating GLSL code from AST expressions."""
 
     def __init__(
@@ -349,24 +349,18 @@ class ExpressionCodeGenerator:
         self.symbols = symbols
         self.parent_precedence = parent_precedence
         self.collected = collected
+        self._result = ""  # Store the generated code
 
-    def visit(self, node: ast.AST) -> str:
-        """Visit an AST node and dispatch to the appropriate handler.
-
-        Args:
-            node: The AST node to process
+    @property
+    def result(self) -> str:
+        """Get the generated GLSL code.
 
         Returns:
-            The generated GLSL code
-
-        Raises:
-            TranspilerError: If the expression type is not supported
+            The generated code
         """
-        method_name = f"visit_{type(node).__name__}"
-        handler = getattr(self, method_name, self.generic_visit)
-        return handler(node)
+        return self._result
 
-    def generic_visit(self, node: ast.AST) -> str:
+    def generic_visit(self, node: ast.AST) -> None:
         """Handler for unsupported node types.
 
         Args:
@@ -377,51 +371,51 @@ class ExpressionCodeGenerator:
         """
         raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
 
-    def visit_Name(self, node: ast.Name) -> str:
+    def visit_Name(self, node: ast.Name) -> None:
         """Handle Name nodes by delegating to generate_name_expr."""
-        return generate_name_expr(node, self.symbols)
+        self._result = generate_name_expr(node, self.symbols)
 
-    def visit_Constant(self, node: ast.Constant) -> str:
+    def visit_Constant(self, node: ast.Constant) -> None:
         """Handle Constant nodes by delegating to generate_constant_expr."""
-        return generate_constant_expr(node)
+        self._result = generate_constant_expr(node)
 
-    def visit_BinOp(self, node: ast.BinOp) -> str:
+    def visit_BinOp(self, node: ast.BinOp) -> None:
         """Handle BinOp nodes by delegating to generate_binary_op_expr."""
-        return generate_binary_op_expr(
+        self._result = generate_binary_op_expr(
             node, self.symbols, self.parent_precedence, self.collected
         )
 
-    def visit_Compare(self, node: ast.Compare) -> str:
+    def visit_Compare(self, node: ast.Compare) -> None:
         """Handle Compare nodes by delegating to generate_compare_expr."""
-        return generate_compare_expr(
+        self._result = generate_compare_expr(
             node, self.symbols, self.parent_precedence, self.collected
         )
 
-    def visit_BoolOp(self, node: ast.BoolOp) -> str:
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:
         """Handle BoolOp nodes by delegating to generate_bool_op_expr."""
-        return generate_bool_op_expr(
+        self._result = generate_bool_op_expr(
             node, self.symbols, self.parent_precedence, self.collected
         )
 
-    def visit_Call(self, node: ast.Call) -> str:
+    def visit_Call(self, node: ast.Call) -> None:
         """Handle Call nodes by delegating to generate_call_expr."""
-        return generate_call_expr(node, self.symbols, self.collected)
+        self._result = generate_call_expr(node, self.symbols, self.collected)
 
-    def visit_Attribute(self, node: ast.Attribute) -> str:
+    def visit_Attribute(self, node: ast.Attribute) -> None:
         """Handle Attribute nodes by delegating to generate_attribute_expr."""
-        return generate_attribute_expr(
+        self._result = generate_attribute_expr(
             node, self.symbols, self.parent_precedence, self.collected
         )
 
-    def visit_IfExp(self, node: ast.IfExp) -> str:
+    def visit_IfExp(self, node: ast.IfExp) -> None:
         """Handle IfExp nodes by delegating to generate_if_expr."""
-        return generate_if_expr(
+        self._result = generate_if_expr(
             node, self.symbols, self.parent_precedence, self.collected
         )
 
-    def visit_UnaryOp(self, node: ast.UnaryOp) -> str:
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
         """Handle UnaryOp nodes by delegating to generate_unary_op_expr."""
-        return generate_unary_op_expr(
+        self._result = generate_unary_op_expr(
             node, self.symbols, self.parent_precedence, self.collected
         )
 
@@ -448,4 +442,5 @@ def generate_expr(
     """
     # Create a generator instance and visit the node
     generator = ExpressionCodeGenerator(symbols, parent_precedence, collected)
-    return generator.visit(node)
+    generator.visit(node)
+    return generator.result
