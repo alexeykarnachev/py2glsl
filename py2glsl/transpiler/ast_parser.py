@@ -109,15 +109,14 @@ def parse_shader_code(
                     effective_main_func = node.name
                     break
     # Process string input (direct Python code)
-    elif isinstance(shader_input, str):
+    else:  # Must be a string based on type annotation
+        assert isinstance(shader_input, str), "Input must be a string"
         shader_code = textwrap.dedent(shader_input)
         if not shader_code:
             raise TranspilerError("Empty shader code provided")
         tree = ast.parse(shader_code)
         if not effective_main_func:
             effective_main_func = "shader"
-    else:
-        raise TranspilerError("Shader input must be a string or context dictionary")
 
     logger.debug("Parsing complete")
     return tree, effective_main_func

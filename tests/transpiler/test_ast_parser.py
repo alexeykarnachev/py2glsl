@@ -195,10 +195,5 @@ class TestParseShaderCode:
         with pytest.raises(TranspilerError, match="Empty shader code provided"):
             parse_shader_code("")
 
-    def test_parse_shader_code_invalid_type(self):
-        """Test that invalid input type raises TranspilerError."""
-        # Act & Assert
-        with pytest.raises(
-            TranspilerError, match="Shader input must be a string or context dictionary"
-        ):
-            parse_shader_code(123)  # type: ignore
+    # Removed test_parse_shader_code_invalid_type
+    # We rely on type checking instead of runtime validation for input types
