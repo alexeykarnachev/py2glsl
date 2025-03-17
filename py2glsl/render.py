@@ -11,9 +11,10 @@ import numpy as np
 from loguru import logger
 from PIL import Image
 
+from py2glsl.transpiler.backends.glsl.shadertoy_render import ShadertoyRenderBackend
+from py2glsl.transpiler.backends.glsl.standard_render import StandardGLSLRenderBackend
 from py2glsl.transpiler.backends.models import BackendType
 from py2glsl.transpiler.backends.render import RenderBackend
-from py2glsl.transpiler.backends.render_factory import create_render_backend
 
 
 @dataclass
@@ -88,7 +89,7 @@ def _init_context(
     """
     # Use standard backend by default if none provided
     if backend is None:
-        backend = create_render_backend(BackendType.STANDARD)
+        backend = StandardGLSLRenderBackend()
 
     logger.debug(f"Initializing context with backend: {backend.__class__.__name__}")
 
@@ -148,11 +149,13 @@ def _compile_program(
     """
     # Create a backend if none was provided
     if backend is None:
-        if backend_type is not None:
-            backend = create_render_backend(backend_type)
+        backend_instance: RenderBackend
+        if backend_type == BackendType.SHADERTOY:
+            backend_instance = ShadertoyRenderBackend()
         else:
             # Default to standard backend
-            backend = create_render_backend(BackendType.STANDARD)
+            backend_instance = StandardGLSLRenderBackend()
+        backend = backend_instance
 
     # Get vertex shader from backend
     vertex_shader = backend.get_vertex_shader()
@@ -202,7 +205,13 @@ def _setup_rendering_context(
         RenderContext object containing all rendering resources
     """
     # Create the appropriate render backend
-    backend = create_render_backend(backend_type) if backend_type else None
+    backend: RenderBackend | None
+    if backend_type == BackendType.SHADERTOY:
+        backend = ShadertoyRenderBackend()
+    elif backend_type is not None:
+        backend = StandardGLSLRenderBackend()
+    else:
+        backend = None
 
     # Prepare shader code
     glsl_code = _prepare_shader_code(shader_input, backend_type)
@@ -229,7 +238,8 @@ def _setup_rendering_context(
         program=program,
         vbo=vbo,
         vao=vao,
-        backend=backend or create_render_backend(),  # Ensure we always have a backend
+        # Ensure we always have a backend
+        backend=backend or StandardGLSLRenderBackend(),
         fbo=fbo,
         window=window,
     )

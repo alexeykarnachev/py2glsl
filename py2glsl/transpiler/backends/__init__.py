@@ -7,10 +7,6 @@ from py2glsl.transpiler.backends.render import (
     RenderBackend,
     UniformProvider,
 )
-from py2glsl.transpiler.backends.render_factory import (
-    create_render_backend,
-    register_render_backend,
-)
 
 
 def create_backend(backend_type: BackendType = BackendType.STANDARD) -> Backend:
