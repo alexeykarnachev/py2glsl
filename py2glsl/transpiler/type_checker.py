@@ -59,11 +59,11 @@ class ExpressionTypeChecker(ast.NodeVisitor):
         """Get the type of a binary operation expression."""
         self._result = _get_binop_type(node, self.symbols, self.collected)
 
-    def visit_Compare(self, _node: ast.Compare) -> None:
+    def visit_Compare(self, node: ast.Compare) -> None:  # noqa: ARG002
         """Get the type of a comparison expression."""
         self._result = _get_compare_boolop_type()
 
-    def visit_BoolOp(self, _node: ast.BoolOp) -> None:
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:  # noqa: ARG002
         """Get the type of a boolean operation expression."""
         self._result = _get_compare_boolop_type()
 
@@ -111,9 +111,7 @@ def _get_name_type(
     raise TranspilerError(f"Undefined variable: {node.id}")
 
 
-def _get_constant_type(
-    node: ast.Constant
-) -> str:
+def _get_constant_type(node: ast.Constant) -> str:
     """Determine the type of a constant expression.
 
     Args:
