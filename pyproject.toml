@@ -75,7 +75,7 @@ select = [
     "ARG",   # flake8-unused-arguments - catches unused function parameters
 ]
 ignore = []
-per-file-ignores = { "tests/*" = ["PLR2004"], "py2glsl/builtins.py" = ["N801", "PLR0911"], "py2glsl/transpiler/code_gen_expr.py" = ["N802"], "py2glsl/transpiler/type_checker.py" = ["N802"] }
+per-file-ignores = { "tests/*" = ["PLR2004", "ARG001"], "examples/*" = ["ARG001"], "py2glsl/builtins.py" = ["N801", "PLR0911"], "py2glsl/transpiler/code_gen_expr.py" = ["N802"], "py2glsl/transpiler/type_checker.py" = ["N802"] }
 
 [tool.ruff.format]
 quote-style = "double"
