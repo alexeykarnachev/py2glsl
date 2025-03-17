@@ -3,7 +3,11 @@ repos:
   rev: v0.6.9
   hooks:
   - id: ruff
-    args: ["--ignore", "PLR0913,PLR0912,B009,B010"]
+    args: [
+      "--ignore", "PLR0913,PLR0912,B009,B010",
+      "--select", "F,E,W,I,N,UP,B,C4,SIM,ERA,PL,RUF", 
+      "--fix"
+    ]
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: v1.11.2
   hooks:

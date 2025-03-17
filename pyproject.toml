@@ -60,7 +60,7 @@ extend-exclude = [".pytest_cache", ".ruff_cache", ".venv", "venv"]
 
 [tool.ruff.lint]
 select = [
-    "F",     # Pyflakes
+    "F",     # Pyflakes (includes F401 unused imports and F841 unused variables)
     "E",     # pycodestyle errors
     "W",     # pycodestyle warnings
     "I",     # isort
@@ -72,7 +72,6 @@ select = [
     "ERA",   # eradicate
     "PL",    # pylint
     "RUF",   # ruff-specific rules
-    "F841",  # unused variables
 ]
 ignore = []
 per-file-ignores = { "__init__.py" = ["F401"], "tests/*" = ["PLR2004"], "py2glsl/builtins.py" = ["N801", "PLR0911"], "py2glsl/transpiler/code_gen_expr.py" = ["N802"], "py2glsl/transpiler/type_checker.py" = ["N802"] }
