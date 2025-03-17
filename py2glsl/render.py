@@ -2,7 +2,6 @@ import time as time_module
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 import glfw
@@ -12,40 +11,20 @@ import numpy as np
 from loguru import logger
 from PIL import Image
 
-standard_vertex_shader = """
-#version 460 core
-in vec2 in_position;
-out vec2 vs_uv;
-void main() {
-    vs_uv = (in_position + 1.0) * 0.5;
-    gl_Position = vec4(in_position, 0.0, 1.0);
-}
-"""
-
-shadertoy_vertex_shader = """
-#version 330 core
-in vec2 in_position;
-out vec2 vs_uv;
-void main() {
-    vs_uv = (in_position + 1.0) * 0.5;
-    gl_Position = vec4(in_position, 0.0, 1.0);
-}
-"""
-
-# Default to standard vertex shader
-vertex_shader_source = standard_vertex_shader
-logger.opt(colors=True).info(
-    f"<blue>Vertex Shader GLSL:\n{vertex_shader_source}</blue>"
-)
+from py2glsl.transpiler.backends.models import BackendType
+from py2glsl.transpiler.backends.render import RenderBackend
+from py2glsl.transpiler.backends.render_factory import create_render_backend
 
 
 @dataclass
 class RenderContext:
     """Holds all resources for rendering."""
+
     ctx: moderngl.Context
     program: moderngl.Program
     vbo: moderngl.Buffer
     vao: moderngl.VertexArray
+    backend: RenderBackend
     fbo: moderngl.Framebuffer | None = None
     window: glfw._GLFWwindow | None = None
 
@@ -53,6 +32,7 @@ class RenderContext:
 @dataclass
 class FrameParams:
     """Parameters for rendering a single frame."""
+
     ctx: moderngl.Context
     program: moderngl.Program
     vao: moderngl.VertexArray
@@ -93,7 +73,7 @@ def _init_context(
     size: tuple[int, int],
     windowed: bool,
     window_title: str = "GLSL Shader",
-    use_gles: bool = False,
+    backend: RenderBackend | None = None,
 ) -> tuple[moderngl.Context, glfw._GLFWwindow | None]:
     """Initialize ModernGL context and optional GLFW window.
 
@@ -101,29 +81,38 @@ def _init_context(
         size: Window size as (width, height)
         windowed: Whether to create a window or use offscreen rendering
         window_title: Title of the window
-        use_gles: Whether to use OpenGL ES (for Shadertoy compatibility)
+        backend: The render backend to use (or None for default)
 
     Returns:
         Tuple of (ModernGL context, GLFW window or None)
     """
+    # Use standard backend by default if none provided
+    if backend is None:
+        backend = create_render_backend(BackendType.STANDARD)
+
+    logger.debug(f"Initializing context with backend: {backend.__class__.__name__}")
+
+    # Get OpenGL requirements from backend
+    major_version, minor_version = backend.get_opengl_version()
+    profile = backend.get_opengl_profile()
+    require_version = major_version * 100 + minor_version * 10  # e.g. 4.6 -> 460
+
     if windowed:
         if not glfw.init():
             logger.error("Failed to initialize GLFW")
             raise RuntimeError("Failed to initialize GLFW")
 
-        # Set OpenGL version based on whether we're using GLES
-        if use_gles:
-            # Use OpenGL compatibility profile for Shadertoy
-            # Note: We don't use ES API when windowed as it's not well supported
-            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+        # Set OpenGL version from backend
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, major_version)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, minor_version)
+
+        # Set profile from backend
+        if profile == "core":
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-            glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
-        else:
-            # Use OpenGL 4.6 Core profile
-            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
-            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 6)
-            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+        elif profile == "compatibility":
+            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_COMPAT_PROFILE)
+
+        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
 
         window = glfw.create_window(size[0], size[1], window_title, None, None)
         if not window:
@@ -134,47 +123,46 @@ def _init_context(
         ctx = moderngl.create_context()
     else:
         window = None
-        if use_gles:
-            # Use OpenGL 3.3 Core for Shadertoy (more compatible than ES)
-            ctx = moderngl.create_context(standalone=True, require=330)
-        else:
-            # Use OpenGL 4.6 for standalone
-            ctx = moderngl.create_context(standalone=True, require=460)
+        # Create standalone context with required OpenGL version
+        ctx = moderngl.create_context(standalone=True, require=require_version)
+
     return ctx, window
 
 
 def _compile_program(
     ctx: moderngl.Context,
     glsl_code: str,
-    backend_type: Any = None,
+    backend: RenderBackend | None = None,
+    backend_type: Any = None,  # For backwards compatibility
 ) -> moderngl.Program:
     """Compile shader program.
 
     Args:
         ctx: ModernGL context
         glsl_code: Fragment shader code
-        backend_type: Backend type used to generate the shader
+        backend: The render backend to use
+        backend_type: Backend type used to generate the shader (legacy)
 
     Returns:
         Compiled shader program
     """
-    # Determine which vertex shader to use based on backend type
-    from py2glsl.transpiler.backends.models import BackendType
+    # Create a backend if none was provided
+    if backend is None:
+        if backend_type is not None:
+            backend = create_render_backend(backend_type)
+        else:
+            # Default to standard backend
+            backend = create_render_backend(BackendType.STANDARD)
 
-    vertex_shader = standard_vertex_shader
-    if backend_type == BackendType.SHADERTOY:
-        vertex_shader = shadertoy_vertex_shader
+    # Get vertex shader from backend
+    vertex_shader = backend.get_vertex_shader()
 
     try:
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
-        # Store the backend type with the program for later reference
-        if backend_type:
-            # Add custom attribute to store backend type
-            # This is safe because we control both Program creation and attribute usage
-            # We have to use a bit of a hack with moderngl.Program
-            # The moderngl.Program object doesn't have this attribute in type
-            # definitions, but it does allow for custom attributes at runtime
-            program._backend_type = backend_type  # type: ignore[attr-defined]
+        # Store the backend with the program for later reference
+        # We're adding a custom attribute that isn't in the type definitions
+        setattr(program, "_backend", backend)
+
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
         return program
@@ -213,24 +201,19 @@ def _setup_rendering_context(
     Yields:
         RenderContext object containing all rendering resources
     """
-    from py2glsl.transpiler.backends.models import BackendType
-
-    # Determine if we should use OpenGL ES for Shadertoy
-    use_gles = backend_type == BackendType.SHADERTOY
+    # Create the appropriate render backend
+    backend = create_render_backend(backend_type) if backend_type else None
 
     # Prepare shader code
     glsl_code = _prepare_shader_code(shader_input, backend_type)
 
     # Initialize context and window
     ctx, window = _init_context(
-        size,
-        windowed=windowed,
-        window_title=window_title,
-        use_gles=use_gles
+        size, windowed=windowed, window_title=window_title, backend=backend
     )
 
     # Compile shader program
-    program = _compile_program(ctx, glsl_code, backend_type)
+    program = _compile_program(ctx, glsl_code, backend)
 
     # Setup rendering primitives
     vbo, vao = _setup_primitives(ctx, program)
@@ -240,14 +223,15 @@ def _setup_rendering_context(
     if not windowed:
         fbo = ctx.simple_framebuffer(size)
 
-    # Create context object
+    # Create context object with the backend
     render_ctx = RenderContext(
         ctx=ctx,
         program=program,
         vbo=vbo,
         vao=vao,
+        backend=backend or create_render_backend(),  # Ensure we always have a backend
         fbo=fbo,
-        window=window
+        window=window,
     )
 
     try:
@@ -259,7 +243,7 @@ def _setup_rendering_context(
             render_ctx.vbo,
             render_ctx.vao,
             render_ctx.fbo,
-            render_ctx.window
+            render_ctx.window,
         )
 
 
@@ -298,76 +282,47 @@ def _render_frame(params: FrameParams) -> Any | None:
     # If it's a context, no need to call use()
     params.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
-    from py2glsl.transpiler.backends.models import BackendType
+    # Prepare standard uniforms dict - start with user-provided uniforms
+    standard_uniforms: dict[str, float | tuple[float, ...]] = {}
+    if params.uniforms:
+        # Copy from user-provided uniforms
+        for key, value in params.uniforms.items():
+            standard_uniforms[key] = value
 
-    uniforms = params.uniforms or {}
-    default_uniforms = {}
+    # Always include these standard uniforms
+    base_uniforms: dict[str, float | tuple[float, ...]] = {
+        "u_resolution": params.size,
+        "u_time": params.time,
+        "u_aspect": params.size[0] / params.size[1],
+    }
 
-    # Set uniforms based on backend type
-    # Check if we're using the Shadertoy backend
-    has_backend = hasattr(params.program, "_backend_type")
-    # We have to use a bit of a hack with moderngl.Program
-    is_shadertoy = False
-    if has_backend:
-        # The Program object allows custom attributes at runtime
-        backend_type = params.program._backend_type  # type: ignore[attr-defined]
-        is_shadertoy = backend_type == BackendType.SHADERTOY
-    if is_shadertoy:
-        # Get current date for date uniform
-        current_date = datetime.now()
+    # Add mouse uniforms if available
+    if params.mouse_pos and params.mouse_uv:
+        base_uniforms["u_mouse_pos"] = tuple(params.mouse_pos)
+        base_uniforms["u_mouse_uv"] = tuple(params.mouse_uv)
 
-        # Create all Shadertoy compatible uniforms
-        default_uniforms = {
-            "iResolution": (params.size[0], params.size[1], 1.0),  # x, y, pixel_ratio
-            "iTime": params.time,  # shader playback time
-            "iTimeDelta": 1.0 / 60.0,  # approx render time (default 60fps)
-            "iFrame": int(params.time * 60),  # approximate frame number at 60fps
-            # Current date (year, month, day, seconds)
-            "iDate": (
-                current_date.year,  # year
-                current_date.month,  # month
-                current_date.day,  # day
-                (
-                    current_date.hour * 3600
-                    + current_date.minute * 60
-                    + current_date.second
-                ),  # seconds of the current day
-            ),
-            "iSampleRate": 44100.0,  # standard audio sample rate
-            # Channel resolutions (assuming standard texture sizes)
-            "iChannelResolution[0]": (256.0, 256.0, 0.0),
-            "iChannelResolution[1]": (256.0, 256.0, 0.0),
-            "iChannelResolution[2]": (256.0, 256.0, 0.0),
-            "iChannelResolution[3]": (256.0, 256.0, 0.0),
-            # Channel times (same as main time by default)
-            "iChannelTime[0]": params.time,
-            "iChannelTime[1]": params.time,
-            "iChannelTime[2]": params.time,
-            "iChannelTime[3]": params.time,
-        }
+    # Combine base uniforms with any user-provided uniforms
+    for key, value in base_uniforms.items():
+        standard_uniforms[key] = value
 
-        if params.mouse_pos and params.mouse_uv:
-            # Shadertoy uses iMouse(x, y, click_x, click_y)
-            # We don't track clicks, so use zeros for click coords
-            mouse_x, mouse_y = params.mouse_pos[0], params.mouse_pos[1]
-            default_uniforms["iMouse"] = (mouse_x, mouse_y, 0.0, 0.0)
+    # Get backend from program if available
+    backend = None
+    if hasattr(params.program, "_backend"):
+        # This is a custom attribute added to the ModernGL program object
+        # It's safe as we control both creation and usage
+        backend = params.program._backend
+
+    # Apply backend-specific uniform transformations if we have a backend
+    if backend:
+        # Transform standard uniforms to backend-specific uniforms
+        uniforms_to_set = backend.setup_uniforms(standard_uniforms)
     else:
-        # Standard uniforms
-        default_uniforms = {
-            "u_resolution": params.size,
-            "u_time": params.time,
-            "u_aspect": params.size[0] / params.size[1],
-        }
-        if params.mouse_pos and params.mouse_uv:
-            default_uniforms["u_mouse_pos"] = tuple(params.mouse_pos)
-            default_uniforms["u_mouse_uv"] = tuple(params.mouse_uv)
+        # Fallback to just using standard uniforms
+        uniforms_to_set = standard_uniforms
 
-    # Add any user-provided uniforms
-    default_uniforms.update(uniforms)
-
-    for name, value in default_uniforms.items():
+    # Set all uniforms on the program
+    for name, value in uniforms_to_set.items():
         if name in params.program:
-            # We need to handle moderngl uniform types which may be different
             uniform = params.program[name]
             try:
                 # Try the most common approach first - for moderngl.Uniform
@@ -383,6 +338,7 @@ def _render_frame(params: FrameParams) -> Any | None:
                 # Log but don't fail
                 logger.warning(f"Could not set uniform {name} to {value}: {e}")
 
+    # Render the quad
     params.vao.render(moderngl.TRIANGLE_STRIP)
 
     # Return pixel data if rendering to framebuffer
@@ -444,7 +400,7 @@ def animate(
         size,
         windowed=True,
         window_title=window_title,
-        backend_type=backend_type
+        backend_type=backend_type,
     ) as render_ctx:
         # Setup mouse tracking
         mouse_pos, mouse_uv = _setup_mouse_tracking(render_ctx.window, size)
@@ -504,10 +460,7 @@ def render_array(
     logger.info("Rendering to array")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         # Create frame parameters
         frame_params = FrameParams(
@@ -517,7 +470,7 @@ def render_array(
             target=render_ctx.fbo,
             size=size,
             time=time,
-            uniforms=uniforms
+            uniforms=uniforms,
         )
 
         # Render frame
@@ -554,10 +507,7 @@ def render_image(
     logger.info("Rendering to image")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         # Create frame parameters
         frame_params = FrameParams(
@@ -567,7 +517,7 @@ def render_image(
             target=render_ctx.fbo,
             size=size,
             time=time,
-            uniforms=uniforms
+            uniforms=uniforms,
         )
 
         # Render frame
@@ -609,10 +559,7 @@ def render_gif(
     logger.info("Rendering to GIF")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         num_frames = int(duration * fps)
         raw_frames: list[Any] = []
@@ -630,7 +577,7 @@ def render_gif(
                 target=render_ctx.fbo,
                 size=size,
                 time=frame_time,
-                uniforms=uniforms
+                uniforms=uniforms,
             )
 
             # Render frame
@@ -686,10 +633,7 @@ def render_video(
     logger.info(f"Rendering to video file {output_path} with {codec} codec")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         writer = imageio.get_writer(
             output_path,
@@ -714,7 +658,7 @@ def render_video(
                 target=render_ctx.fbo,
                 size=size,
                 time=frame_time,
-                uniforms=uniforms
+                uniforms=uniforms,
             )
 
             # Render frame
