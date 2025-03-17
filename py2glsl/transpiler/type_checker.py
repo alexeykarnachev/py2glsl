@@ -6,7 +6,6 @@ and validating type compatibility in operations.
 """
 
 import ast
-from collections.abc import Callable
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS
 from py2glsl.transpiler.errors import TranspilerError
@@ -408,90 +407,7 @@ def _get_unaryop_type(
     raise TranspilerError(f"Unsupported unary operation on type: {operand_type}")
 
 
-# Type for a generic AST node handler
-TypeChecker = Callable[[ast.AST, dict[str, str | None], CollectedInfo], str]
-
-
-# Create wrapper functions with the right signatures
-def _name_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.Name):
-        return _get_name_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.Name, got {type(node).__name__}")
-
-
-def _constant_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.Constant):
-        return _get_constant_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.Constant, got {type(node).__name__}")
-
-
-def _binop_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.BinOp):
-        return _get_binop_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.BinOp, got {type(node).__name__}")
-
-
-def _call_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.Call):
-        return _get_call_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.Call, got {type(node).__name__}")
-
-
-def _attribute_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.Attribute):
-        return _get_attribute_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.Attribute, got {type(node).__name__}")
-
-
-def _ifexp_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.IfExp):
-        return _get_ifexp_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.IfExp, got {type(node).__name__}")
-
-
-def _compare_boolop_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.Compare | ast.BoolOp):
-        return _get_compare_boolop_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.Compare or ast.BoolOp, got {type(node).__name__}")
-
-
-def _unaryop_type_wrapper(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    if isinstance(node, ast.UnaryOp):
-        return _get_unaryop_type(node, symbols, collected)
-    raise TypeError(f"Expected ast.UnaryOp, got {type(node).__name__}")
-
-
-# Type for type checker functions
-TypeCheckerFunc = Callable[[ast.AST, dict[str, str | None], CollectedInfo], str]
-
-# Map of AST node types to their type checker functions with proper typing
-_TYPE_CHECKERS: dict[type[ast.AST], TypeCheckerFunc] = {
-    ast.Name: _name_type_wrapper,
-    ast.Constant: _constant_type_wrapper,
-    ast.BinOp: _binop_type_wrapper,
-    ast.UnaryOp: _unaryop_type_wrapper,
-    ast.Call: _call_type_wrapper,
-    ast.Attribute: _attribute_type_wrapper,
-    ast.IfExp: _ifexp_type_wrapper,
-    ast.Compare: _compare_boolop_type_wrapper,
-    ast.BoolOp: _compare_boolop_type_wrapper,
-}
+# Simplified - removed unnecessary wrapper functions and type checkers dictionary
 
 
 def get_expr_type(
@@ -510,6 +426,7 @@ def get_expr_type(
     Raises:
         TranspilerError: If the type cannot be determined
     """
+    # This function directly uses the visitor pattern without wrapper indirection
     # Create a type checker and visit the node
     checker = ExpressionTypeChecker(symbols, collected)
     checker.visit(node)
