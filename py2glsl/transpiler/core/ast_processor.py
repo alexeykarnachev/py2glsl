@@ -5,12 +5,9 @@ that is independent of the target shader language.
 """
 
 import ast
-from collections import deque
-from typing import Any, Dict, Set, TypeVar
+from typing import Any, TypeVar
 
-from loguru import logger
-
-from py2glsl.transpiler.models import CollectedInfo, FunctionInfo
+from py2glsl.transpiler.models import CollectedInfo
 
 
 class DependencyResolver:
@@ -23,7 +20,7 @@ class DependencyResolver:
             collected: Information about functions, structs, and globals
         """
         self.collected = collected
-        self.dependencies: Dict[str, Set[str]] = {}
+        self.dependencies: dict[str, set[str]] = {}
         self._build_dependency_graph()
 
     def _build_dependency_graph(self) -> None:
@@ -31,7 +28,7 @@ class DependencyResolver:
         for func_name, func_info in self.collected.functions.items():
             self.dependencies[func_name] = self._find_function_calls(func_info.node)
 
-    def _find_function_calls(self, ast_node: ast.AST) -> Set[str]:
+    def _find_function_calls(self, ast_node: ast.AST) -> set[str]:
         """Find all function calls within an AST node.
 
         Args:
@@ -65,17 +62,17 @@ class DependencyResolver:
             List of function names in dependency order
         """
         ordered: list[str] = []
-        visited: Set[str] = set()
+        visited: set[str] = set()
 
         def visit(func_name: str) -> None:
             """Visit a function and its dependencies."""
             if func_name in visited:
                 return
-            
+
             # Visit dependencies first
             for dep in self.dependencies.get(func_name, set()):
                 visit(dep)
-            
+
             ordered.append(func_name)
             visited.add(func_name)
 
@@ -97,7 +94,7 @@ class SymbolTable:
 
     def __init__(self) -> None:
         """Initialize an empty symbol table."""
-        self.scopes: list[Dict[str, Any]] = [{}]
+        self.scopes: list[dict[str, Any]] = [{}]
 
     def enter_scope(self) -> None:
         """Enter a new scope."""
@@ -133,7 +130,7 @@ class SymbolTable:
                 return value
         return None
 
-    def current_scope(self) -> Dict[str, T]:
+    def current_scope(self) -> dict[str, T]:
         """Get the current scope.
 
         Returns:

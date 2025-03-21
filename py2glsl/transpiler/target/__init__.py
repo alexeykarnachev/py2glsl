@@ -36,13 +36,13 @@ class GLSLAdapter(LanguageAdapter):
             # Get standard-to-backend mapping using renderer's setup_uniforms mechanism
             test_params = {uniform: None}
             mapped_params = self.renderer.setup_uniforms(test_params)
-            
+
             # If the uniform was mapped to something else, add it to the mapping
             for key in mapped_params:
                 if key != uniform:
                     uniform_mapping[uniform] = key
                     break
-        
+
         return code, uniform_mapping
 
 
@@ -92,6 +92,6 @@ def create_glsl_target(
     else:
         language = GLSLStandardDialect()
         renderer = StandardOpenGLRenderer()
-        
+
     adapter = GLSLAdapter(language, renderer)
     return language, renderer, adapter

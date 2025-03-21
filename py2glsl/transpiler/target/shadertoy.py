@@ -3,11 +3,10 @@
 This module implements a Shadertoy-compatible GLSL dialect.
 """
 
-from typing import Any, Dict, Set, Tuple
 
-from py2glsl.transpiler.core.interfaces import LanguageConfig, SymbolMapper
+from py2glsl.transpiler.core.interfaces import LanguageConfig
 from py2glsl.transpiler.models import FunctionInfo
-from py2glsl.transpiler.target.glsl import GLSLStandardDialect, GLSLSymbolMapper
+from py2glsl.transpiler.target.glsl import GLSLStandardDialect
 
 
 class ShadertoyGLSLDialect(GLSLStandardDialect):
@@ -51,17 +50,17 @@ class ShadertoyGLSLDialect(GLSLStandardDialect):
 
         lines = []
         uniform_names = set()
-        
+
         # Add precision qualifiers for Shadertoy compatibility
         lines.append("precision mediump float;")
         lines.append("precision mediump int;")
         lines.append("precision mediump sampler2D;")
         lines.append("")
-        
+
         for name, type_name in uniforms.items():
             lines.append(f"uniform {type_name} {name};")
             uniform_names.add(name)
-            
+
         return lines, uniform_names
 
     def _generate_uniforms(
@@ -74,7 +73,7 @@ class ShadertoyGLSLDialect(GLSLStandardDialect):
         for i, arg in enumerate(main_func_info.node.args.args):
             if arg.arg == "vs_uv":  # vs_uv is handled specially
                 continue
-                
+
             # Check if this is a Shadertoy mapped uniform
             if arg.arg in self.uniform_mapping:
                 # We don't declare it as a uniform because it's already in the predefined set
@@ -132,5 +131,5 @@ class ShadertoyGLSLDialect(GLSLStandardDialect):
         lines.append("    vec2 fragCoord = vs_uv * iResolution.xy;")
         lines.append("    mainImage(fragColor, fragCoord);")
         lines.append("}")
-        
+
         return lines

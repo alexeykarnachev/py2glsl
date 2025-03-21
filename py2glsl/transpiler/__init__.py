@@ -1,24 +1,22 @@
 """
-GLSL code generation for complete shader programs.
+Code generation for shader programs.
 
-This module provides the top-level interface for transpiling Python code to GLSL
-shaders.
+This module provides the top-level interface for transpiling Python code to
+various shader languages.
 """
 
 import inspect
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
 from py2glsl.transpiler.ast_parser import parse_shader_code
-from py2glsl.transpiler.backends.models import BackendType
 from py2glsl.transpiler.collector import collect_info
-from py2glsl.transpiler.core.compatibility import transpile_with_target
 from py2glsl.transpiler.core.interfaces import TargetLanguageType
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
-from py2glsl.transpiler.target import create_glsl_target, create_target
+from py2glsl.transpiler.target import create_target
 
 
 def _extract_global_constants(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -30,17 +28,20 @@ def _extract_global_constants(kwargs: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Dictionary of global constants
     """
+    # Names of reserved keyword arguments that should not be treated as global constants
+    reserved_kwargs = {"main_func", "target_type"}
+    
+    # Extract numeric and boolean values as global constants
     global_constants = {}
     for name, value in kwargs.items():
         if (
-            name != "main_func"
-            and name != "backend_type"  # Skip backend_type
-            and name != "target_type"   # Skip target_type
+            name not in reserved_kwargs
             and not callable(value)
             and not isinstance(value, type)
             and isinstance(value, int | float | bool)
         ):
             global_constants[name] = value
+    
     return global_constants
 
 
@@ -189,8 +190,8 @@ def _determine_shader_input(
 def transpile(
     *args: str | Callable[..., Any] | type[Any] | object,
     main_func: str | None = None,
-    backend_type: Any = None,
-    target_type: Any = None,
+    target_type: TargetLanguageType = TargetLanguageType.GLSL,
+    shadertoy: bool = False,
     **kwargs: Any,
 ) -> tuple[str, set[str]]:
     """Transpile Python code to shader code.
@@ -203,8 +204,8 @@ def transpile(
     Args:
         *args: The Python code or callables to transpile
         main_func: Name of the main function to use as shader entry point
-        backend_type: The backend type to use for code generation (default: STANDARD)
-        target_type: The target language type (default: None, which uses backend_type)
+        target_type: Target language to generate (default: GLSL)
+        shadertoy: Whether to use Shadertoy dialect (for GLSL only)
         **kwargs: Additional keyword arguments:
             - Additional functions/classes to include
             - Global constants to include in the shader
@@ -216,7 +217,7 @@ def transpile(
         TranspilerError: If transpilation fails
 
     Examples:
-        # Transpile a single function
+        # Transpile a single function to standard GLSL
         glsl_code, uniforms = transpile(my_shader_func)
 
         # Transpile with multiple functions/structs
@@ -229,28 +230,18 @@ def transpile(
         # Include global constants
         glsl_code, uniforms = transpile(my_shader_func, PI=3.14159, MAX_STEPS=100)
 
-        # Use Shadertoy backend
-        from py2glsl.transpiler.backends.models import BackendType
-        glsl_code, uniforms = transpile(
-            my_shader_func, backend_type=BackendType.SHADERTOY
-        )
+        # Use Shadertoy dialect
+        glsl_code, uniforms = transpile(my_shader_func, shadertoy=True)
 
-        # Use new target-based architecture
+        # Specify target language explicitly
         from py2glsl.transpiler.core.interfaces import TargetLanguageType
         glsl_code, uniforms = transpile(
             my_shader_func, target_type=TargetLanguageType.GLSL
         )
     """
-    # Lazy import backends to avoid circular imports
-    from py2glsl.transpiler.backends import create_backend
-    from py2glsl.transpiler.backends.models import BackendType
-
-    if backend_type is None:
-        backend_type = BackendType.STANDARD
-
     logger.debug(
         f"Transpiling with args: {args}, main_func: {main_func}, "
-        f"backend_type: {backend_type}, target_type: {target_type}, kwargs: {kwargs}"
+        f"target_type: {target_type}, shadertoy: {shadertoy}, kwargs: {kwargs}"
     )
 
     # Extract global constants from kwargs
@@ -273,15 +264,22 @@ def transpile(
         raise TranspilerError(
             f"Main function '{effective_main_func}' not found in collected functions"
         )
+        
+    # Validate helper functions have return type annotations
+    for func_name, func_info in collected.functions.items():
+        if func_name != effective_main_func and func_info.return_type is None:
+            raise TranspilerError(
+                f"Helper function '{func_name}' lacks return type annotation"
+            )
 
-    # Choose between new target-based architecture or legacy backend architecture
-    if target_type is not None:
-        # Use new target-based architecture
-        language, _, _ = create_target(target_type)
-        shader_code, uniforms = language.generate_code(collected, effective_main_func)
+    # For GLSL, handle Shadertoy dialect
+    if target_type == TargetLanguageType.GLSL:
+        from py2glsl.transpiler.target import create_glsl_target
+        language, _, _ = create_glsl_target(shadertoy=shadertoy)
     else:
-        # Use compatibility layer with legacy backend architecture
-        shader_code, uniforms = transpile_with_target(
-            collected, effective_main_func, backend_type
-        )
+        # For other target languages
+        language, _, _ = create_target(target_type)
+
+    # Generate code using the target language
+    shader_code, uniforms = language.generate_code(collected, effective_main_func)
     return shader_code, uniforms

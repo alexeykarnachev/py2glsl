@@ -90,7 +90,6 @@ void main() {
         self._frame_count += 1
 
         # Date and time (simplified)
-        import time
         from datetime import datetime
 
         now = datetime.now()
