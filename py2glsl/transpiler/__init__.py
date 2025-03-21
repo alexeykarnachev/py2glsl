@@ -7,7 +7,7 @@ various shader languages.
 
 import inspect
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Any
 
 from loguru import logger
 
@@ -30,7 +30,7 @@ def _extract_global_constants(kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     # Names of reserved keyword arguments that should not be treated as global constants
     reserved_kwargs = {"main_func", "target_type"}
-    
+
     # Extract numeric and boolean values as global constants
     global_constants = {}
     for name, value in kwargs.items():
@@ -41,7 +41,7 @@ def _extract_global_constants(kwargs: dict[str, Any]) -> dict[str, Any]:
             and isinstance(value, int | float | bool)
         ):
             global_constants[name] = value
-    
+
     return global_constants
 
 
@@ -264,7 +264,7 @@ def transpile(
         raise TranspilerError(
             f"Main function '{effective_main_func}' not found in collected functions"
         )
-        
+
     # Validate helper functions have return type annotations
     for func_name, func_info in collected.functions.items():
         if func_name != effective_main_func and func_info.return_type is None:
