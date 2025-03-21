@@ -12,9 +12,13 @@ from typing import Any
 from loguru import logger
 
 from py2glsl.transpiler.ast_parser import parse_shader_code
+from py2glsl.transpiler.backends.models import BackendType
 from py2glsl.transpiler.collector import collect_info
+from py2glsl.transpiler.core.compatibility import transpile_with_target
+from py2glsl.transpiler.core.interfaces import TargetLanguageType
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
+from py2glsl.transpiler.target import create_glsl_target, create_target
 
 
 def _extract_global_constants(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -30,6 +34,8 @@ def _extract_global_constants(kwargs: dict[str, Any]) -> dict[str, Any]:
     for name, value in kwargs.items():
         if (
             name != "main_func"
+            and name != "backend_type"  # Skip backend_type
+            and name != "target_type"   # Skip target_type
             and not callable(value)
             and not isinstance(value, type)
             and isinstance(value, int | float | bool)
@@ -184,6 +190,7 @@ def transpile(
     *args: str | Callable[..., Any] | type[Any] | object,
     main_func: str | None = None,
     backend_type: Any = None,
+    target_type: Any = None,
     **kwargs: Any,
 ) -> tuple[str, set[str]]:
     """Transpile Python code to shader code.
@@ -197,6 +204,7 @@ def transpile(
         *args: The Python code or callables to transpile
         main_func: Name of the main function to use as shader entry point
         backend_type: The backend type to use for code generation (default: STANDARD)
+        target_type: The target language type (default: None, which uses backend_type)
         **kwargs: Additional keyword arguments:
             - Additional functions/classes to include
             - Global constants to include in the shader
@@ -226,6 +234,12 @@ def transpile(
         glsl_code, uniforms = transpile(
             my_shader_func, backend_type=BackendType.SHADERTOY
         )
+
+        # Use new target-based architecture
+        from py2glsl.transpiler.core.interfaces import TargetLanguageType
+        glsl_code, uniforms = transpile(
+            my_shader_func, target_type=TargetLanguageType.GLSL
+        )
     """
     # Lazy import backends to avoid circular imports
     from py2glsl.transpiler.backends import create_backend
@@ -236,7 +250,7 @@ def transpile(
 
     logger.debug(
         f"Transpiling with args: {args}, main_func: {main_func}, "
-        f"backend_type: {backend_type}, kwargs: {kwargs}"
+        f"backend_type: {backend_type}, target_type: {target_type}, kwargs: {kwargs}"
     )
 
     # Extract global constants from kwargs
@@ -260,9 +274,14 @@ def transpile(
             f"Main function '{effective_main_func}' not found in collected functions"
         )
 
-    # Create the appropriate backend
-    backend = create_backend(backend_type)
-
-    # Generate shader code using the backend
-    shader_code, uniforms = backend.generate_code(collected, effective_main_func)
+    # Choose between new target-based architecture or legacy backend architecture
+    if target_type is not None:
+        # Use new target-based architecture
+        language, _, _ = create_target(target_type)
+        shader_code, uniforms = language.generate_code(collected, effective_main_func)
+    else:
+        # Use compatibility layer with legacy backend architecture
+        shader_code, uniforms = transpile_with_target(
+            collected, effective_main_func, backend_type
+        )
     return shader_code, uniforms
