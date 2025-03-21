@@ -15,7 +15,7 @@ images, GIFs, or videos—all with proper IDE support and no GLSL knowledge requ
 Install using uv:
 
 ```bash
-uv pip install git+https://github.com/akarnachev/py2glsl.git
+uv pip install git+https://github.com/alexeykarnachev/py2glsl.git
 ```
 
 Create a simple animated shader:
