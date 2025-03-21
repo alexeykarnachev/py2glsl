@@ -1,5 +1,9 @@
 # py2glsl 🎨
 
+<p align="center">
+  <img src="thumbnail.gif" alt="py2glsl" width="600"/>
+</p>
+
 Transform Python functions into GLSL shaders with zero boilerplate.
 Write complex shaders in pure Python with type hinting,
 including custom structs and global constants, then render them as real-time animations,
