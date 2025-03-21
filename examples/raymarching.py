@@ -276,11 +276,6 @@ def main_shader(
     return vec4(color.x, color.y, color.z, 1.0)
 
 
-def app() -> None:
-    """CLI application entry point."""
-    typer.run(main)
-
-
 def main(
     target: Annotated[
         str,
@@ -321,9 +316,7 @@ def main(
     ] = 30,
     animation_speed: Annotated[
         float,
-        typer.Option(
-            "--animation-speed", help="Speed factor for animation"
-        ),
+        typer.Option("--animation-speed", help="Speed factor for animation"),
     ] = 0.3,
     camera_height: Annotated[
         float, typer.Option("--camera-height", help="Camera height above origin")
@@ -477,4 +470,4 @@ def main(
 
 
 if __name__ == "__main__":
-    app()
+    typer.run(main)
