@@ -134,7 +134,7 @@ def _compile_program(
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
         # Store the renderer with the program for later reference
         # We're adding a custom attribute that isn't in the type definitions
-        setattr(program, "_renderer", renderer)
+        program._renderer = renderer
 
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
@@ -180,7 +180,7 @@ def _setup_rendering_context(
     if backend_type is not None:
         from py2glsl.transpiler.backends.models import BackendType
         from py2glsl.transpiler.core.interfaces import TargetLanguageType
-        
+
         # Convert from BackendType enum to our shadertoy flag
         shadertoy = backend_type == BackendType.SHADERTOY
 
@@ -191,9 +191,10 @@ def _setup_rendering_context(
     if callable(shader_input):
         from py2glsl.transpiler import transpile
         from py2glsl.transpiler.core.interfaces import TargetLanguageType
-        
+
         # Use target_type parameter instead of shadertoy flag
-        target_type = TargetLanguageType.SHADERTOY if shadertoy else TargetLanguageType.GLSL
+        target_type = (TargetLanguageType.SHADERTOY if shadertoy
+                   else TargetLanguageType.GLSL)
         glsl_code, _ = transpile(shader_input, target_type=target_type)
     else:
         glsl_code = shader_input
@@ -303,7 +304,7 @@ def _render_frame(params: FrameParams) -> Any | None:
     renderer = params.renderer
     if renderer is None and hasattr(params.program, "_renderer"):
         # This is a custom attribute added to the ModernGL program object
-        renderer = getattr(params.program, "_renderer")
+        renderer = params.program._renderer
 
     # Apply renderer-specific uniform transformations
     if renderer:

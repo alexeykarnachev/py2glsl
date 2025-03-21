@@ -234,7 +234,6 @@ def transpile(
         glsl_code, uniforms = transpile(
             my_shader_func, target_type=TargetLanguageType.SHADERTOY
         )
-        
         # Use Shadertoy (legacy way, still supported)
         glsl_code, uniforms = transpile(my_shader_func, shadertoy=True)
 
@@ -247,7 +246,7 @@ def transpile(
     # Handle backward compatibility with shadertoy parameter
     if shadertoy and target_type == TargetLanguageType.GLSL:
         target_type = TargetLanguageType.SHADERTOY
-    
+
     logger.debug(
         f"Transpiling with args: {args}, main_func: {main_func}, "
         f"target_type: {target_type}, kwargs: {kwargs}"

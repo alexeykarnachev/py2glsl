@@ -62,7 +62,7 @@ def create_target(
     """
     language: TargetLanguage
     renderer: RenderInterface
-    
+
     if target_type == TargetLanguageType.GLSL:
         language = GLSLStandardDialect()
         renderer = StandardOpenGLRenderer()
@@ -71,7 +71,7 @@ def create_target(
         renderer = ShadertoyOpenGLRenderer()
     else:
         raise ValueError(f"Unsupported target type: {target_type}")
-        
+
     adapter = GLSLAdapter(language, renderer)
     return language, renderer, adapter
 
@@ -80,7 +80,7 @@ def create_glsl_target(
     shadertoy: bool = False
 ) -> tuple[TargetLanguage, RenderInterface, LanguageAdapter]:
     """Create a GLSL target with optional Shadertoy compatibility.
-    
+
     Deprecated: Use create_target with the appropriate TargetLanguageType instead.
 
     Args:
