@@ -368,7 +368,7 @@ def main(
         print(f"Unknown target: {target}. Using GLSL as default.")
         target_type = TargetLanguageType.GLSL
 
-    # For backward compatibility with the backends module
+    # Get corresponding backend type for rendering
     from py2glsl.transpiler.backends.models import BackendType
 
     if target_type == TargetLanguageType.SHADERTOY:

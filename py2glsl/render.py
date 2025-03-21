@@ -109,8 +109,7 @@ def _init_glfw(
 def _compile_program(
     ctx: moderngl.Context,
     glsl_code: str,
-    renderer: RenderInterface | None = None,
-    shadertoy: bool = False,
+    renderer: RenderInterface,
 ) -> moderngl.Program:
     """Compile shader program.
 
@@ -118,23 +117,18 @@ def _compile_program(
         ctx: ModernGL context
         glsl_code: Fragment shader code
         renderer: The render interface to use
-        shadertoy: Whether to use Shadertoy dialect
 
     Returns:
         Compiled shader program
     """
-    # Create a renderer if none was provided
-    if renderer is None:
-        renderer = ShadertoyOpenGLRenderer() if shadertoy else StandardOpenGLRenderer()
-
     # Get vertex shader from renderer
     vertex_shader = renderer.get_vertex_code()
 
     try:
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
         # Store the renderer with the program for later reference
-        # We're adding a custom attribute that isn't in the type definitions
-        program._renderer = renderer
+        # We use setattr rather than direct assignment for type safety
+        setattr(program, "_renderer", renderer)
 
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
@@ -160,7 +154,6 @@ def _setup_rendering_context(
     size: tuple[int, int],
     windowed: bool = False,
     window_title: str = "GLSL Shader",
-    shadertoy: bool = False,
     backend_type: Any = None,
 ) -> Generator[RenderContext, None, None]:
     """Sets up all rendering resources and cleans them up when done.
@@ -170,31 +163,26 @@ def _setup_rendering_context(
         size: Window/framebuffer size as (width, height)
         windowed: Whether to create a window or use offscreen rendering
         window_title: Title of the window (if windowed is True)
-        shadertoy: Whether to use Shadertoy dialect
-        backend_type: Backend type enum (if None, uses shadertoy parameter)
+        backend_type: Backend type enum
 
     Yields:
         RenderContext object containing all rendering resources
     """
-    # Map backend_type to appropriate parameters
-    if backend_type is not None:
-        from py2glsl.transpiler.backends.models import BackendType
-        from py2glsl.transpiler.core.interfaces import TargetLanguageType
+    from py2glsl.transpiler.backends.models import BackendType
+    from py2glsl.transpiler.core.interfaces import TargetLanguageType
 
-        # Convert from BackendType enum to our shadertoy flag
-        shadertoy = backend_type == BackendType.SHADERTOY
-
-    # Create the appropriate renderer
-    renderer = ShadertoyOpenGLRenderer() if shadertoy else StandardOpenGLRenderer()
+    # Create the appropriate renderer based on backend type
+    renderer: RenderInterface
+    if backend_type == BackendType.SHADERTOY:
+        renderer = ShadertoyOpenGLRenderer()
+        target_type = TargetLanguageType.SHADERTOY
+    else:
+        renderer = StandardOpenGLRenderer()
+        target_type = TargetLanguageType.GLSL
 
     # Prepare shader code
     if callable(shader_input):
         from py2glsl.transpiler import transpile
-        from py2glsl.transpiler.core.interfaces import TargetLanguageType
-
-        # Use target_type parameter instead of shadertoy flag
-        target_type = (TargetLanguageType.SHADERTOY if shadertoy
-                   else TargetLanguageType.GLSL)
         glsl_code, _ = transpile(shader_input, target_type=target_type)
     else:
         glsl_code = shader_input
@@ -304,7 +292,7 @@ def _render_frame(params: FrameParams) -> Any | None:
     renderer = params.renderer
     if renderer is None and hasattr(params.program, "_renderer"):
         # This is a custom attribute added to the ModernGL program object
-        renderer = params.program._renderer
+        renderer = getattr(params.program, "_renderer", None)
 
     # Apply renderer-specific uniform transformations
     if renderer:
@@ -378,7 +366,6 @@ def animate(
     size: tuple[int, int] = (1200, 800),
     window_title: str = "GLSL Shader",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
-    shadertoy: bool = False,  # Deprecated, use backend_type instead
     backend_type: Any = None,
     fps: int = 0,  # 0 means unlimited
 ) -> None:
@@ -389,7 +376,6 @@ def animate(
         size: Window size as (width, height)
         window_title: Title of the window
         uniforms: Additional uniform values to pass to the shader
-        shadertoy: Deprecated, use backend_type instead
         backend_type: Backend type (e.g., BackendType.SHADERTOY)
         fps: Target frame rate (0 = unlimited)
     """
@@ -398,7 +384,6 @@ def animate(
         size,
         windowed=True,
         window_title=window_title,
-        shadertoy=shadertoy,
         backend_type=backend_type,
     ) as render_ctx:
         # Setup mouse tracking
@@ -498,7 +483,6 @@ def render_array(
     time: float = 0.0,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     backend_type: Any = None,
-    shadertoy: bool = False,  # Deprecated, use backend_type instead
 ) -> Any:  # Use Any type to bypass mypy issues with numpy typings
     """Render shader to a numpy array.
 
@@ -507,8 +491,7 @@ def render_array(
         size: Image size as (width, height)
         time: Shader time value
         uniforms: Additional uniform values to pass to the shader
-        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
-        shadertoy: Deprecated, use backend_type instead
+        backend_type: Backend type (e.g., BackendType.SHADERTOY)
 
     Returns:
         Numpy array containing the rendered image
@@ -520,7 +503,6 @@ def render_array(
         size,
         windowed=False,
         backend_type=backend_type,
-        shadertoy=shadertoy
     ) as render_ctx:
         # Create frame parameters
         frame_params = FrameParams(
@@ -548,7 +530,6 @@ def render_image(
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
     image_format: str = "PNG",
-    shadertoy: bool = False,  # Deprecated, use backend_type instead
     backend_type: Any = None,
 ) -> Image.Image:
     """Render shader to a PIL Image.
@@ -560,8 +541,7 @@ def render_image(
         uniforms: Additional uniform values to pass to the shader
         output_path: Path to save the image, if desired
         image_format: Format to save the image in (e.g., "PNG", "JPEG")
-        shadertoy: Deprecated, use backend_type instead
-        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
+        backend_type: Backend type (e.g., BackendType.SHADERTOY)
 
     Returns:
         PIL Image containing the rendered image
@@ -572,7 +552,6 @@ def render_image(
         shader_input,
         size,
         windowed=False,
-        shadertoy=shadertoy,
         backend_type=backend_type
     ) as render_ctx:
         # Create frame parameters
@@ -604,7 +583,6 @@ def render_gif(
     fps: int = 30,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
-    shadertoy: bool = False,  # Deprecated, use backend_type instead
     time_offset: float = 0.0,
     backend_type: Any = None,
 ) -> tuple[Image.Image, list[Any]]:
@@ -617,9 +595,8 @@ def render_gif(
         fps: Frames per second
         uniforms: Additional uniform values to pass to the shader
         output_path: Path to save the GIF, if desired
-        shadertoy: Deprecated, use backend_type instead
         time_offset: Starting time for the animation (seconds)
-        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
+        backend_type: Backend type (e.g., BackendType.SHADERTOY)
 
     Returns:
         Tuple of (first frame as PIL Image, list of raw frames as numpy arrays)
@@ -630,7 +607,6 @@ def render_gif(
         shader_input,
         size,
         windowed=False,
-        shadertoy=shadertoy,
         backend_type=backend_type
     ) as render_ctx:
         num_frames = int(duration * fps)
@@ -681,7 +657,6 @@ def render_video(
     quality: int = 8,
     pixel_format: str = "yuv420p",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
-    shadertoy: bool = False,  # Deprecated, use backend_type instead
     time_offset: float = 0.0,
     backend_type: Any = None,
 ) -> tuple[str, list[Any]]:
@@ -697,9 +672,8 @@ def render_video(
         quality: Video quality (0-10, higher is better)
         pixel_format: Pixel format (e.g., "yuv420p")
         uniforms: Additional uniform values to pass to the shader
-        shadertoy: Deprecated, use backend_type instead
         time_offset: Starting time for the animation (seconds)
-        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
+        backend_type: Backend type (e.g., BackendType.SHADERTOY)
 
     Returns:
         Tuple of (output path, list of raw frames as numpy arrays)
@@ -710,7 +684,6 @@ def render_video(
         shader_input,
         size,
         windowed=False,
-        shadertoy=shadertoy,
         backend_type=backend_type
     ) as render_ctx:
         writer = imageio.get_writer(
