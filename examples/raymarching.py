@@ -1,14 +1,26 @@
-"""Enhanced ray marching example demonstrating py2glsl backends.
+"""Enhanced ray marching example demonstrating py2glsl's modular architecture.
 
 This example shows a 3D ray marching scene that can be rendered with
-different backends (standard OpenGL or Shadertoy).
+different target languages and backends. It demonstrates the new architecture
+where backends are treated as first-class target languages.
 
 Run with:
-    python examples/raymarching.py
-    python examples/raymarching.py --backend shadertoy
-    python examples/raymarching.py --save-image output.png
-    python examples/raymarching.py --save-video output.mp4
-    python examples/raymarching.py --save-gif output.gif
+    python examples/raymarching.py                            # Standard GLSL target
+    python examples/raymarching.py --target shadertoy         # Shadertoy target
+    python examples/raymarching.py --save-image output.png    # Save still image
+    python examples/raymarching.py --save-video output.mp4    # Save video
+    python examples/raymarching.py --save-gif output.gif      # Save animated GIF
+
+Future targets will be added as they become available:
+    python examples/raymarching.py --target hlsl              # HLSL target (future)
+    python examples/raymarching.py --target wgsl              # WGSL target (future)
+
+This example demonstrates all major features of py2glsl:
+1. Struct transpilation with RayMarchResult
+2. Function dependencies (march -> get_sd_shape -> attenuate)
+3. Global constants (PI, RM_MAX_DIST, etc.)
+4. Multiple rendering methods (interactive, image, video, GIF)
+5. Cross-target compatibility with identical output
 """
 
 from dataclasses import dataclass
@@ -262,10 +274,14 @@ def app() -> None:
 
 
 def main(
-    backend: Annotated[
+    target: Annotated[
         str,
-        typer.Option("--backend", "-b", help="Backend to use (standard or shadertoy)"),
-    ] = "standard",
+        typer.Option(
+            "--target",
+            "-t",
+            help="Target language/backend to use (glsl, shadertoy, hlsl, wgsl)"
+        ),
+    ] = "glsl",
     save_image: Annotated[
         Path | None,
         typer.Option(
@@ -296,10 +312,10 @@ def main(
         int, typer.Option("--fps", help="Frames per second for video/GIF")
     ] = 30,
 ) -> None:
-    """Run the ray marching example with the specified backend and options.
+    """Run the ray marching example with the specified target language and options.
 
     Args:
-        backend: Backend to use ("standard" or "shadertoy")
+        target: Target language/backend to use ("glsl", "shadertoy", "hlsl", "wgsl")
         save_image: Save a still image to the specified path
         save_video: Save a video to the specified path
         save_gif: Save an animated GIF to the specified path
@@ -308,8 +324,31 @@ def main(
         duration: Duration of the video/GIF in seconds
         fps: Frames per second for video/GIF
     """
-    # Determine whether to use Shadertoy dialect
-    use_shadertoy = backend.lower() == "shadertoy"
+    # Map the target string to the corresponding TargetLanguageType
+    target_type = None
+
+    # Convert command-line target argument to TargetLanguageType
+    target = target.lower()
+    if target in ("glsl", "standard"):
+        target_type = TargetLanguageType.GLSL
+    elif target == "shadertoy":
+        target_type = TargetLanguageType.SHADERTOY
+    elif target == "hlsl":
+        print("HLSL target is not yet implemented. Using GLSL instead.")
+        target_type = TargetLanguageType.GLSL
+    elif target == "wgsl":
+        print("WGSL target is not yet implemented. Using GLSL instead.")
+        target_type = TargetLanguageType.GLSL
+    else:
+        print(f"Unknown target: {target}. Using GLSL as default.")
+        target_type = TargetLanguageType.GLSL
+
+    # For backward compatibility with the backends module
+    from py2glsl.transpiler.backends.models import BackendType
+    if target_type == TargetLanguageType.SHADERTOY:
+        backend_type = BackendType.SHADERTOY
+    else:
+        backend_type = BackendType.STANDARD
 
     # Pass all functions, the struct AND GLOBAL CONSTANTS explicitly to transpile
     glsl_code, used_uniforms = transpile(
@@ -328,13 +367,11 @@ def main(
         NORMAL_DERIVATIVE_STEP=NORMAL_DERIVATIVE_STEP,
         # Main function
         main_func="main_shader",
-        # Language specification
-        target_type=TargetLanguageType.GLSL,
-        shadertoy=use_shadertoy,
+        # Target language specification - using the new architecture
+        target_type=target_type,
     )
 
-    dialect = "Shadertoy" if use_shadertoy else "Standard"
-    print(f"Using {backend} dialect ({dialect} GLSL)")
+    print(f"Using {target_type.name} target language")
     print(f"Used uniforms: {used_uniforms}")
 
     # Handle different output modes
@@ -375,10 +412,10 @@ def main(
         # Render a still image at a specific time in the cycle
         print(f"Rendering still image to {save_image}...")
         render_image(
-            shader_input=glsl_code,  # Use the pre-transpiled GLSL code
+            shader_input=glsl_code,  # Use the pre-transpiled code
             size=(width, height),
             time=time_offset + 1.0,  # Freeze at a nice angle
-            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
+            backend_type=backend_type,  # Use the mapped backend_type enum
             output_path=str(save_image),
             uniforms=render_uniforms,
         )
@@ -387,28 +424,28 @@ def main(
         # Render a video
         print(f"Rendering {duration}s video at {fps}fps to {save_video}...")
         render_video(
-            shader_input=glsl_code,  # Use the pre-transpiled GLSL code
+            shader_input=glsl_code,  # Use the pre-transpiled code
             size=(width, height),
             duration=duration,
             fps=fps,
-            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
+            backend_type=backend_type,  # Use the mapped backend_type enum
             output_path=str(save_video),
             time_offset=time_offset,  # Use consistent time offset
-            uniforms=render_uniforms,  # Pass the animation speed
+            uniforms=render_uniforms,
         )
         print(f"Video saved to {save_video}")
     elif save_gif:
         # Render an animated GIF
         print(f"Rendering {duration}s GIF at {fps}fps to {save_gif}...")
         render_gif(
-            shader_input=glsl_code,  # Use the pre-transpiled GLSL code
+            shader_input=glsl_code,  # Use the pre-transpiled code
             size=(width, height),
             duration=duration,
             fps=fps,
-            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
+            backend_type=backend_type,  # Use the mapped backend_type enum
             output_path=str(save_gif),
             time_offset=time_offset,  # Use consistent time offset
-            uniforms=render_uniforms,  # Pass the animation speed
+            uniforms=render_uniforms,
         )
         print(f"GIF saved to {save_gif}")
     else:
@@ -417,7 +454,7 @@ def main(
         # Pass animation speed for consistent behavior with GIF/video
         animate(
             shader_input=glsl_code,
-            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
+            backend_type=backend_type,  # Use the mapped backend_type enum
             size=(width, height),
             uniforms=render_uniforms,
         )
