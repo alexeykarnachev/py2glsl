@@ -380,6 +380,7 @@ def animate(
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     shadertoy: bool = False,  # Deprecated, use backend_type instead
     backend_type: Any = None,
+    fps: int = 0,  # 0 means unlimited
 ) -> None:
     """Run a real-time shader animation in a window.
 
@@ -389,7 +390,8 @@ def animate(
         window_title: Title of the window
         uniforms: Additional uniform values to pass to the shader
         shadertoy: Deprecated, use backend_type instead
-        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
+        backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        fps: Target frame rate (0 = unlimited)
     """
     with _setup_rendering_context(
         shader_input,
@@ -402,18 +404,70 @@ def animate(
         # Setup mouse tracking
         mouse_pos, mouse_uv = _setup_mouse_tracking(render_ctx.window, size)
 
-        # Animation loop
+        # Animation loop and FPS tracking
         frame_count = 0
-        last_time = time_module.time()
+        fps_timer = time_module.time()
+
+        # For frame rate limiting using fixed time stepping
+        if fps > 0:
+            # Try to use vertical sync if available
+            try:
+                # Set swap interval (1 = vsync, 0 = no vsync)
+                glfw.swap_interval(1)
+                logger.info("Using vsync for frame timing")
+            except Exception:
+                logger.info("Could not set vsync, using manual timing")
+
+            # Enable frame rate limiter
+            frame_interval = 1.0 / fps
+            logger.info(f"Target FPS: {fps}")
+        else:
+            # Run at maximum speed
+            glfw.swap_interval(0)  # Disable vsync
+            frame_interval = 0
+            logger.info("Target FPS: unlimited")
+
+        # Time tracking
+        previous_time = time_module.time()
+        lag = 0.0
 
         while not glfw.window_should_close(render_ctx.window):
+            # Calculate time delta with fixed time step approach
             current_time = time_module.time()
+            elapsed = current_time - previous_time
+            previous_time = current_time
+
+            # Add elapsed time to our lag accumulator
+            lag += elapsed
+
+            # Process input
+            glfw.poll_events()
+
+            # Check if we need to limit frame rate
+            should_render = True
+            if fps > 0:
+                # Only render if enough time has passed
+                if lag < frame_interval:
+                    should_render = False
+                else:
+                    # Consume a frame worth of time
+                    lag -= frame_interval
+
+                    # Prevent spiral of death (if rendering is too slow)
+                    if lag > frame_interval * 5:
+                        lag = 0.0
+
+            # Skip rendering if limiting frames
+            if not should_render:
+                continue
+
+            # FPS measurement and logging
             frame_count += 1
-            if current_time - last_time >= 1.0:
-                fps = frame_count / (current_time - last_time)
-                logger.info(f"FPS: {fps:.2f}")
+            if current_time - fps_timer >= 1.0:
+                measured_fps = frame_count / (current_time - fps_timer)
+                logger.info(f"FPS: {measured_fps:.2f}")
                 frame_count = 0
-                last_time = current_time
+                fps_timer = current_time
 
             # Create frame parameters
             frame_params = FrameParams(
@@ -432,7 +486,10 @@ def animate(
             _render_frame(frame_params)
 
             glfw.swap_buffers(render_ctx.window)
-            glfw.poll_events()
+
+            # If we're not on vsync, add a small delay to prevent 100% CPU usage
+            if fps <= 0:
+                time_module.sleep(0.001)  # Minimal sleep to prevent hogging CPU
 
 
 def render_array(

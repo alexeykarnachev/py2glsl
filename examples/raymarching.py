@@ -465,13 +465,14 @@ def main(
         print(f"GIF saved to {save_gif}")
     else:
         # Run interactive animation - glfw.get_time() is used here
-        print("Running interactive animation (press ESC to exit)...")
+        print(f"Running interactive animation at {fps}fps (press ESC to exit)...")
         # Pass animation speed for consistent behavior with GIF/video
         animate(
             shader_input=glsl_code,
             backend_type=backend_type,  # Use the mapped backend_type enum
             size=(width, height),
             uniforms=render_uniforms,
+            fps=fps,  # Pass the fps parameter to control frame rate
         )
 
 
