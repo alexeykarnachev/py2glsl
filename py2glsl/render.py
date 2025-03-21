@@ -176,9 +176,12 @@ def _setup_rendering_context(
     Yields:
         RenderContext object containing all rendering resources
     """
-    # If backend_type is provided, use it to determine shadertoy mode
+    # Map backend_type to appropriate parameters
     if backend_type is not None:
         from py2glsl.transpiler.backends.models import BackendType
+        from py2glsl.transpiler.core.interfaces import TargetLanguageType
+        
+        # Convert from BackendType enum to our shadertoy flag
         shadertoy = backend_type == BackendType.SHADERTOY
 
     # Create the appropriate renderer
@@ -187,7 +190,11 @@ def _setup_rendering_context(
     # Prepare shader code
     if callable(shader_input):
         from py2glsl.transpiler import transpile
-        glsl_code, _ = transpile(shader_input, shadertoy=shadertoy)
+        from py2glsl.transpiler.core.interfaces import TargetLanguageType
+        
+        # Use target_type parameter instead of shadertoy flag
+        target_type = TargetLanguageType.SHADERTOY if shadertoy else TargetLanguageType.GLSL
+        glsl_code, _ = transpile(shader_input, target_type=target_type)
     else:
         glsl_code = shader_input
 
@@ -370,7 +377,7 @@ def animate(
     size: tuple[int, int] = (1200, 800),
     window_title: str = "GLSL Shader",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
-    shadertoy: bool = False,
+    shadertoy: bool = False,  # Deprecated, use backend_type instead
     backend_type: Any = None,
 ) -> None:
     """Run a real-time shader animation in a window.
@@ -380,8 +387,8 @@ def animate(
         size: Window size as (width, height)
         window_title: Title of the window
         uniforms: Additional uniform values to pass to the shader
-        shadertoy: Whether to use Shadertoy dialect
-        backend_type: Backend type enum (if None, uses shadertoy parameter)
+        shadertoy: Deprecated, use backend_type instead
+        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
     """
     with _setup_rendering_context(
         shader_input,
@@ -433,7 +440,7 @@ def render_array(
     time: float = 0.0,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     backend_type: Any = None,
-    shadertoy: bool = False,
+    shadertoy: bool = False,  # Deprecated, use backend_type instead
 ) -> Any:  # Use Any type to bypass mypy issues with numpy typings
     """Render shader to a numpy array.
 
@@ -442,8 +449,8 @@ def render_array(
         size: Image size as (width, height)
         time: Shader time value
         uniforms: Additional uniform values to pass to the shader
-        backend_type: Backend type to use for transpilation (e.g., STANDARD, SHADERTOY)
-        shadertoy: Whether to use Shadertoy dialect if backend_type isn't provided
+        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
+        shadertoy: Deprecated, use backend_type instead
 
     Returns:
         Numpy array containing the rendered image
@@ -483,7 +490,7 @@ def render_image(
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
     image_format: str = "PNG",
-    shadertoy: bool = False,
+    shadertoy: bool = False,  # Deprecated, use backend_type instead
     backend_type: Any = None,
 ) -> Image.Image:
     """Render shader to a PIL Image.
@@ -495,8 +502,8 @@ def render_image(
         uniforms: Additional uniform values to pass to the shader
         output_path: Path to save the image, if desired
         image_format: Format to save the image in (e.g., "PNG", "JPEG")
-        shadertoy: Whether to use Shadertoy dialect
-        backend_type: Backend type enum (if None, uses shadertoy parameter)
+        shadertoy: Deprecated, use backend_type instead
+        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
 
     Returns:
         PIL Image containing the rendered image
@@ -539,7 +546,7 @@ def render_gif(
     fps: int = 30,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
-    shadertoy: bool = False,
+    shadertoy: bool = False,  # Deprecated, use backend_type instead
     time_offset: float = 0.0,
     backend_type: Any = None,
 ) -> tuple[Image.Image, list[Any]]:
@@ -552,9 +559,9 @@ def render_gif(
         fps: Frames per second
         uniforms: Additional uniform values to pass to the shader
         output_path: Path to save the GIF, if desired
-        shadertoy: Whether to use Shadertoy dialect
+        shadertoy: Deprecated, use backend_type instead
         time_offset: Starting time for the animation (seconds)
-        backend_type: Backend type enum (if None, uses shadertoy parameter)
+        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
 
     Returns:
         Tuple of (first frame as PIL Image, list of raw frames as numpy arrays)
@@ -616,7 +623,7 @@ def render_video(
     quality: int = 8,
     pixel_format: str = "yuv420p",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
-    shadertoy: bool = False,
+    shadertoy: bool = False,  # Deprecated, use backend_type instead
     time_offset: float = 0.0,
     backend_type: Any = None,
 ) -> tuple[str, list[Any]]:
@@ -632,9 +639,9 @@ def render_video(
         quality: Video quality (0-10, higher is better)
         pixel_format: Pixel format (e.g., "yuv420p")
         uniforms: Additional uniform values to pass to the shader
-        shadertoy: Whether to use Shadertoy dialect
+        shadertoy: Deprecated, use backend_type instead
         time_offset: Starting time for the animation (seconds)
-        backend_type: Backend type enum (if None, uses shadertoy parameter)
+        backend_type: Backend type (e.g., BackendType.SHADERTOY, BackendType.STANDARD)
 
     Returns:
         Tuple of (output path, list of raw frames as numpy arrays)

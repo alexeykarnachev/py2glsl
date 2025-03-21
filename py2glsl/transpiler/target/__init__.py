@@ -60,25 +60,28 @@ def create_target(
     Raises:
         ValueError: If the target type is not supported
     """
+    language: TargetLanguage
+    renderer: RenderInterface
+    
     if target_type == TargetLanguageType.GLSL:
         language = GLSLStandardDialect()
         renderer = StandardOpenGLRenderer()
-        adapter = GLSLAdapter(language, renderer)
-        return language, renderer, adapter
-    elif target_type == TargetLanguageType.HLSL:
-        # Future expansion point
-        raise ValueError("HLSL target not yet implemented")
-    elif target_type == TargetLanguageType.WGSL:
-        # Future expansion point
-        raise ValueError("WGSL target not yet implemented")
+    elif target_type == TargetLanguageType.SHADERTOY:
+        language = ShadertoyGLSLDialect()
+        renderer = ShadertoyOpenGLRenderer()
     else:
         raise ValueError(f"Unsupported target type: {target_type}")
+        
+    adapter = GLSLAdapter(language, renderer)
+    return language, renderer, adapter
 
 
 def create_glsl_target(
     shadertoy: bool = False
 ) -> tuple[TargetLanguage, RenderInterface, LanguageAdapter]:
     """Create a GLSL target with optional Shadertoy compatibility.
+    
+    Deprecated: Use create_target with the appropriate TargetLanguageType instead.
 
     Args:
         shadertoy: Whether to create a Shadertoy-compatible target
@@ -86,12 +89,5 @@ def create_glsl_target(
     Returns:
         Tuple of (target language, renderer, adapter)
     """
-    if shadertoy:
-        language: TargetLanguage = ShadertoyGLSLDialect()
-        renderer: RenderInterface = ShadertoyOpenGLRenderer()
-    else:
-        language = GLSLStandardDialect()
-        renderer = StandardOpenGLRenderer()
-
-    adapter = GLSLAdapter(language, renderer)
-    return language, renderer, adapter
+    target_type = TargetLanguageType.SHADERTOY if shadertoy else TargetLanguageType.GLSL
+    return create_target(target_type)

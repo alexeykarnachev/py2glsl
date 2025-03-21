@@ -191,7 +191,7 @@ def transpile(
     *args: str | Callable[..., Any] | type[Any] | object,
     main_func: str | None = None,
     target_type: TargetLanguageType = TargetLanguageType.GLSL,
-    shadertoy: bool = False,
+    shadertoy: bool = False,  # Kept for backward compatibility
     **kwargs: Any,
 ) -> tuple[str, set[str]]:
     """Transpile Python code to shader code.
@@ -205,7 +205,7 @@ def transpile(
         *args: The Python code or callables to transpile
         main_func: Name of the main function to use as shader entry point
         target_type: Target language to generate (default: GLSL)
-        shadertoy: Whether to use Shadertoy dialect (for GLSL only)
+        shadertoy: Deprecated, use target_type=TargetLanguageType.SHADERTOY instead
         **kwargs: Additional keyword arguments:
             - Additional functions/classes to include
             - Global constants to include in the shader
@@ -230,7 +230,12 @@ def transpile(
         # Include global constants
         glsl_code, uniforms = transpile(my_shader_func, PI=3.14159, MAX_STEPS=100)
 
-        # Use Shadertoy dialect
+        # Use Shadertoy (recommended way)
+        glsl_code, uniforms = transpile(
+            my_shader_func, target_type=TargetLanguageType.SHADERTOY
+        )
+        
+        # Use Shadertoy (legacy way, still supported)
         glsl_code, uniforms = transpile(my_shader_func, shadertoy=True)
 
         # Specify target language explicitly
@@ -239,9 +244,13 @@ def transpile(
             my_shader_func, target_type=TargetLanguageType.GLSL
         )
     """
+    # Handle backward compatibility with shadertoy parameter
+    if shadertoy and target_type == TargetLanguageType.GLSL:
+        target_type = TargetLanguageType.SHADERTOY
+    
     logger.debug(
         f"Transpiling with args: {args}, main_func: {main_func}, "
-        f"target_type: {target_type}, shadertoy: {shadertoy}, kwargs: {kwargs}"
+        f"target_type: {target_type}, kwargs: {kwargs}"
     )
 
     # Extract global constants from kwargs
@@ -272,13 +281,8 @@ def transpile(
                 f"Helper function '{func_name}' lacks return type annotation"
             )
 
-    # For GLSL, handle Shadertoy dialect
-    if target_type == TargetLanguageType.GLSL:
-        from py2glsl.transpiler.target import create_glsl_target
-        language, _, _ = create_glsl_target(shadertoy=shadertoy)
-    else:
-        # For other target languages
-        language, _, _ = create_target(target_type)
+    # Create target language, renderer, and adapter
+    language, _, _ = create_target(target_type)
 
     # Generate code using the target language
     shader_code, uniforms = language.generate_code(collected, effective_main_func)

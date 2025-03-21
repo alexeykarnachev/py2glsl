@@ -16,6 +16,7 @@ class TargetLanguageType(Enum):
     """Supported target language types."""
 
     GLSL = auto()
+    SHADERTOY = auto()  # Treat Shadertoy as its own target language
     HLSL = auto()
     WGSL = auto()
     # Add more languages as needed
