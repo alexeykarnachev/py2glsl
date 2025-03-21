@@ -5,22 +5,30 @@ different target languages and backends. It demonstrates the new architecture
 where backends are treated as first-class target languages.
 
 Run with:
-    python examples/raymarching.py                            # Standard GLSL target
-    python examples/raymarching.py --target shadertoy         # Shadertoy target
-    python examples/raymarching.py --save-image output.png    # Save still image
-    python examples/raymarching.py --save-video output.mp4    # Save video
-    python examples/raymarching.py --save-gif output.gif      # Save animated GIF
+    python examples/raymarching.py                                # Standard GLSL target
+    python examples/raymarching.py --target shadertoy             # Shadertoy target
+    python examples/raymarching.py --save-image output.png        # Save still image
+    python examples/raymarching.py --save-video output.mp4        # Save video
+    python examples/raymarching.py --save-gif output.gif          # Save animated GIF
+
+Animation control:
+    python examples/raymarching.py --fps 60                       # Higher frame rate
+    python examples/raymarching.py --animation-speed 0.6          # Faster animation
+    python examples/raymarching.py --camera-height 3.0            # Lower camera
+    python examples/raymarching.py --camera-distance 8.0          # Camera further away
+    python examples/raymarching.py --time-offset 2.0              # Set start point
 
 Future targets will be added as they become available:
-    python examples/raymarching.py --target hlsl              # HLSL target (future)
-    python examples/raymarching.py --target wgsl              # WGSL target (future)
+    python examples/raymarching.py --target hlsl                  # HLSL target (future)
+    python examples/raymarching.py --target wgsl                  # WGSL target (future)
 
 This example demonstrates all major features of py2glsl:
 1. Struct transpilation with RayMarchResult
 2. Function dependencies (march -> get_sd_shape -> attenuate)
 3. Global constants (PI, RM_MAX_DIST, etc.)
 4. Multiple rendering methods (interactive, image, video, GIF)
-5. Cross-target compatibility with identical output
+5. Animation control via command-line parameters
+6. Cross-target compatibility with identical output
 """
 
 from dataclasses import dataclass
@@ -279,7 +287,7 @@ def main(
         typer.Option(
             "--target",
             "-t",
-            help="Target language/backend to use (glsl, shadertoy, hlsl, wgsl)"
+            help="Target language/backend to use (glsl, shadertoy, hlsl, wgsl)",
         ),
     ] = "glsl",
     save_image: Annotated[
@@ -311,6 +319,25 @@ def main(
     fps: Annotated[
         int, typer.Option("--fps", help="Frames per second for video/GIF")
     ] = 30,
+    animation_speed: Annotated[
+        float,
+        typer.Option(
+            "--animation-speed", help="Speed factor for animation"
+        ),
+    ] = 0.3,
+    camera_height: Annotated[
+        float, typer.Option("--camera-height", help="Camera height above origin")
+    ] = 5.0,
+    camera_distance: Annotated[
+        float, typer.Option("--camera-distance", help="Camera distance from center")
+    ] = 5.0,
+    animation_loop: Annotated[
+        float, typer.Option("--animation-loop", help="Full rotation period in seconds")
+    ] = 6.28,
+    time_offset: Annotated[
+        float,
+        typer.Option("--time-offset", help="Starting time for animation sequence"),
+    ] = 0.0,
 ) -> None:
     """Run the ray marching example with the specified target language and options.
 
@@ -323,6 +350,11 @@ def main(
         height: Height of the output window/image
         duration: Duration of the video/GIF in seconds
         fps: Frames per second for video/GIF
+        animation_speed: Speed factor for animation (higher = faster)
+        camera_height: Camera height above origin
+        camera_distance: Camera distance from center
+        animation_loop: Full rotation period in seconds (2π by default)
+        time_offset: Starting time for animation sequence
     """
     # Map the target string to the corresponding TargetLanguageType
     target_type = None
@@ -345,6 +377,7 @@ def main(
 
     # For backward compatibility with the backends module
     from py2glsl.transpiler.backends.models import BackendType
+
     if target_type == TargetLanguageType.SHADERTOY:
         backend_type = BackendType.SHADERTOY
     else:
@@ -375,26 +408,8 @@ def main(
     print(f"Used uniforms: {used_uniforms}")
 
     # Handle different output modes
-    # Set a consistent time offset to ensure animations are consistent
-    # This matches the starting point for all rendering modes
-    # CRITICAL: We need to define consistent animation parameters
-    # These must be identical for all rendering modes and backends
-    # to ensure consistent animations
-
-    # Starting time for animation sequence
-    time_offset = 0.0
-
-    # Speed factor applied to time (lower = slower rotation)
-    animation_speed = 0.3
-
-    # How long (in seconds) a full camera rotation takes
-    animation_loop = 6.28  # 2π
-
-    # Camera height above origin
-    camera_height = 5.0
-
-    # Camera distance from center
-    camera_distance = 5.0
+    # All animation parameters are now passed directly from command line arguments
+    # This eliminates hardcoded values and allows full control via CLI parameters
 
     # Define animation parameters as shader uniforms
     # Using cast to handle type compatibility with render functions
@@ -414,7 +429,7 @@ def main(
         render_image(
             shader_input=glsl_code,  # Use the pre-transpiled code
             size=(width, height),
-            time=time_offset + 1.0,  # Freeze at a nice angle
+            time=time_offset,  # Use the specified time offset
             backend_type=backend_type,  # Use the mapped backend_type enum
             output_path=str(save_image),
             uniforms=render_uniforms,
