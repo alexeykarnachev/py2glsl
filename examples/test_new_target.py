@@ -36,20 +36,32 @@ def color_wheel(
 
 def main() -> None:
     """Main entry point for the test."""
-    # Test 1: Using the new target_type parameter
-    print("Testing with new target_type parameter (GLSL)")
-    glsl_code, uniforms = transpile(
-        color_wheel, target_type=TargetLanguageType.GLSL
-    )
-    print(f"Generated shader with {len(glsl_code)} characters")
-    print(f"Uniforms: {uniforms}")
+    # Test 1: Using the default parameters (GLSL)
+    print("Testing with default parameters (Standard GLSL)")
+    glsl_code, uniforms = transpile(color_wheel)
+    
+    # Test 2: Using Shadertoy dialect
+    print("\nTesting with Shadertoy dialect")
+    shadertoy_code, shadertoy_uniforms = transpile(color_wheel, shadertoy=True)
+    print(f"Standard GLSL shader: {len(glsl_code)} characters")
+    print(f"Standard GLSL uniforms: {uniforms}")
+    print(f"Shadertoy shader: {len(shadertoy_code)} characters")
+    print(f"Shadertoy uniforms: {shadertoy_uniforms}")
 
-    # Render an image
+    # Render images using both versions
     render_image(
         glsl_code,
         size=(400, 400),
-        output_path="test_glsl_target.png",
+        output_path="test_standard_glsl.png",
         time=1.0
+    )
+    
+    render_image(
+        shadertoy_code,
+        size=(400, 400),
+        output_path="test_shadertoy_glsl.png",
+        time=1.0,
+        shadertoy=True  # Use Shadertoy dialect
     )
 
 

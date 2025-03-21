@@ -35,7 +35,7 @@ from py2glsl.builtins import (
 )
 from py2glsl.render import animate, render_gif, render_image, render_video
 from py2glsl.transpiler import transpile
-from py2glsl.transpiler.backends.models import BackendType
+from py2glsl.transpiler.core.interfaces import TargetLanguageType
 
 # Global constants - these need to be properly annotated and passed to the transpiler
 PI: float = 3.141592
@@ -308,10 +308,8 @@ def main(
         duration: Duration of the video/GIF in seconds
         fps: Frames per second for video/GIF
     """
-    # Determine the backend type
-    backend_type = BackendType.STANDARD
-    if backend.lower() == "shadertoy":
-        backend_type = BackendType.SHADERTOY
+    # Determine whether to use Shadertoy dialect
+    use_shadertoy = backend.lower() == "shadertoy"
 
     # Pass all functions, the struct AND GLOBAL CONSTANTS explicitly to transpile
     glsl_code, used_uniforms = transpile(
@@ -330,11 +328,13 @@ def main(
         NORMAL_DERIVATIVE_STEP=NORMAL_DERIVATIVE_STEP,
         # Main function
         main_func="main_shader",
-        # Backend specification
-        backend_type=backend_type,
+        # Language specification
+        target_type=TargetLanguageType.GLSL,
+        shadertoy=use_shadertoy,
     )
 
-    print(f"Using {backend} backend (BackendType.{backend_type.name})")
+    dialect = "Shadertoy" if use_shadertoy else "Standard"
+    print(f"Using {backend} dialect ({dialect} GLSL)")
     print(f"Used uniforms: {used_uniforms}")
 
     # Handle different output modes
@@ -378,7 +378,7 @@ def main(
             shader_input=glsl_code,  # Use the pre-transpiled GLSL code
             size=(width, height),
             time=time_offset + 1.0,  # Freeze at a nice angle
-            backend_type=backend_type,
+            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
             output_path=str(save_image),
             uniforms=render_uniforms,
         )
@@ -391,7 +391,7 @@ def main(
             size=(width, height),
             duration=duration,
             fps=fps,
-            backend_type=backend_type,
+            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
             output_path=str(save_video),
             time_offset=time_offset,  # Use consistent time offset
             uniforms=render_uniforms,  # Pass the animation speed
@@ -405,7 +405,7 @@ def main(
             size=(width, height),
             duration=duration,
             fps=fps,
-            backend_type=backend_type,
+            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
             output_path=str(save_gif),
             time_offset=time_offset,  # Use consistent time offset
             uniforms=render_uniforms,  # Pass the animation speed
@@ -417,7 +417,7 @@ def main(
         # Pass animation speed for consistent behavior with GIF/video
         animate(
             shader_input=glsl_code,
-            backend_type=backend_type,
+            shadertoy=use_shadertoy,  # Use Shadertoy dialect if selected
             size=(width, height),
             uniforms=render_uniforms,
         )
