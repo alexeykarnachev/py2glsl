@@ -56,10 +56,14 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
     """
     # Track global constants with type annotations
     globals_dict: dict[str, Any] = {}
+    
+    # Track all helper functions
+    helper_functions: dict[str, Any] = {}
 
     # Find the main shader function
     main_func = None
 
+    # First collect all globals and functions
     for name, obj in inspect.getmembers(module):
         # Skip special methods and imported modules
         if name.startswith("__") or inspect.ismodule(obj):
@@ -67,45 +71,51 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
 
         # Check if it's a function
         if inspect.isfunction(obj):
-            # Check function signature for vec4 return type
+            # Check function signature
             sig = inspect.signature(obj)
-            # Access return annotation using the return_annotation attribute
-            if (
-                sig.return_annotation is not inspect.Signature.empty
-                and sig.return_annotation == vec4
-            ):
-                # Check if it has standard parameters (vs_uv, u_time, u_aspect)
-                params = list(sig.parameters.keys())
-                if "vs_uv" in params and "u_time" in params:
-                    main_func = obj
-                    logger.info(f"Found main shader function: {name}")
-                    break
+            
+            # Store all functions with return annotations as potential helpers
+            if sig.return_annotation is not inspect.Signature.empty:
+                helper_functions[name] = obj
+                
+                # If it returns vec4, it's a potential main function
+                if sig.return_annotation == vec4:
+                    # Check if it has standard parameters (vs_uv, u_time, u_aspect)
+                    params = list(sig.parameters.keys())
+                    if "vs_uv" in params and "u_time" in params:
+                        # Priority for functions named main_shader, simple_shader, etc.
+                        if name in ["main_shader", "simple_shader", "shader"]:
+                            main_func = obj
+                            logger.info(f"Found main shader function: {name}")
+                            break
 
-        # Check if it's a global constant with type annotation
+        # Check if it's a global constant with type annotation or a dataclass
         elif (
-            not callable(obj)
-            and not inspect.ismodule(obj)
-            and hasattr(module, "__annotations__")
-            and name in module.__annotations__
+            (not callable(obj) and not inspect.ismodule(obj) and 
+             hasattr(module, "__annotations__") and name in module.__annotations__) or
+            hasattr(obj, "__dataclass_fields__")  # Check for dataclasses
         ):
             globals_dict[name] = obj
             logger.info(f"Found global constant: {name} = {obj}")
 
-    # No standard shader function found, try any function returning vec4
+    # If we didn't find a main function with a preferred name, use any function returning vec4
     if main_func is None:
-        for name, obj in inspect.getmembers(module):
-            if inspect.isfunction(obj):
-                sig = inspect.signature(obj)
-                if (
-                    sig.return_annotation is not inspect.Signature.empty
-                    and sig.return_annotation == vec4
-                ):
+        for name, obj in helper_functions.items():
+            sig = inspect.signature(obj)
+            if sig.return_annotation == vec4:
+                params = list(sig.parameters.keys())
+                if "vs_uv" in params and "u_time" in params:
                     main_func = obj
                     logger.info(f"Using function {name} as main shader")
                     break
 
     if main_func is None:
         raise ValueError("No suitable shader function found in the module")
+        
+    # Add all helper functions to the globals dict so they're included in transpilation
+    for name, func in helper_functions.items():
+        if func != main_func:  # Don't include the main function twice
+            globals_dict[name] = func
 
     return main_func, globals_dict
 
@@ -182,15 +192,34 @@ def _get_transpiled_shader(
         target_type, backend_type = _map_target(target)
         logger.info(f"Using {target_type.name} target language")
 
-        # Transpile the shader - only include the main function
+        # Transpile the shader - include the main function and helper functions
         logger.info(f"Transpiling main function: {main_func.__name__}")
         logger.info(f"Globals: {list(globals_dict.keys())}")
 
+        # Extract functions and other globals for proper transpilation
+        function_args = []
+        other_globals = {}
+        
+        for name, item in globals_dict.items():
+            # Include only actual functions, not classes or builtins
+            if callable(item) and not name.startswith("__") and not isinstance(item, type):
+                # Only include user-defined functions, not builtins
+                if hasattr(item, "__module__") and not item.__module__.startswith("py2glsl.builtins"):
+                    function_args.append(item)
+            else:
+                other_globals[name] = item
+        
+        # The main function should be first in the list for proper processing
+        if main_func not in function_args:
+            function_args.insert(0, main_func)
+            
+        logger.info(f"Including functions: {[func.__name__ for func in function_args]}")
+            
         glsl_code, used_uniforms = transpile(
-            main_func,
+            *function_args,
             main_func=main_func.__name__,
             target_type=target_type,
-            **globals_dict,
+            **other_globals,
         )
 
         logger.info(f"Used uniforms: {used_uniforms}")
@@ -494,9 +523,7 @@ def export_shader_code(
 
     # Auto-suggest format for Shadertoy
     if target_type == TargetLanguageType.SHADERTOY and format == "plain":
-        logger.info(
-            "Tip: Using --format wrapped helps with Shadertoy copy-pasting"
-        )
+        logger.info("Tip: Using --format wrapped helps with Shadertoy copy-pasting")
 
     # If target isn't shadertoy but flag is set, warn user
     if shadertoy_compatible and target_type != TargetLanguageType.SHADERTOY:
