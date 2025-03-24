@@ -146,6 +146,63 @@ def _process_multiple_args(
     return shader_input_dict
 
 
+def _extract_structs_from_kwargs(collected: CollectedInfo, kwargs: dict[str, Any]) -> None:
+    """Extract struct definitions from kwargs and add them to collected info.
+
+    Args:
+        collected: Collected information about the shader
+        kwargs: Keyword arguments passed to transpile
+    """
+    from py2glsl.transpiler.models import StructDefinition, StructField
+    
+    # Get reserved kwargs that shouldn't be processed as structs
+    reserved_kwargs = {"main_func", "target_type", "shadertoy"}
+    
+    # Process each kwarg that might be a struct
+    for name, value in kwargs.items():
+        if name in reserved_kwargs:
+            continue
+            
+        # Check if it's a dataclass by looking for __dataclass_fields__ attribute
+        if hasattr(value, "__dataclass_fields__"):
+            # Skip if already collected
+            if name in collected.structs:
+                continue
+                
+            logger.debug(f"Processing dataclass from kwargs: {name}")
+            
+            # Extract fields from the dataclass
+            fields = []
+            for field_name, field_info in value.__dataclass_fields__.items():
+                # Get field type - it might be accessible in different ways
+                field_type = None
+                if hasattr(field_info, "type"):
+                    field_type = field_info.type
+                
+                # Convert type object to type name string
+                type_name = None
+                if hasattr(field_type, "__name__"):
+                    type_name = field_type.__name__
+                
+                # Skip fields without a valid type name
+                if not type_name:
+                    continue
+                
+                # Create struct field
+                field = StructField(
+                    name=field_name,
+                    type_name=type_name,
+                    default_value=None  # Default values not supported for kwargs structs
+                )
+                fields.append(field)
+            
+            # Only create struct definition if we have valid fields
+            if fields:
+                struct_def = StructDefinition(name=name, fields=fields)
+                collected.structs[name] = struct_def
+                logger.debug(f"Added struct from kwargs: {name} with fields: {[f.name for f in fields]}")
+
+
 def _add_globals_to_collected(
     collected: CollectedInfo, global_constants: dict[str, Any]
 ) -> None:
@@ -266,6 +323,9 @@ def transpile(
 
     # Add global constants
     _add_globals_to_collected(collected, global_constants)
+    
+    # Extract structs from kwargs and add them to collected info
+    _extract_structs_from_kwargs(collected, kwargs)
 
     # Validate main function exists
     if effective_main_func not in collected.functions:
