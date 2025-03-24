@@ -19,46 +19,21 @@ Technical highlights:
 - Rounded box SDF implementation
 - Normal-based coloring with distance attenuation
 
-IMPORTANT: FOR COMPLEX SHADERS LIKE THIS ONE
-Due to the complexity of this example (it uses custom struct types, function calls,
-and dataclasses), it requires explicit function transpilation. The CLI tool can't
-automatically include all dependencies. Use this example with manual transpilation:
-
-```python
-from py2glsl.transpiler import transpile
-from py2glsl.transpiler.core.interfaces import TargetLanguageType
-
-import examples.raymarching as rm
-
-# Include all needed functions explicitly
-glsl_code, used_uniforms = transpile(
-    # Functions
-    rm.simple_shader,
-    rm.march,
-    rm.get_sd_shape,
-    rm.attenuate,
-    # Struct
-    RayMarchResult=rm.RayMarchResult,
-    # Global constants
-    PI=rm.PI,
-    RM_MAX_DIST=rm.RM_MAX_DIST,
-    RM_MAX_STEPS=rm.RM_MAX_STEPS,
-    RM_EPS=rm.RM_EPS,
-    NORMAL_DERIVATIVE_STEP=rm.NORMAL_DERIVATIVE_STEP,
-    # Main function and target
-    main_func='simple_shader',
-    target_type=TargetLanguageType.SHADERTOY
-)
-
-# Save to file or process further
-with open("raymarching.glsl", "w") as f:
-    f.write(glsl_code)
-```
-
-For simpler shaders without structs and complex dependencies, you can use the CLI:
-    py2glsl show run examples/simple_shader.py
-    py2glsl image render examples/simple_shader.py image.png
-    py2glsl code export examples/simple_shader.py shader.glsl
+Example Usage:
+    # Interactive preview
+    py2glsl show run examples/raymarching.py
+    
+    # Render image
+    py2glsl image render examples/raymarching.py output.png
+    
+    # Create animation
+    py2glsl gif render examples/raymarching.py output.gif --duration 5 --fps 30
+    
+    # Export code for use in external renderers
+    py2glsl code export examples/raymarching.py output.glsl
+    
+    # Export code for Shadertoy
+    py2glsl code export examples/raymarching.py shadertoy.glsl --target shadertoy --shadertoy-compatible
 """
 
 from dataclasses import dataclass
