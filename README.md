@@ -12,18 +12,16 @@ images, GIFs, or videos—all with proper IDE support and no GLSL knowledge requ
 
 ## Quick Start
 
-Install using uv:
+Install using uv to get both the library and command-line tool:
 
 ```bash
-uv pip install git+https://github.com/alexeykarnachev/py2glsl.git
+uv pip install py2glsl
 ```
 
-Create a simple animated shader:
+Create a simple animated shader file `plasma.py`:
 
 ```python
 from py2glsl.builtins import length, sin, vec2, vec4
-from py2glsl.render import animate
-
 
 def plasma(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     """A simple animated plasma shader."""
@@ -31,7 +29,32 @@ def plasma(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     d = length(uv)
     color = sin(d * 10.0 - u_time * 2.0) * 0.5 + 0.5
     return vec4(color, color * 0.5, 1.0 - color, 1.0)
+```
 
+Run it using the command-line interface:
+
+```bash
+# Interactive preview
+py2glsl show run plasma.py
+
+# Save as image
+py2glsl image render plasma.py output.png
+
+# Create animated GIF
+py2glsl gif render plasma.py animation.gif --duration 5.0
+
+# Export code for Shadertoy
+py2glsl code export plasma.py shadertoy.glsl --target shadertoy --format wrapped
+
+# Export Shadertoy-compatible code (removes built-in uniforms)
+py2glsl code export plasma.py shadertoy_ready.glsl --target shadertoy --format wrapped --shadertoy-compatible
+```
+
+Or use the library directly in your code:
+
+```python
+from py2glsl.render import animate
+from plasma import plasma  # Import your shader function
 
 # Run real-time animation at 30fps
 animate(plasma, fps=30)
@@ -39,35 +62,47 @@ animate(plasma, fps=30)
 
 ## Features
 
-- Python-to-GLSL Transpilation: Write shaders in Python with full type hinting,
-custom structs, and global constants—automatically converted to GLSL.
-- Built-in GLSL Functions: Use familiar functions like sin, cos, length, normalize,
-and more directly in Python.
-- Flexible Rendering:
-  - Real-time animations with animate (with framerate control)
-  - Static images with render_image
-  - Animated GIFs with render_gif
-  - Videos with render_video
-- Multiple Target Languages:
+- **Python-to-GLSL Transpilation**: Write shaders in Python with full type hinting,
+  custom structs, and global constants—automatically converted to GLSL.
+- **Built-in GLSL Functions**: Use familiar functions like sin, cos, length, normalize,
+  and more directly in Python.
+- **Command-Line Interface**:
+  - Interactive preview with `py2glsl show`
+  - Static image rendering with `py2glsl image`  
+  - Video rendering with `py2glsl video`
+  - GIF creation with `py2glsl gif`
+  - Code export with `py2glsl code` (includes Shadertoy-compatibility mode)
+- **Flexible Rendering API**:
+  - Real-time animations with `animate()` (with framerate control)
+  - Static images with `render_image()`
+  - Animated GIFs with `render_gif()`
+  - Videos with `render_video()`
+- **Multiple Target Languages**:
   - Standard GLSL
   - Shadertoy
   - More coming soon (HLSL, WGSL)
-- Debugging Support: Access raw frames or generated GLSL code for inspection.
-- IDE-Friendly: Leverages Python’s type system for autocompletion and error checking.
-- No GLSL Boilerplate: Focus on shader logic without writing vertex/fragment wrappers.
+- **IDE-Friendly**: Leverages Python's type system for autocompletion and error checking.
+- **No GLSL Boilerplate**: Focus on shader logic without writing vertex/fragment wrappers.
 
 ## Installation
 
 For users:
 
 ```bash
-uv pip install git+https://github.com/akarnachev/py2glsl.git
+# Using uv (recommended)
+uv pip install py2glsl
+
+# From source with uv
+uv pip install git+https://github.com/alexeykarnachev/py2glsl.git
+
+# Using pipx (for command-line usage only)
+pipx install py2glsl
 ```
 
 For development:
 
 ```bash
-git clone https://github.com/akarnachev/py2glsl.git
+git clone https://github.com/alexeykarnachev/py2glsl.git
 cd py2glsl
 uv venv
 source .venv/bin/activate  # or .venv/Scripts/activate on Windows
@@ -81,7 +116,76 @@ uv pip install pre-commit
 pre-commit install
 ```
 
-## Usage
+## Command-Line Interface
+
+py2glsl provides a comprehensive command-line interface for working with shaders.
+
+### Interactive Preview
+
+```bash
+py2glsl show run shader_file.py [OPTIONS]
+
+Options:
+  -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -w, --width INTEGER    Window width  [default: 800]
+  -h, --height INTEGER   Window height  [default: 600]
+  --fps INTEGER          Target framerate (0 for unlimited)  [default: 30]
+```
+
+### Render to Image
+
+```bash
+py2glsl image render shader_file.py output.png [OPTIONS]
+
+Options:
+  -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -w, --width INTEGER    Image width  [default: 800]
+  -h, --height INTEGER   Image height  [default: 600]
+  --time FLOAT           Time value for the image  [default: 0.0]
+```
+
+### Render to Video
+
+```bash
+py2glsl video render shader_file.py output.mp4 [OPTIONS]
+
+Options:
+  -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -w, --width INTEGER    Video width  [default: 800]
+  -h, --height INTEGER   Video height  [default: 600]
+  --fps INTEGER          Frames per second  [default: 30]
+  -d, --duration FLOAT   Duration in seconds  [default: 5.0]
+  --time-offset FLOAT    Starting time for animation  [default: 0.0]
+  --codec TEXT           Video codec (h264, vp9, etc.)  [default: h264]
+  -q, --quality INTEGER  Video quality (0-10)  [default: 8]
+```
+
+### Render to GIF
+
+```bash
+py2glsl gif render shader_file.py output.gif [OPTIONS]
+
+Options:
+  -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -w, --width INTEGER    GIF width  [default: 800]
+  -h, --height INTEGER   GIF height  [default: 600]
+  --fps INTEGER          Frames per second  [default: 30]
+  -d, --duration FLOAT   Duration in seconds  [default: 5.0]
+  --time-offset FLOAT    Starting time for animation  [default: 0.0]
+```
+
+### Export Shader Code
+
+```bash
+py2glsl code export shader_file.py output.glsl [OPTIONS]
+
+Options:
+  -t, --target TEXT           Target language (glsl, shadertoy)  [default: glsl]
+  -f, --format TEXT           Code format (plain, commented, wrapped)  [default: plain]
+  -s, --shadertoy-compatible  Remove Shadertoy built-in uniforms for direct copy-paste
+```
+
+## Library Usage
 
 ### Basic Shader
 
@@ -126,12 +230,12 @@ _, frames = render_gif(ripple, duration=2.0, fps=30, output_path="ripple.gif",
 
 ### Advanced Example: Ray Marching
 
-Here’s a more complex example using ray marching with structs and global constants:
+Here's a more complex example using ray marching with structs and global constants:
 
 ```python
 from dataclasses import dataclass
 
-from py2glsl.builtins import length, sin, vec2, vec3, vec4
+from py2glsl.builtins import length, sin, vec2, vec3, vec4, normalize
 from py2glsl.render import animate
 from py2glsl.transpiler import transpile
 from py2glsl.transpiler.core.interfaces import TargetLanguageType
