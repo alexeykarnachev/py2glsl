@@ -18,6 +18,7 @@ import typer
 import watchdog.events
 import watchdog.observers
 from loguru import logger
+from watchdog.events import FileSystemEventHandler
 
 from py2glsl.builtins import vec4
 from py2glsl.render import animate, render_gif, render_image, render_video
@@ -380,7 +381,7 @@ def show_shader(
     )
 
 
-class ShaderChangeHandler(watchdog.events.FileSystemEventHandler):
+class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
     """Event handler for shader file changes."""
 
     def __init__(

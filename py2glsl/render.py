@@ -360,7 +360,7 @@ def _cleanup(
         glfw.terminate()
 
 
-def animate(
+def animate(  # noqa: PLR0915
     shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     window_title: str = "GLSL Shader",
