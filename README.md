@@ -23,7 +23,7 @@ Create a simple animated shader file `plasma.py`:
 ```python
 from py2glsl.builtins import length, sin, vec2, vec4
 
-def main(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     """A simple animated plasma shader."""
     uv = vs_uv * 2.0 - 1.0  # Center UV coordinates
     d = length(uv)
@@ -43,7 +43,7 @@ py2glsl image render plasma.py output.png
 # Create animated GIF
 py2glsl gif render plasma.py animation.gif --duration 5.0
 
-# Specify a particular function to use (if not named 'main')
+# Specify a particular function to use (default is 'shader')
 py2glsl show run plasma.py --main my_custom_shader
 
 # Export code for Shadertoy

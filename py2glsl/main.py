@@ -9,10 +9,10 @@ import inspect
 import os
 import sys
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
+import arrow
 import typer
 from loguru import logger
 
@@ -25,12 +25,16 @@ from py2glsl.transpiler.core.interfaces import TargetLanguageType
 # Define type variables for TypedCallable
 F = TypeVar("F", bound=Callable[..., Any])
 
+
 # TypedCommand decorator helper
 def typed_command(app_command: Any) -> Callable[[F], F]:
     """Wrap typer command with proper typing for mypy."""
+
     def decorator(func: F) -> F:
         return cast(F, app_command(func))
+
     return decorator
+
 
 app = typer.Typer(
     name="py2glsl",
@@ -97,9 +101,13 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
 
         # Check if it's a global constant with type annotation or a dataclass
         elif (
-            (not callable(obj) and not inspect.ismodule(obj) and
-             hasattr(module, "__annotations__") and name in module.__annotations__) or
-            hasattr(obj, "__dataclass_fields__")  # Check for dataclasses
+            (
+                not callable(obj)
+                and not inspect.ismodule(obj)
+                and hasattr(module, "__annotations__")
+                and name in module.__annotations__
+            )
+            or hasattr(obj, "__dataclass_fields__")  # Check for dataclasses
         ):
             globals_dict[name] = obj
             logger.info(f"Found global constant: {name} = {obj}")
@@ -187,8 +195,7 @@ def _map_target(target: str) -> tuple[TargetLanguageType, BackendType]:
 
 
 def _prepare_transpilation_args(
-    globals_dict: dict[str, Any],
-    main_func: Callable[..., Any]
+    globals_dict: dict[str, Any], main_func: Callable[..., Any]
 ) -> tuple[list[Callable[..., Any]], dict[str, Any]]:
     """Prepare arguments for transpilation.
 
@@ -230,18 +237,27 @@ def _prepare_transpilation_args(
 def _get_transpiled_shader(
     shader_file: str,
     target: str = "glsl",
-    main_function_name: str = "main",
+    main_function_name: str = "shader",
 ) -> tuple[str, BackendType, TargetLanguageType]:
     """Transpile a Python shader file to GLSL.
 
     Args:
         shader_file: Path to the Python shader file
         target: Target language (glsl or shadertoy)
-        main_function_name: Optional name of the main function to use
+        main_function_name: Name of the function to use as the shader entry point.
+                           Should NOT be "main" as that conflicts with GLSL.
+                           Default is "shader".
 
     Returns:
         Tuple of (GLSL code, backend type, target type)
     """
+    # Enforce naming convention to avoid conflicts with GLSL reserved names
+    if main_function_name == "main":
+        logger.warning(
+            'Function name "main" is reserved in GLSL. '
+            'Use "shader" or another name instead.'
+        )
+        main_function_name = "shader"  # Default to "shader" if they tried to use "main"
     try:
         # Type annotation for the main function
         main_func: Callable[..., Any] | None = None
@@ -358,6 +374,7 @@ def show_shader(
 # Define reusable argument
 OUTPUT_IMAGE_ARG = typer.Argument(..., help="Output image file path")
 
+
 @typed_command(image_app.command("render"))
 def render_shader_image(
     shader_file: str = typer.Argument(
@@ -396,6 +413,7 @@ def render_shader_image(
 
 # Define reusable argument
 OUTPUT_VIDEO_ARG = typer.Argument(..., help="Output video file path")
+
 
 @typed_command(video_app.command("render"))
 def render_shader_video(
@@ -445,6 +463,7 @@ def render_shader_video(
 
 # Define reusable argument
 OUTPUT_GIF_ARG = typer.Argument(..., help="Output GIF file path")
+
 
 @typed_command(gif_app.command("render"))
 def render_shader_gif(
@@ -513,7 +532,10 @@ def _prepare_shadertoy_code(code: str) -> str:
     1. Shadertoy built-in uniforms
     2. GLSL version statements (#version)
     3. Precision statements (precision mediump float, etc.)
-    4. Excess empty lines at beginning and end
+    4. The standard OpenGL main() function and its inputs/outputs
+    5. Excess empty lines at beginning and end
+    6. Header/metadata comments (if --format commented is used with
+       --shadertoy-compatible)
 
     Args:
         code: Source code
@@ -523,8 +545,35 @@ def _prepare_shadertoy_code(code: str) -> str:
     """
     lines = code.split("\n")
     filtered_lines = []
+    skip_section = False
 
-    for line in lines:
+    # Skip header comment lines
+    line_index = 0
+    while line_index < len(lines) and lines[line_index].startswith("//"):
+        line_index += 1
+
+    # Skip blank line after header if present
+    if line_index < len(lines) and lines[line_index].strip() == "":
+        line_index += 1
+
+    # Process remaining lines
+    for i in range(line_index, len(lines)):
+        line = lines[i]
+
+        # Skip OpenGL entry point sections
+        if "// Standard entry point for OpenGL" in line:
+            skip_section = True
+            continue
+        elif skip_section and line.strip() == "}":
+            skip_section = False
+            continue
+        elif skip_section:
+            continue
+
+        # Skip vertex shader input/output declarations
+        line_trimmed = line.strip()
+        if line_trimmed.startswith("in ") or line_trimmed.startswith("out "):
+            continue
         # Skip lines containing Shadertoy built-in uniforms
         if any(uniform in line for uniform in SHADERTOY_UNIFORMS):
             continue
@@ -571,8 +620,9 @@ def _add_header_comments(
     Returns:
         Code with header comments
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    header = f"// Generated by py2glsl on {timestamp}\n"
+    timestamp = arrow.utcnow().format("YYYY-MM-DD HH:mm:ss UTC")
+    header = f"// Generated by py2glsl v{__import__('py2glsl').__version__}\n"
+    header += f"// Generation time: {timestamp}\n"
     header += f"// Source file: {os.path.basename(source_file)}\n"
     header += f"// Target: {target_type.name}\n"
 
@@ -608,8 +658,8 @@ def _format_shader_code(
     if shadertoy_compatible and target_type == TargetLanguageType.SHADERTOY:
         formatted_code = _prepare_shadertoy_code(formatted_code)
 
-    # Add header comments if requested
-    if format_type in ("commented", "wrapped"):
+    # Always add header comments for Shadertoy exports, or when specifically requested
+    if shadertoy_compatible or format_type in ("commented", "wrapped"):
         formatted_code = _add_header_comments(
             formatted_code, source_file, target_type, shadertoy_compatible
         )
@@ -627,6 +677,7 @@ def _format_shader_code(
 
 # Define reusable argument
 OUTPUT_CODE_ARG = typer.Argument(..., help="Output code file path")
+
 
 @typed_command(code_app.command("export"))
 def export_shader_code(

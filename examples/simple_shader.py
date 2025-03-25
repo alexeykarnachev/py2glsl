@@ -32,7 +32,7 @@ To run this example:
     py2glsl code export examples/simple_shader.py plasma.glsl
     # Export for Shadertoy
     py2glsl code export examples/simple_shader.py shadertoy.glsl --target shadertoy \
-        --shadertoy-compatible
+        --shadertoy-compatible --main shader
 """
 
 from py2glsl.builtins import length, sin, vec2, vec4
@@ -41,7 +41,7 @@ from py2glsl.builtins import length, sin, vec2, vec4
 PI: float = 3.14159
 
 
-def main(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     """A simple animated plasma shader."""
     # Center UV coordinates
     uv = vs_uv * 2.0 - vec2(1.0, 1.0)

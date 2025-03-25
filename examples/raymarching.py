@@ -21,10 +21,10 @@ Technical highlights:
 
 Example Usage:
     # Interactive preview
-    py2glsl show run examples/raymarching.py
+    py2glsl show run examples/raymarching.py --main shader
 
     # Render image
-    py2glsl image render examples/raymarching.py output.png
+    py2glsl image render examples/raymarching.py output.png --main shader
 
     # Create animation
     py2glsl gif render examples/raymarching.py output.gif --duration 5 --fps 30
@@ -141,7 +141,7 @@ def attenuate(d: float, coeffs: vec3) -> float:
     return 1.0 / (coeffs.x + coeffs.y * d + coeffs.z * d * d)
 
 
-def main(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     """Main shader function."""
     # Screen position
     screen_pos = vs_uv * 2.0 - vec2(1.0, 1.0)
