@@ -1,4 +1,4 @@
-from typing import TypeVar, Union, overload
+from typing import Any, TypeVar, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -8,6 +8,12 @@ T = TypeVar("T", bound=Union[float, "vec2", "vec3", "vec4"])
 VecType = TypeVar("VecType", bound=Union["vec2", "vec3", "vec4"])
 FloatArray = NDArray[np.float32]
 
+# Use Any for Union types in function signatures to maintain compatibility with
+# Python 3.9+
+Vec2Input = Any  # float | "vec2"
+Vec3Input = Any  # float | "vec2" | "vec3"
+Vec4Input = Any  # float | "vec2" | "vec3" | "vec4"
+
 
 # Vector classes
 class vec2:
@@ -15,8 +21,22 @@ class vec2:
     _x: property
     _y: property
 
-    def __init__(self, x: float, y: float):
-        self.data = np.array([x, y], dtype=np.float32)
+    @overload
+    def __init__(self, x: float, y: float): ...
+
+    @overload
+    def __init__(self, x: float): ...
+
+    def __init__(self, x: Vec2Input, y: float | None = None):
+        if isinstance(x, vec2):
+            # Copy constructor
+            self.data = x.data.copy()
+        elif y is None:
+            # Scalar constructor - fills all components with same value
+            self.data = np.array([x, x], dtype=np.float32)
+        else:
+            # Standard constructor
+            self.data = np.array([x, y], dtype=np.float32)
 
     @property
     def x(self) -> float:
@@ -59,8 +79,31 @@ class vec3:
     _y: property
     _z: property
 
-    def __init__(self, x: float, y: float, z: float):
-        self.data = np.array([x, y, z], dtype=np.float32)
+    @overload
+    def __init__(self, x: float, y: float, z: float): ...
+
+    @overload
+    def __init__(self, x: float): ...
+
+    @overload
+    def __init__(self, x: "vec2", y: float): ...
+
+    def __init__(
+        self, x: Vec3Input, y: float | None = None, z: float | None = None
+    ):
+        if isinstance(x, vec3):
+            # Copy constructor
+            self.data = x.data.copy()
+        elif isinstance(x, vec2) and y is not None:
+            # vec2 + scalar constructor
+            self.data = np.array([x.x, x.y, y], dtype=np.float32)
+        elif y is None and z is None:
+            # Scalar constructor - fills all components with same value
+            self.data = np.array([x, x, x], dtype=np.float32)
+        else:
+            # Standard constructor
+            assert y is not None and z is not None, "Missing y or z components"
+            self.data = np.array([x, y, z], dtype=np.float32)
 
     @property
     def x(self) -> float:
@@ -124,8 +167,43 @@ class vec4:
     _z: property
     _w: property
 
-    def __init__(self, x: float, y: float, z: float, w: float):
-        self.data = np.array([x, y, z, w], dtype=np.float32)
+    @overload
+    def __init__(self, x: float, y: float, z: float, w: float): ...
+
+    @overload
+    def __init__(self, x: float): ...
+
+    @overload
+    def __init__(self, x: "vec2", y: float, z: float): ...
+
+    @overload
+    def __init__(self, x: "vec3", y: float): ...
+
+    def __init__(
+        self,
+        x: Vec4Input,
+        y: float | None = None,
+        z: float | None = None,
+        w: float | None = None,
+    ):
+        if isinstance(x, vec4):
+            # Copy constructor
+            self.data = x.data.copy()
+        elif isinstance(x, vec3) and y is not None:
+            # vec3 + scalar constructor
+            self.data = np.array([x.x, x.y, x.z, y], dtype=np.float32)
+        elif isinstance(x, vec2) and y is not None and z is not None:
+            # vec2 + scalar + scalar constructor
+            self.data = np.array([x.x, x.y, y, z], dtype=np.float32)
+        elif y is None and z is None and w is None:
+            # Scalar constructor - fills all components with same value
+            self.data = np.array([x, x, x, x], dtype=np.float32)
+        else:
+            # Standard constructor
+            assert y is not None and z is not None and w is not None, (
+                "Missing components for vec4 construction"
+            )
+            self.data = np.array([x, y, z, w], dtype=np.float32)
 
     @property
     def x(self) -> float:
