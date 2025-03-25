@@ -43,6 +43,9 @@ py2glsl image render plasma.py output.png
 # Create animated GIF
 py2glsl gif render plasma.py animation.gif --duration 5.0
 
+# Specify a particular function to use
+py2glsl show run plasma.py --main plasma
+
 # Export code for Shadertoy
 py2glsl code export plasma.py shadertoy.glsl --target shadertoy --format wrapped
 
@@ -127,6 +130,7 @@ py2glsl show run shader_file.py [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -m, --main TEXT        Specific shader function to use
   -w, --width INTEGER    Window width  [default: 800]
   -h, --height INTEGER   Window height  [default: 600]
   --fps INTEGER          Target framerate (0 for unlimited)  [default: 30]
@@ -139,6 +143,7 @@ py2glsl image render shader_file.py output.png [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -m, --main TEXT        Specific shader function to use
   -w, --width INTEGER    Image width  [default: 800]
   -h, --height INTEGER   Image height  [default: 600]
   --time FLOAT           Time value for the image  [default: 0.0]
@@ -151,6 +156,7 @@ py2glsl video render shader_file.py output.mp4 [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -m, --main TEXT        Specific shader function to use
   -w, --width INTEGER    Video width  [default: 800]
   -h, --height INTEGER   Video height  [default: 600]
   --fps INTEGER          Frames per second  [default: 30]
@@ -167,6 +173,7 @@ py2glsl gif render shader_file.py output.gif [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -m, --main TEXT        Specific shader function to use
   -w, --width INTEGER    GIF width  [default: 800]
   -h, --height INTEGER   GIF height  [default: 600]
   --fps INTEGER          Frames per second  [default: 30]
@@ -181,6 +188,7 @@ py2glsl code export shader_file.py output.glsl [OPTIONS]
 
 Options:
   -t, --target TEXT           Target language (glsl, shadertoy)  [default: glsl]
+  -m, --main TEXT             Specific shader function to use
   -f, --format TEXT           Code format (plain, commented, wrapped)  [default: plain]
   -s, --shadertoy-compatible  Remove Shadertoy built-in uniforms for direct copy-paste
 ```
