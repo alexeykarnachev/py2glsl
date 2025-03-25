@@ -219,14 +219,15 @@ def _setup_rendering_context(
     try:
         yield render_ctx
     finally:
-        _cleanup(
-            render_ctx.ctx,
-            render_ctx.program,
-            render_ctx.vbo,
-            render_ctx.vao,
-            render_ctx.fbo,
-            render_ctx.window,
-        )
+        # Release all OpenGL resources
+        if render_ctx.fbo:
+            render_ctx.fbo.release()
+        render_ctx.vao.release()
+        render_ctx.vbo.release()
+        render_ctx.program.release()
+        render_ctx.ctx.release()
+        if render_ctx.window:
+            glfw.terminate()
 
 
 def _setup_mouse_tracking(
@@ -339,25 +340,6 @@ def _render_frame(params: FrameParams) -> Any | None:
 
     # If rendering to screen or no target, no pixel data to return
     return None
-
-
-def _cleanup(
-    ctx: moderngl.Context,
-    program: moderngl.Program,
-    vbo: moderngl.Buffer,
-    vao: moderngl.VertexArray,
-    fbo: moderngl.Framebuffer | None = None,
-    window: glfw._GLFWwindow | None = None,
-) -> None:
-    """Release rendering resources."""
-    if fbo:
-        fbo.release()
-    vao.release()
-    vbo.release()
-    program.release()
-    ctx.release()
-    if window:
-        glfw.terminate()
 
 
 def _configure_frame_rate(fps: int) -> tuple[float, float]:
