@@ -360,7 +360,108 @@ def _cleanup(
         glfw.terminate()
 
 
-def animate(  # noqa: PLR0915
+def _configure_frame_rate(fps: int) -> tuple[float, float]:
+    """Configure frame rate settings for animation.
+
+    Args:
+        fps: Target frame rate (0 = unlimited)
+
+    Returns:
+        Tuple of (frame_interval, previous_time)
+    """
+    if fps > 0:
+        # Try to use vertical sync if available
+        try:
+            glfw.swap_interval(1)
+            logger.info("Using vsync for frame timing")
+        except Exception:
+            logger.info("Could not set vsync, using manual timing")
+
+        frame_interval = 1.0 / fps
+        logger.info(f"Target FPS: {fps}")
+    else:
+        # Run at maximum speed
+        glfw.swap_interval(0)  # Disable vsync
+        frame_interval = 0
+        logger.info("Target FPS: unlimited")
+
+    # Initial time tracking
+    previous_time = time_module.time()
+    return frame_interval, previous_time
+
+
+def _reload_shader(
+    render_ctx: RenderContext,
+    reload_function: Callable[[], tuple[str, Any]]
+) -> None:
+    """Reload shader during animation.
+
+    Args:
+        render_ctx: Current rendering context
+        reload_function: Function that returns new shader code and backend type
+    """
+    try:
+        # Get new shader code and backend type
+        new_shader_code, new_backend_type = reload_function()
+
+        # Release old program
+        render_ctx.program.release()
+
+        # Create new renderer based on backend type
+        if new_backend_type is not None:
+            from py2glsl.transpiler.backends.models import BackendType
+
+            if new_backend_type == BackendType.SHADERTOY:
+                render_ctx.renderer = ShadertoyOpenGLRenderer()
+            else:
+                render_ctx.renderer = StandardOpenGLRenderer()
+
+        # Recompile program
+        render_ctx.program = _compile_program(
+            render_ctx.ctx, new_shader_code, render_ctx.renderer
+        )
+
+        # Recreate VAO
+        render_ctx.vao.release()
+        _, render_ctx.vao = _setup_primitives(
+            render_ctx.ctx, render_ctx.program
+        )
+
+        logger.info("Shader reloaded successfully")
+    except Exception as e:
+        logger.error(f"Error reloading shader: {e}")
+
+
+def _should_render_frame(
+    fps: int, lag: float, frame_interval: float
+) -> tuple[bool, float]:
+    """Determine if a frame should be rendered based on FPS settings.
+
+    Args:
+        fps: Target frame rate
+        lag: Current lag accumulator
+        frame_interval: Time interval between frames
+
+    Returns:
+        Tuple of (should_render, updated_lag)
+    """
+    if fps <= 0:
+        return True, lag
+
+    if lag < frame_interval:
+        return False, lag
+
+    # Consume a frame worth of time
+    lag -= frame_interval
+
+    # Prevent spiral of death (if rendering is too slow)
+    if lag > frame_interval * 5:
+        lag = 0.0
+
+    return True, lag
+
+
+def animate(
     shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     window_title: str = "GLSL Shader",
@@ -389,97 +490,31 @@ def animate(  # noqa: PLR0915
         window_title=window_title,
         backend_type=backend_type,
     ) as render_ctx:
-        # Setup mouse tracking
+        # Setup mouse tracking and FPS tracking
         mouse_pos, mouse_uv = _setup_mouse_tracking(render_ctx.window, size)
+        frame_count, fps_timer = 0, time_module.time()
 
-        # Animation loop and FPS tracking
-        frame_count = 0
-        fps_timer = time_module.time()
-
-        # For frame rate limiting using fixed time stepping
-        if fps > 0:
-            # Try to use vertical sync if available
-            try:
-                # Set swap interval (1 = vsync, 0 = no vsync)
-                glfw.swap_interval(1)
-                logger.info("Using vsync for frame timing")
-            except Exception:
-                logger.info("Could not set vsync, using manual timing")
-
-            # Enable frame rate limiter
-            frame_interval = 1.0 / fps
-            logger.info(f"Target FPS: {fps}")
-        else:
-            # Run at maximum speed
-            glfw.swap_interval(0)  # Disable vsync
-            frame_interval = 0
-            logger.info("Target FPS: unlimited")
-
-        # Time tracking
-        previous_time = time_module.time()
+        # Configure frame rate
+        frame_interval, previous_time = _configure_frame_rate(fps)
         lag = 0.0
 
+        # Main animation loop
         while not glfw.window_should_close(render_ctx.window):
             # Calculate time delta with fixed time step approach
             current_time = time_module.time()
             elapsed = current_time - previous_time
             previous_time = current_time
-
-            # Add elapsed time to our lag accumulator
             lag += elapsed
 
             # Process input
             glfw.poll_events()
 
-            # Check if we need to reload shader
+            # Reload shader if needed
             if reload_callback and reload_function and reload_callback():
-                try:
-                    # Get new shader code and backend type
-                    new_shader_code, new_backend_type = reload_function()
+                _reload_shader(render_ctx, reload_function)
 
-                    # Release old program
-                    render_ctx.program.release()
-
-                    # Create new renderer based on backend type
-                    if new_backend_type is not None:
-                        from py2glsl.transpiler.backends.models import BackendType
-
-                        if new_backend_type == BackendType.SHADERTOY:
-                            render_ctx.renderer = ShadertoyOpenGLRenderer()
-                        else:
-                            render_ctx.renderer = StandardOpenGLRenderer()
-
-                    # Recompile program
-                    render_ctx.program = _compile_program(
-                        render_ctx.ctx, new_shader_code, render_ctx.renderer
-                    )
-
-                    # Recreate VAO
-                    render_ctx.vao.release()
-                    _, render_ctx.vao = _setup_primitives(
-                        render_ctx.ctx, render_ctx.program
-                    )
-
-                    logger.info("Shader reloaded successfully")
-                except Exception as e:
-                    logger.error(f"Error reloading shader: {e}")
-                    # Continue with old shader
-
-            # Check if we need to limit frame rate
-            should_render = True
-            if fps > 0:
-                # Only render if enough time has passed
-                if lag < frame_interval:
-                    should_render = False
-                else:
-                    # Consume a frame worth of time
-                    lag -= frame_interval
-
-                    # Prevent spiral of death (if rendering is too slow)
-                    if lag > frame_interval * 5:
-                        lag = 0.0
-
-            # Skip rendering if limiting frames
+            # Check if we should render this frame
+            should_render, lag = _should_render_frame(fps, lag, frame_interval)
             if not should_render:
                 continue
 
@@ -488,10 +523,9 @@ def animate(  # noqa: PLR0915
             if current_time - fps_timer >= 1.0:
                 measured_fps = frame_count / (current_time - fps_timer)
                 logger.info(f"FPS: {measured_fps:.2f}")
-                frame_count = 0
-                fps_timer = current_time
+                frame_count, fps_timer = 0, current_time
 
-            # Create frame parameters
+            # Create frame parameters and render
             frame_params = FrameParams(
                 ctx=render_ctx.ctx,
                 program=render_ctx.program,
@@ -504,15 +538,12 @@ def animate(  # noqa: PLR0915
                 mouse_uv=mouse_uv,
                 renderer=render_ctx.renderer,
             )
-
-            # Render frame
             _render_frame(frame_params)
-
             glfw.swap_buffers(render_ctx.window)
 
-            # If we're not on vsync, add a small delay to prevent 100% CPU usage
+            # Small delay to prevent 100% CPU usage when not vsync limited
             if fps <= 0:
-                time_module.sleep(0.001)  # Minimal sleep to prevent hogging CPU
+                time_module.sleep(0.001)
 
 
 def render_array(
