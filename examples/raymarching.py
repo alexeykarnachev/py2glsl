@@ -141,7 +141,7 @@ def attenuate(d: float, coeffs: vec3) -> float:
     return 1.0 / (coeffs.x + coeffs.y * d + coeffs.z * d * d)
 
 
-def simple_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def main(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     """Main shader function."""
     # Screen position
     screen_pos = vs_uv * 2.0 - vec2(1.0, 1.0)

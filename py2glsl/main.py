@@ -230,7 +230,7 @@ def _prepare_transpilation_args(
 def _get_transpiled_shader(
     shader_file: str,
     target: str = "glsl",
-    main_function_name: str = "",
+    main_function_name: str = "main",
 ) -> tuple[str, BackendType, TargetLanguageType]:
     """Transpile a Python shader file to GLSL.
 
