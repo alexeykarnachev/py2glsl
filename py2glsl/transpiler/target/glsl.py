@@ -146,7 +146,8 @@ class GLSLStandardDialect(TargetLanguage):
 
         # Generate each section of the shader
         version_lines = self._generate_version_directive()
-        predefined_uniform_lines, predefined_uniforms = self._generate_predefined_uniforms()
+        result = self._generate_predefined_uniforms()
+        predefined_uniform_lines, predefined_uniforms = result
         user_uniform_lines, user_uniforms = self._generate_uniforms(main_func_info)
 
         # Combine all uniforms
@@ -247,7 +248,10 @@ class GLSLStandardDialect(TargetLanguage):
         for func_name in ordered_functions:
             func_info = collected.functions[func_name]
             is_main = func_name == ordered_functions[0]  # First function is main
-            func_lines = self._generate_function(func_name, func_info, is_main, collected)
+            # Generate the function code
+            func_lines = self._generate_function(
+                func_name, func_info, is_main, collected
+            )
             function_lines.extend(func_lines)
             function_lines.append("")  # Add blank line for readability
 

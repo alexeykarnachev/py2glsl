@@ -11,7 +11,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, cast
 
 import typer
 from loguru import logger
@@ -21,6 +21,16 @@ from py2glsl.render import animate, render_gif, render_image, render_video
 from py2glsl.transpiler import transpile
 from py2glsl.transpiler.backends.models import BackendType
 from py2glsl.transpiler.core.interfaces import TargetLanguageType
+
+# Define type variables for TypedCallable
+F = TypeVar("F", bound=Callable[..., Any])
+
+# TypedCommand decorator helper
+def typed_command(app_command: Any) -> Callable[[F], F]:
+    """Wrap typer command with proper typing for mypy."""
+    def decorator(func: F) -> F:
+        return cast(F, app_command(func))
+    return decorator
 
 app = typer.Typer(
     name="py2glsl",
@@ -56,7 +66,7 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
     """
     # Track global constants with type annotations
     globals_dict: dict[str, Any] = {}
-    
+
     # Track all helper functions
     helper_functions: dict[str, Any] = {}
 
@@ -73,32 +83,33 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
         if inspect.isfunction(obj):
             # Check function signature
             sig = inspect.signature(obj)
-            
+
             # Store all functions with return annotations as potential helpers
             if sig.return_annotation is not inspect.Signature.empty:
                 helper_functions[name] = obj
-                
+
                 # If it returns vec4, it's a potential main function
                 if sig.return_annotation == vec4:
                     # Check if it has standard parameters (vs_uv, u_time, u_aspect)
                     params = list(sig.parameters.keys())
-                    if "vs_uv" in params and "u_time" in params:
-                        # Priority for functions named main_shader, simple_shader, etc.
-                        if name in ["main_shader", "simple_shader", "shader"]:
-                            main_func = obj
-                            logger.info(f"Found main shader function: {name}")
-                            break
+                    # Priority for functions with standard names and parameters
+                    preferred_names = ["main_shader", "simple_shader", "shader"]
+                    has_required_params = "vs_uv" in params and "u_time" in params
+                    if has_required_params and name in preferred_names:
+                        main_func = obj
+                        logger.info(f"Found main shader function: {name}")
+                        break
 
         # Check if it's a global constant with type annotation or a dataclass
         elif (
-            (not callable(obj) and not inspect.ismodule(obj) and 
+            (not callable(obj) and not inspect.ismodule(obj) and
              hasattr(module, "__annotations__") and name in module.__annotations__) or
             hasattr(obj, "__dataclass_fields__")  # Check for dataclasses
         ):
             globals_dict[name] = obj
             logger.info(f"Found global constant: {name} = {obj}")
 
-    # If we didn't find a main function with a preferred name, use any function returning vec4
+    # If no preferred name function is found, use any function returning vec4
     if main_func is None:
         for name, obj in helper_functions.items():
             sig = inspect.signature(obj)
@@ -111,7 +122,7 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
 
     if main_func is None:
         raise ValueError("No suitable shader function found in the module")
-        
+
     # Add all helper functions to the globals dict so they're included in transpilation
     for name, func in helper_functions.items():
         if func != main_func:  # Don't include the main function twice
@@ -199,22 +210,29 @@ def _get_transpiled_shader(
         # Extract functions and other globals for proper transpilation
         function_args = []
         other_globals = {}
-        
+
         for name, item in globals_dict.items():
             # Include only actual functions, not classes or builtins
-            if callable(item) and not name.startswith("__") and not isinstance(item, type):
+            is_callable = callable(item) and not name.startswith("__")
+            if is_callable and not isinstance(item, type):
                 # Only include user-defined functions, not builtins
-                if hasattr(item, "__module__") and not item.__module__.startswith("py2glsl.builtins"):
+                has_module = hasattr(item, "__module__")
+                if has_module:
+                    is_builtin = item.__module__.startswith("py2glsl.builtins")
+                else:
+                    is_builtin = False
+                not_builtin = has_module and not is_builtin
+                if not_builtin:
                     function_args.append(item)
             else:
                 other_globals[name] = item
-        
+
         # The main function should be first in the list for proper processing
         if main_func not in function_args:
             function_args.insert(0, main_func)
-            
+
         logger.info(f"Including functions: {[func.__name__ for func in function_args]}")
-            
+
         glsl_code, used_uniforms = transpile(
             *function_args,
             main_func=main_func.__name__,
@@ -250,7 +268,7 @@ def _get_size(width: int, height: int) -> tuple[int, int]:
     return (width, height)
 
 
-@show_app.command("run")
+@typed_command(show_app.command("run"))
 def show_shader(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
@@ -279,12 +297,15 @@ def show_shader(
     )
 
 
-@image_app.command("render")
+# Define reusable argument
+OUTPUT_IMAGE_ARG = typer.Argument(..., help="Output image file path")
+
+@typed_command(image_app.command("render"))
 def render_shader_image(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
     ),
-    output: Path = typer.Argument(..., help="Output image file path"),
+    output: Path = OUTPUT_IMAGE_ARG,
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
@@ -311,12 +332,15 @@ def render_shader_image(
     logger.info(f"Image saved to {output}")
 
 
-@video_app.command("render")
+# Define reusable argument
+OUTPUT_VIDEO_ARG = typer.Argument(..., help="Output video file path")
+
+@typed_command(video_app.command("render"))
 def render_shader_video(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
     ),
-    output: Path = typer.Argument(..., help="Output video file path"),
+    output: Path = OUTPUT_VIDEO_ARG,
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
@@ -353,12 +377,15 @@ def render_shader_video(
     logger.info(f"Video saved to {output}")
 
 
-@gif_app.command("render")
+# Define reusable argument
+OUTPUT_GIF_ARG = typer.Argument(..., help="Output GIF file path")
+
+@typed_command(gif_app.command("render"))
 def render_shader_gif(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
     ),
-    output: Path = typer.Argument(..., help="Output GIF file path"),
+    output: Path = OUTPUT_GIF_ARG,
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
@@ -495,15 +522,18 @@ def _format_shader_code(
 
 
 # Functions above are useful - they improve code organization
-# But we don't need shared variables for the CLI arguments
+# But we need to use variables for the CLI arguments to avoid B008 warnings
 
 
-@code_app.command("export")
+# Define reusable argument
+OUTPUT_CODE_ARG = typer.Argument(..., help="Output code file path")
+
+@typed_command(code_app.command("export"))
 def export_shader_code(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
     ),
-    output: Path = typer.Argument(..., help="Output code file path"),
+    output: Path = OUTPUT_CODE_ARG,
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),

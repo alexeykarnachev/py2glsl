@@ -289,19 +289,19 @@ def generate_call_expr(
     # Handle struct constructors - both for direct struct name and imported classes
     if func_name in collected.structs:
         return generate_struct_constructor(func_name, node, symbols, collected)
-    
+
     # Check if it might be a struct constructor for a struct passed as a kwarg
     # This is needed for handling dataclass instances passed as kwargs
-    for name, struct_def in collected.structs.items():
+    for _, struct_def in collected.structs.items():
         # If the function name matches any struct's name, it's a struct constructor
         if func_name == struct_def.name:
             return generate_struct_constructor(func_name, node, symbols, collected)
-            
+
     # Handle regular function calls
     if func_name in collected.functions or func_name in BUILTIN_FUNCTIONS:
         args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
         return f"{func_name}({', '.join(args)})"
-        
+
     # If we get here, it's an unknown function call
     raise TranspilerError(f"Unknown function call: {func_name}")
 

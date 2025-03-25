@@ -22,18 +22,19 @@ Technical highlights:
 Example Usage:
     # Interactive preview
     py2glsl show run examples/raymarching.py
-    
+
     # Render image
     py2glsl image render examples/raymarching.py output.png
-    
+
     # Create animation
     py2glsl gif render examples/raymarching.py output.gif --duration 5 --fps 30
-    
+
     # Export code for use in external renderers
     py2glsl code export examples/raymarching.py output.glsl
-    
+
     # Export code for Shadertoy
-    py2glsl code export examples/raymarching.py shadertoy.glsl --target shadertoy --shadertoy-compatible
+    py2glsl code export examples/raymarching.py shadertoy.glsl --target shadertoy \
+        --shadertoy-compatible
 """
 
 from dataclasses import dataclass

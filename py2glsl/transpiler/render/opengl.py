@@ -89,11 +89,13 @@ void main() {
         result["iFrame"] = self._frame_count
         self._frame_count += 1
 
-        # Date and time (simplified)
+        # Setup date/time for Shadertoy compatibility
         from datetime import datetime
 
         now = datetime.now()
-        secs = (now.hour * 3600 + now.minute * 60 + now.second + now.microsecond / 1000000)
+        # Convert time to seconds since midnight
+        secs = (now.hour * 3600 + now.minute * 60 + now.second +
+               now.microsecond / 1000000)
         result["iDate"] = (now.year, now.month, now.day, secs)
 
         # Other defaults

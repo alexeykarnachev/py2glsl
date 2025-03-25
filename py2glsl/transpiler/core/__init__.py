@@ -15,3 +15,16 @@ from py2glsl.transpiler.core.interfaces import (
     TargetLanguageType,
     TypeMapping,
 )
+
+# Define what's available for import from this package
+__all__ = [
+    "DependencyResolver",
+    "SymbolTable",
+    "LanguageAdapter",
+    "LanguageConfig",
+    "RenderInterface",
+    "SymbolMapper",
+    "TargetLanguage",
+    "TargetLanguageType",
+    "TypeMapping",
+]

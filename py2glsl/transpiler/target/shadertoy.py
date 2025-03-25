@@ -66,7 +66,7 @@ class ShadertoyGLSLDialect(GLSLStandardDialect):
     def _generate_uniforms(
         self, main_func_info: FunctionInfo
     ) -> tuple[list[str], set[str]]:
-        """Generate uniform declarations, mapping to Shadertoy uniforms where applicable."""
+        """Generate uniform declarations with Shadertoy mapping."""
         lines = []
         used_uniforms = set()
 
@@ -76,7 +76,7 @@ class ShadertoyGLSLDialect(GLSLStandardDialect):
 
             # Check if this is a Shadertoy mapped uniform
             if arg.arg in self.uniform_mapping:
-                # We don't declare it as a uniform because it's already in the predefined set
+                # Skip declaration - already in the predefined Shadertoy uniforms
                 used_uniforms.add(arg.arg)
             else:
                 # Regular uniform
