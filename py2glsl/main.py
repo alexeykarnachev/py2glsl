@@ -513,6 +513,7 @@ def _prepare_shadertoy_code(code: str) -> str:
     1. Shadertoy built-in uniforms
     2. GLSL version statements (#version)
     3. Precision statements (precision mediump float, etc.)
+    4. Excess empty lines at beginning and end
 
     Args:
         code: Source code
@@ -537,6 +538,18 @@ def _prepare_shadertoy_code(code: str) -> str:
             continue
 
         filtered_lines.append(line)
+
+    # Clean up excess whitespace at beginning and end
+    # First remove leading empty lines
+    while filtered_lines and filtered_lines[0].strip() == "":
+        filtered_lines.pop(0)
+
+    # Then remove trailing empty lines
+    while filtered_lines and filtered_lines[-1].strip() == "":
+        filtered_lines.pop()
+
+    # Add a single empty line at the end for clean formatting
+    filtered_lines.append("")
 
     return "\n".join(filtered_lines)
 
