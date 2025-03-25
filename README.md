@@ -190,7 +190,7 @@ Options:
   -t, --target TEXT           Target language (glsl, shadertoy)  [default: glsl]
   -m, --main TEXT             Specific shader function to use
   -f, --format TEXT           Code format (plain, commented, wrapped)  [default: plain]
-  -s, --shadertoy-compatible  Remove Shadertoy built-in uniforms for direct copy-paste
+  -s, --shadertoy-compatible  Process code for direct Shadertoy paste (removes version and uniforms)
 ```
 
 ## Library Usage

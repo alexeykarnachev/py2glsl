@@ -506,21 +506,38 @@ SHADERTOY_UNIFORMS = [
 ]
 
 
-def _remove_shadertoy_uniforms(code: str) -> str:
-    """Remove Shadertoy built-in uniforms from code.
+def _prepare_shadertoy_code(code: str) -> str:
+    """Prepare GLSL code for Shadertoy by removing unnecessary elements.
+
+    Removes:
+    1. Shadertoy built-in uniforms
+    2. GLSL version statements (#version)
+    3. Precision statements (precision mediump float, etc.)
 
     Args:
         code: Source code
 
     Returns:
-        Code with Shadertoy uniforms removed
+        Code ready for direct copy-pasting to Shadertoy
     """
     lines = code.split("\n")
-    filtered_lines = [
-        line
-        for line in lines
-        if not any(uniform in line for uniform in SHADERTOY_UNIFORMS)
-    ]
+    filtered_lines = []
+
+    for line in lines:
+        # Skip lines containing Shadertoy built-in uniforms
+        if any(uniform in line for uniform in SHADERTOY_UNIFORMS):
+            continue
+
+        # Skip version statements
+        if line.strip().startswith("#version"):
+            continue
+
+        # Skip precision statements
+        if line.strip().startswith("precision "):
+            continue
+
+        filtered_lines.append(line)
+
     return "\n".join(filtered_lines)
 
 
@@ -574,9 +591,9 @@ def _format_shader_code(
     """
     formatted_code = code
 
-    # Process for Shadertoy compatibility - remove uniform declarations
+    # Process for Shadertoy compatibility - prepare code for copy-pasting
     if shadertoy_compatible and target_type == TargetLanguageType.SHADERTOY:
-        formatted_code = _remove_shadertoy_uniforms(formatted_code)
+        formatted_code = _prepare_shadertoy_code(formatted_code)
 
     # Add header comments if requested
     if format_type in ("commented", "wrapped"):
@@ -617,7 +634,7 @@ def export_shader_code(
         False,
         "--shadertoy-compatible",
         "-s",
-        help="Remove Shadertoy built-in uniforms for direct copy-paste",
+        help="Process code for direct Shadertoy paste (removes version and uniforms)",
     ),
 ) -> None:
     """Export shader code to file for copy-pasting."""
@@ -652,10 +669,10 @@ def export_shader_code(
     if target_type == TargetLanguageType.SHADERTOY:
         if shadertoy_compatible:
             logger.info(
-                "✓ Ready for direct copy-pasting to Shadertoy (uniforms removed)"
+                "✓ Ready for direct Shadertoy paste (version and uniforms removed)"
             )
         else:
-            logger.info("✓ Ready for copy-pasting to Shadertoy")
+            logger.info("✓ Ready for Shadertoy (requires manual edits)")
     else:
         logger.info("✓ Ready for use with OpenGL/WebGL")
 
