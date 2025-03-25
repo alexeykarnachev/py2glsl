@@ -140,6 +140,7 @@ BUILTIN_FUNCTIONS: dict[str, Any] = {
     "vec4": [
         ("vec4", ["float", "float", "float", "float"]),
         ("vec4", ["vec3", "float"]),
+        ("vec4", ["vec2", "float", "float"]),  # vec2 + 2 floats
         ("vec4", ["vec2", "vec2"]),
         ("vec4", ["float"]),  # Same value for all components
     ],

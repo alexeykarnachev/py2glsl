@@ -339,6 +339,7 @@ def transpile(
         )
 
     # Validate helper functions have return type annotations
+    # Only non-main functions require return type annotations
     for func_name, func_info in collected.functions.items():
         if func_name != effective_main_func and func_info.return_type is None:
             raise TranspilerError(

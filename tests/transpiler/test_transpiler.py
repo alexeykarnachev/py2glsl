@@ -106,6 +106,28 @@ class TestTranspile:
         ):
             transpile(helper, main_shader, main_func="main_shader")
 
+    def test_transpile_main_without_return_type(self):
+        """Test that main shader function without return type works.
+
+        This tests the functionality to make return type annotations optional
+        for the main shader function.
+        """
+        # Arrange
+        def helper(x: "float") -> "float":
+            return x * 2.0
+
+        def main_shader(vs_uv: "vec2"):  # No return type annotation
+            value = helper(vs_uv.x)
+            return vec4(value, 0.0, 0.0, 1.0)  # type: ignore
+
+        # Act - this should not raise an error
+        glsl_code, uniforms = transpile(helper, main_shader, main_func="main_shader")
+
+        # Assert
+        assert "float helper(float x)" in glsl_code
+        assert "vec4 main_shader(vec2 vs_uv)" in glsl_code  # Should be inferred as vec4
+        assert "return vec4(value, 0.0, 0.0, 1.0);" in glsl_code
+
     def test_transpile_unsupported_item(self):
         """Test that unsupported items raise an error."""
         # Arrange - int is not a valid item for transpilation

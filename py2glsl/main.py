@@ -8,12 +8,15 @@ import importlib.util
 import inspect
 import os
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import arrow
 import typer
+import watchdog.events
+import watchdog.observers
 from loguru import logger
 
 from py2glsl.builtins import vec4
@@ -38,23 +41,14 @@ def typed_command(app_command: Any) -> Callable[[F], F]:
 
 app = typer.Typer(
     name="py2glsl",
-    help="Transform Python functions into GLSL shaders with zero boilerplate.",
+    help=(
+        "Transform Python functions into GLSL shaders. "
+        "Commands: show, watch, render-image, render-video, render-gif, export-code."
+    ),
     add_completion=False,
 )
 
-# Create subcommands for different output formats
-show_app = typer.Typer(help="Run interactive shader preview")
-image_app = typer.Typer(help="Render shader to static image")
-video_app = typer.Typer(help="Render shader to video file")
-gif_app = typer.Typer(help="Render shader to animated GIF")
-code_app = typer.Typer(help="Export shader code to file")
-
-# Add the subcommands
-app.add_typer(show_app, name="show")
-app.add_typer(image_app, name="image")
-app.add_typer(video_app, name="video")
-app.add_typer(gif_app, name="gif")
-app.add_typer(code_app, name="code")
+# Typer doesn't support custom help text this way, need to use its built-in mechanisms
 
 
 def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, Any]]:
@@ -91,13 +85,17 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
             # Check function signature
             sig = inspect.signature(obj)
 
-            # Store all functions with return annotations as potential helpers
-            if sig.return_annotation is not inspect.Signature.empty:
-                # If it returns vec4, it's a potential main function
-                if sig.return_annotation == vec4:
-                    vec4_functions[name] = obj
-                else:
-                    helper_functions[name] = obj
+            # Check if it's a potential shader function
+            if sig.return_annotation == vec4:
+                # It returns vec4, definitely a shader function
+                vec4_functions[name] = obj
+            elif sig.return_annotation is inspect.Signature.empty:
+                # No return annotation, could be a shader function
+                # We'll accept this as a possible shader function
+                vec4_functions[name] = obj
+            else:
+                # Has non-vec4 annotation, must be a helper
+                helper_functions[name] = obj
 
         # Check if it's a global constant with type annotation or a dataclass
         elif (
@@ -273,13 +271,18 @@ def _get_transpiled_shader(
                 func = getattr(shader_module, main_function_name)
                 if inspect.isfunction(func):
                     sig = inspect.signature(func)
-                    if sig.return_annotation == vec4:
+                    # Accept any function that either has a vec4 return annotation
+                    # or has no return annotation but from context might return vec4
+                    if sig.return_annotation in {vec4, inspect.Signature.empty}:
                         main_func = func
                         # We still need to collect other functions and globals
                         _, globals_dict = _find_shader_function(shader_module)
                         logger.info(f"Using specified function: {main_function_name}")
                     else:
-                        msg = f"Function '{main_function_name}' must return vec4"
+                        msg = (
+                            f"Function '{main_function_name}' must return vec4 "
+                            "or have no return type annotation"
+                        )
                         raise ValueError(msg)
                 else:
                     msg = f"'{main_function_name}' is not a function"
@@ -338,7 +341,7 @@ def _get_size(width: int, height: int) -> tuple[int, int]:
     return (width, height)
 
 
-@typed_command(show_app.command("run"))
+@typed_command(app.command("show"))
 def show_shader(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
@@ -353,7 +356,13 @@ def show_shader(
     height: int = typer.Option(600, "--height", "-h", help="Window height"),
     fps: int = typer.Option(30, "--fps", help="Target framerate (0 for unlimited)"),
 ) -> None:
-    """Run interactive shader preview."""
+    """Display shader in an interactive window.
+
+    The shader will run in realtime in a window, with the ability to close
+    with ESC key.
+
+    Example: py2glsl show examples/shader.py
+    """
     # Get transpiled shader (error handling is inside the function)
     code = _get_transpiled_shader(shader_file, target, main_function)
     glsl_code, backend_type, _ = code
@@ -371,11 +380,174 @@ def show_shader(
     )
 
 
+class ShaderChangeHandler(watchdog.events.FileSystemEventHandler):
+    """Event handler for shader file changes."""
+
+    def __init__(
+        self,
+        shader_file: str,
+        target: str,
+        main_function: str,
+        width: int,
+        height: int,
+        fps: int,
+    ):
+        """Initialize shader change handler.
+
+        Args:
+            shader_file: Path to shader file
+            target: Target language
+            main_function: Main function name
+            width: Window width
+            height: Window height
+            fps: Target framerate
+        """
+        self.shader_file = shader_file
+        self.target = target
+        self.main_function = main_function
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.is_running = False
+        self.needs_reload = False
+
+    def on_modified(self, event: watchdog.events.FileSystemEvent) -> None:
+        """Handle file modified event.
+
+        Args:
+            event: File system event
+        """
+        if event.src_path == os.path.abspath(self.shader_file):
+            logger.info(f"Detected changes in {self.shader_file}")
+            self.needs_reload = True
+
+    def run_shader(self) -> None:
+        """Run the shader and reload on changes."""
+        self.is_running = True
+
+        try:
+            # First time - try to transpile and run
+            try:
+                code = _get_transpiled_shader(
+                    self.shader_file, self.target, self.main_function
+                )
+                glsl_code, backend_type, _ = code
+
+                # Set output size
+                size = _get_size(self.width, self.height)
+
+                # Run animation with auto-reload
+                logger.info(
+                    f"Running shader in watch mode at {self.fps}fps "
+                    "(press ESC to exit, shader will reload on file changes)..."
+                )
+
+                # Run with auto-reload callback
+                def should_reload() -> bool:
+                    if self.needs_reload:
+                        self.needs_reload = False
+                        return True
+                    return False
+
+                animate(
+                    shader_input=glsl_code,
+                    backend_type=backend_type,
+                    size=size,
+                    fps=self.fps,
+                    reload_callback=should_reload,
+                    reload_function=lambda: self._reload_shader(),
+                )
+            except Exception as e:
+                logger.error(f"Error running shader: {e}")
+                # Wait for file changes
+                while self.is_running and not self.needs_reload:
+                    time.sleep(0.1)
+
+                if self.needs_reload:
+                    self.needs_reload = False
+                    self.run_shader()  # Recursive call to retry
+        except KeyboardInterrupt:
+            self.is_running = False
+        finally:
+            self.is_running = False
+
+    def _reload_shader(self) -> tuple[str, BackendType]:
+        """Reload the shader.
+
+        Returns:
+            Tuple of (GLSL code, backend type)
+        """
+        try:
+            logger.info(f"Reloading shader from {self.shader_file}")
+            code = _get_transpiled_shader(
+                self.shader_file, self.target, self.main_function
+            )
+            glsl_code, backend_type, _ = code
+            return glsl_code, backend_type
+        except Exception as e:
+            logger.error(f"Error reloading shader: {e}")
+            # Return empty shader that won't crash but will display an error message
+            error_shader = """
+            void main() {
+                gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);  // Red to indicate error
+            }
+            """
+            return error_shader, BackendType.STANDARD
+
+
+@typed_command(app.command("watch"))
+def watch_shader(
+    shader_file: str = typer.Argument(
+        ..., help="Python file containing shader functions"
+    ),
+    target: str = typer.Option(
+        "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
+    ),
+    main_function: str = typer.Option(
+        "", "--main", "-m", help="Specific shader function to use"
+    ),
+    width: int = typer.Option(800, "--width", "-w", help="Window width"),
+    height: int = typer.Option(600, "--height", "-h", help="Window height"),
+    fps: int = typer.Option(30, "--fps", help="Target framerate (0 for unlimited)"),
+) -> None:
+    """Watch shader file and auto-reload on changes.
+
+    Monitors the shader file and automatically reloads it when changes are
+    detected, without having to restart the application.
+
+    Example: py2glsl watch examples/shader.py
+    """
+    # Create file system observer for auto-reload
+    observer = watchdog.observers.Observer()
+
+    # Get absolute path
+    abs_shader_file = os.path.abspath(shader_file)
+
+    # Create handler
+    handler = ShaderChangeHandler(
+        abs_shader_file, target, main_function, width, height, fps
+    )
+
+    # Watch the file's directory, not the file itself
+    directory = os.path.dirname(abs_shader_file)
+    observer.schedule(handler, path=directory, recursive=False)
+    observer.start()
+
+    try:
+        # Run the shader (will reload on changes)
+        handler.run_shader()
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received, stopping...")
+    finally:
+        observer.stop()
+        observer.join()
+
+
 # Define reusable argument
 OUTPUT_IMAGE_ARG = typer.Argument(..., help="Output image file path")
 
 
-@typed_command(image_app.command("render"))
+@typed_command(app.command("render-image"))
 def render_shader_image(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
@@ -391,7 +563,12 @@ def render_shader_image(
     height: int = typer.Option(600, "--height", "-h", help="Image height"),
     time: float = typer.Option(0.0, "--time", help="Time value for the image"),
 ) -> None:
-    """Render shader to static image."""
+    """Render shader to static image file.
+
+    Creates a still image at a specific time value.
+
+    Example: py2glsl render-image examples/shader.py output.png --time 1.5
+    """
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
     glsl_code, backend_type, _ = code
@@ -415,7 +592,7 @@ def render_shader_image(
 OUTPUT_VIDEO_ARG = typer.Argument(..., help="Output video file path")
 
 
-@typed_command(video_app.command("render"))
+@typed_command(app.command("render-video"))
 def render_shader_video(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
@@ -437,7 +614,12 @@ def render_shader_video(
     codec: str = typer.Option("h264", "--codec", help="Video codec (h264, vp9, etc.)"),
     quality: int = typer.Option(8, "--quality", "-q", help="Video quality (0-10)"),
 ) -> None:
-    """Render shader to video."""
+    """Render shader to video file.
+
+    Creates a video animation of the shader running over time.
+
+    Example: py2glsl render-video examples/shader.py output.mp4 --duration 10
+    """
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
     glsl_code, backend_type, _ = code
@@ -465,7 +647,7 @@ def render_shader_video(
 OUTPUT_GIF_ARG = typer.Argument(..., help="Output GIF file path")
 
 
-@typed_command(gif_app.command("render"))
+@typed_command(app.command("render-gif"))
 def render_shader_gif(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
@@ -485,7 +667,12 @@ def render_shader_gif(
         0.0, "--time-offset", help="Starting time for animation"
     ),
 ) -> None:
-    """Render shader to animated GIF."""
+    """Render shader to animated GIF file.
+
+    Creates an animated GIF of the shader running over time.
+
+    Example: py2glsl render-gif examples/shader.py output.gif --fps 15
+    """
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
     glsl_code, backend_type, _ = code
@@ -679,7 +866,7 @@ def _format_shader_code(
 OUTPUT_CODE_ARG = typer.Argument(..., help="Output code file path")
 
 
-@typed_command(code_app.command("export"))
+@typed_command(app.command("export-code"))
 def export_shader_code(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
@@ -701,7 +888,12 @@ def export_shader_code(
         help="Process code for direct Shadertoy paste (removes version and uniforms)",
     ),
 ) -> None:
-    """Export shader code to file for copy-pasting."""
+    """Export shader to GLSL code file.
+
+    Transpiles the Python shader to GLSL and exports the result to a file.
+
+    Example: py2glsl export-code examples/shader.py shader.glsl --target shadertoy
+    """
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
     glsl_code, _, target_type = code

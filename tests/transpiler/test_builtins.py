@@ -4,6 +4,102 @@ from py2glsl.builtins import length, mix, smoothstep, vec2, vec3, vec4
 from py2glsl.transpiler import transpile
 
 
+class TestVectorConstruction:
+    """Test cases for flexible vector construction."""
+
+    def test_vec2_scalar_constructor(self):
+        """Test vec2 constructor with a single scalar value."""
+        # Arrange
+        def shader() -> "vec4":
+            v = vec2(0.5)  # One scalar parameter = same value for all components
+            return vec4(v.x, v.y, 0.0, 1.0)  # type: ignore
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "vec2 v = vec2(0.5);" in glsl_code
+
+    def test_vec3_scalar_constructor(self):
+        """Test vec3 constructor with a single scalar value."""
+        # Arrange
+        def shader() -> "vec4":
+            v = vec3(0.7)  # One scalar parameter = same value for all components
+            return vec4(v.x, v.y, v.z, 1.0)  # type: ignore
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "vec3 v = vec3(0.7);" in glsl_code
+
+    def test_vec3_vec2_float_constructor(self):
+        """Test vec3 constructor with vec2 and float parameters."""
+        # Arrange
+        def shader() -> "vec4":
+            v2 = vec2(0.1, 0.2)  # type: ignore
+            v3 = vec3(v2, 0.3)  # vec2 + float
+            return vec4(v3, 1.0)  # type: ignore
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "vec3 v3 = vec3(v2, 0.3);" in glsl_code
+
+    def test_vec4_scalar_constructor(self):
+        """Test vec4 constructor with a single scalar value."""
+        # Arrange
+        def shader() -> "vec4":
+            return vec4(0.5)  # One scalar parameter = same value for all components
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "return vec4(0.5);" in glsl_code
+
+    def test_vec4_vec2_floats_constructor(self):
+        """Test vec4 constructor with vec2 and two float parameters."""
+        # Arrange
+        def shader() -> "vec4":
+            uv = vec2(0.1, 0.2)  # type: ignore
+            return vec4(uv, 0.3, 1.0)  # vec2 + float + float
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "return vec4(uv, 0.3, 1.0);" in glsl_code
+
+    def test_vec4_vec3_float_constructor(self):
+        """Test vec4 constructor with vec3 and float parameters."""
+        # Arrange
+        def shader() -> "vec4":
+            v3 = vec3(0.1, 0.2, 0.3)  # type: ignore
+            return vec4(v3, 1.0)  # vec3 + float
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "return vec4(v3, 1.0);" in glsl_code
+
+    def test_vec4_vec2_vec2_constructor(self):
+        """Test vec4 constructor with two vec2 parameters."""
+        # Arrange
+        def shader() -> "vec4":
+            v2a = vec2(0.1, 0.2)  # type: ignore
+            v2b = vec2(0.3, 1.0)  # type: ignore
+            return vec4(v2a, v2b)  # vec2 + vec2
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "return vec4(v2a, v2b);" in glsl_code
+
+
 class TestBuiltinFunctions:
     """Test cases for GLSL builtin functions with overloaded signatures."""
 

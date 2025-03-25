@@ -49,8 +49,6 @@ class FrameParams:
     renderer: RenderInterface | None = None
 
 
-
-
 def _init_glfw(
     size: tuple[int, int],
     windowed: bool,
@@ -183,6 +181,7 @@ def _setup_rendering_context(
     # Prepare shader code
     if callable(shader_input):
         from py2glsl.transpiler import transpile
+
         glsl_code, _ = transpile(shader_input, target_type=target_type)
     else:
         glsl_code = shader_input
@@ -368,6 +367,8 @@ def animate(
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     backend_type: Any = None,
     fps: int = 0,  # 0 means unlimited
+    reload_callback: Callable[[], bool] | None = None,
+    reload_function: Callable[[], tuple[str, Any]] | None = None,
 ) -> None:
     """Run a real-time shader animation in a window.
 
@@ -378,6 +379,8 @@ def animate(
         uniforms: Additional uniform values to pass to the shader
         backend_type: Backend type (e.g., BackendType.SHADERTOY)
         fps: Target frame rate (0 = unlimited)
+        reload_callback: Function that returns True when shader should be reloaded
+        reload_function: Function that returns new shader code and backend type
     """
     with _setup_rendering_context(
         shader_input,
@@ -428,6 +431,40 @@ def animate(
             # Process input
             glfw.poll_events()
 
+            # Check if we need to reload shader
+            if reload_callback and reload_function and reload_callback():
+                try:
+                    # Get new shader code and backend type
+                    new_shader_code, new_backend_type = reload_function()
+
+                    # Release old program
+                    render_ctx.program.release()
+
+                    # Create new renderer based on backend type
+                    if new_backend_type is not None:
+                        from py2glsl.transpiler.backends.models import BackendType
+
+                        if new_backend_type == BackendType.SHADERTOY:
+                            render_ctx.renderer = ShadertoyOpenGLRenderer()
+                        else:
+                            render_ctx.renderer = StandardOpenGLRenderer()
+
+                    # Recompile program
+                    render_ctx.program = _compile_program(
+                        render_ctx.ctx, new_shader_code, render_ctx.renderer
+                    )
+
+                    # Recreate VAO
+                    render_ctx.vao.release()
+                    _, render_ctx.vao = _setup_primitives(
+                        render_ctx.ctx, render_ctx.program
+                    )
+
+                    logger.info("Shader reloaded successfully")
+                except Exception as e:
+                    logger.error(f"Error reloading shader: {e}")
+                    # Continue with old shader
+
             # Check if we need to limit frame rate
             should_render = True
             if fps > 0:
@@ -465,6 +502,7 @@ def animate(
                 uniforms=uniforms,
                 mouse_pos=mouse_pos,
                 mouse_uv=mouse_uv,
+                renderer=render_ctx.renderer,
             )
 
             # Render frame
@@ -549,10 +587,7 @@ def render_image(
     logger.info("Rendering to image")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         # Create frame parameters
         frame_params = FrameParams(
@@ -604,10 +639,7 @@ def render_gif(
     logger.info("Rendering to GIF")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         num_frames = int(duration * fps)
         raw_frames: list[Any] = []
@@ -681,10 +713,7 @@ def render_video(
     logger.info(f"Rendering to video file {output_path} with {codec} codec")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         writer = imageio.get_writer(
             output_path,

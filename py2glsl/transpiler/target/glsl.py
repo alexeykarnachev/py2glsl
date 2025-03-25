@@ -244,10 +244,14 @@ class GLSLStandardDialect(TargetLanguage):
         lines = [""]  # Start with blank line for readability
         function_lines = []
 
+        # Main function is the first one in the ordered list
+        main_func_name = ordered_functions[0]
+
         # Generate functions in dependency order
         for func_name in ordered_functions:
             func_info = collected.functions[func_name]
-            is_main = func_name == ordered_functions[0]  # First function is main
+            # Mark a function as main if it's the designated main function
+            is_main = func_name == main_func_name
             # Generate the function code
             func_lines = self._generate_function(
                 func_name, func_info, is_main, collected
@@ -275,6 +279,7 @@ class GLSLStandardDialect(TargetLanguage):
             )
 
         # Default to vec4 for main function without return type
+        # This allows shader functions to omit the return type annotation
         effective_return_type = (
             "vec4" if is_main and not func_info.return_type else func_info.return_type
         )

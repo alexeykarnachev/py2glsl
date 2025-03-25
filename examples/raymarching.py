@@ -1,42 +1,3 @@
-"""3D Ray Marching Example
-
-This example demonstrates a ray marching technique to render 3D scenes with py2glsl.
-Ray marching is an advanced technique that shoots rays from a camera and "marches"
-along them in small steps until hitting a surface, making it possible to render
-complex scenes with signed distance functions (SDFs).
-
-Key concepts demonstrated:
-1. Dataclass-based struct definition with RayMarchResult
-2. Complex function dependencies (march -> get_sd_shape -> attenuate)
-3. Global constants for configuration
-4. Proper ray casting with camera matrices
-5. Surface normal calculation using central differences
-6. Distance-based attenuation for lighting effects
-
-Technical highlights:
-- Animated camera path that orbits the scene
-- Proper perspective projection
-- Rounded box SDF implementation
-- Normal-based coloring with distance attenuation
-
-Example Usage:
-    # Interactive preview
-    py2glsl show run examples/raymarching.py --main shader
-
-    # Render image
-    py2glsl image render examples/raymarching.py output.png --main shader
-
-    # Create animation
-    py2glsl gif render examples/raymarching.py output.gif --duration 5 --fps 30
-
-    # Export code for use in external renderers
-    py2glsl code export examples/raymarching.py output.glsl
-
-    # Export code for Shadertoy
-    py2glsl code export examples/raymarching.py shadertoy.glsl --target shadertoy \
-        --shadertoy-compatible
-"""
-
 from dataclasses import dataclass
 
 from py2glsl.builtins import (
@@ -65,7 +26,6 @@ NORMAL_DERIVATIVE_STEP: float = 0.015
 
 @dataclass
 class RayMarchResult:
-    """Result of a ray marching operation."""
 
     steps: int
     p: vec3
@@ -80,14 +40,12 @@ class RayMarchResult:
 
 
 def get_sd_shape(p: vec3) -> float:
-    """Calculate signed distance to a rounded box shape."""
     # Rounded box SDF
     d = length(max(abs(p) - vec3(1.0, 1.0, 1.0), vec3(0.0, 0.0, 0.0))) - 0.2
     return d
 
 
 def march(ro: vec3, rd: vec3) -> RayMarchResult:
-    """Perform ray marching from origin along direction."""
     # Initialize result
     rm = RayMarchResult(
         steps=0,
@@ -137,12 +95,10 @@ def march(ro: vec3, rd: vec3) -> RayMarchResult:
 
 
 def attenuate(d: float, coeffs: vec3) -> float:
-    """Apply attenuation based on distance."""
     return 1.0 / (coeffs.x + coeffs.y * d + coeffs.z * d * d)
 
 
 def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
-    """Main shader function."""
     # Screen position
     screen_pos = vs_uv * 2.0 - vec2(1.0, 1.0)
     screen_pos.x *= u_aspect

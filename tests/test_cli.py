@@ -41,28 +41,59 @@ def test_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "Transform Python functions into GLSL shaders" in result.stdout
+    # Check new commands are listed
+    assert "show" in result.stdout
+    assert "watch" in result.stdout
+    assert "render-image" in result.stdout
+    assert "render-video" in result.stdout
+    assert "render-gif" in result.stdout
+    assert "export-code" in result.stdout
 
 
 def test_show_help():
-    """Test that the show subcommand help works."""
+    """Test that the show command help works."""
     result = runner.invoke(app, ["show", "--help"])
     assert result.exit_code == 0
-    assert "Run interactive shader preview" in result.stdout
+    assert "Display shader in an interactive window" in result.stdout
 
 
-def test_image_help():
-    """Test that the image subcommand help works."""
-    result = runner.invoke(app, ["image", "--help"])
+def test_watch_help():
+    """Test that the watch command help works."""
+    result = runner.invoke(app, ["watch", "--help"])
     assert result.exit_code == 0
-    assert "Render shader to static image" in result.stdout
+    assert "Watch shader file and auto-reload on changes" in result.stdout
 
-    result = runner.invoke(app, ["image", "render", "--help"])
+
+def test_render_image_help():
+    """Test that the render-image command help works."""
+    result = runner.invoke(app, ["render-image", "--help"])
     assert result.exit_code == 0
-    assert "Python file containing shader functions" in result.stdout
+    assert "Render shader to static image file" in result.stdout
 
 
-def test_code_export(sample_shader_file):
-    """Test code export functionality."""
+def test_render_video_help():
+    """Test that the render-video command help works."""
+    result = runner.invoke(app, ["render-video", "--help"])
+    assert result.exit_code == 0
+    assert "Render shader to video file" in result.stdout
+
+
+def test_render_gif_help():
+    """Test that the render-gif command help works."""
+    result = runner.invoke(app, ["render-gif", "--help"])
+    assert result.exit_code == 0
+    assert "Render shader to animated GIF file" in result.stdout
+
+
+def test_export_code_help():
+    """Test that the export-code command help works."""
+    result = runner.invoke(app, ["export-code", "--help"])
+    assert result.exit_code == 0
+    assert "Export shader to GLSL code file" in result.stdout
+
+
+def test_export_code(sample_shader_file):
+    """Test code export functionality with the new export-code command."""
     with TemporaryDirectory() as temp_dir:
         output_file = Path(temp_dir) / "output.glsl"
 
@@ -70,7 +101,7 @@ def test_code_export(sample_shader_file):
         for format_opt in ["plain", "commented", "wrapped"]:
             result = runner.invoke(
                 app, [
-                    "code", "export",
+                    "export-code",
                     sample_shader_file,
                     str(output_file),
                     "--format", format_opt
@@ -95,14 +126,14 @@ def test_code_export(sample_shader_file):
 
 
 @pytest.mark.gpu
-def test_render_image(sample_shader_file):
-    """Test rendering to image."""
+def test_render_image_command(sample_shader_file):
+    """Test rendering to image with render-image command."""
     with TemporaryDirectory() as temp_dir:
         output_file = Path(temp_dir) / "output.png"
 
         result = runner.invoke(
             app, [
-                "image", "render",
+                "render-image",
                 sample_shader_file,
                 str(output_file),
                 "--width", "200",
@@ -116,14 +147,14 @@ def test_render_image(sample_shader_file):
 
 
 @pytest.mark.gpu
-def test_render_gif(sample_shader_file):
-    """Test rendering to GIF."""
+def test_render_gif_command(sample_shader_file):
+    """Test rendering to GIF with render-gif command."""
     with TemporaryDirectory() as temp_dir:
         output_file = Path(temp_dir) / "output.gif"
 
         result = runner.invoke(
             app, [
-                "gif", "render",
+                "render-gif",
                 sample_shader_file,
                 str(output_file),
                 "--width", "200",
@@ -138,6 +169,30 @@ def test_render_gif(sample_shader_file):
         # Could add GIF verification here
 
 
+@pytest.mark.gpu
+def test_render_video_command(sample_shader_file):
+    """Test rendering to video with render-video command."""
+    with TemporaryDirectory() as temp_dir:
+        output_file = Path(temp_dir) / "output.mp4"
+
+        result = runner.invoke(
+            app, [
+                "render-video",
+                sample_shader_file,
+                str(output_file),
+                "--width", "200",
+                "--height", "200",
+                "--fps", "10",
+                "--duration", "0.5",  # Keep duration short for testing
+                "--codec", "h264"
+            ]
+        )
+
+        assert result.exit_code == 0
+        assert os.path.exists(output_file)
+        # Could add video verification here
+
+
 @pytest.mark.parametrize(
     "target_format",
     ["glsl", "shadertoy"]
@@ -149,7 +204,7 @@ def test_target_formats(sample_shader_file, target_format):
 
         result = runner.invoke(
             app, [
-                "code", "export",
+                "export-code",
                 sample_shader_file,
                 str(output_file),
                 "--target", target_format,
@@ -179,7 +234,7 @@ def test_shadertoy_compatibility(sample_shader_file):
         compat_file = Path(temp_dir) / "shadertoy_compatible.glsl"
         result = runner.invoke(
             app, [
-                "code", "export",
+                "export-code",
                 sample_shader_file,
                 str(compat_file),
                 "--target", "shadertoy",
@@ -193,7 +248,7 @@ def test_shadertoy_compatibility(sample_shader_file):
         regular_file = Path(temp_dir) / "shadertoy_regular.glsl"
         result = runner.invoke(
             app, [
-                "code", "export",
+                "export-code",
                 sample_shader_file,
                 str(regular_file),
                 "--target", "shadertoy"
@@ -237,7 +292,7 @@ def test_error_handling(mock_transpile, sample_shader_file):
 
     result = runner.invoke(
         app, [
-            "code", "export",
+            "export-code",
             sample_shader_file,
             "output.glsl"
         ]
@@ -245,3 +300,47 @@ def test_error_handling(mock_transpile, sample_shader_file):
 
     # We only check that the exit code is non-zero, indicating an error
     assert result.exit_code != 0
+
+
+def test_show_command(sample_shader_file):
+    """Test the show command (partial test without actually showing GUI)."""
+    # Since we can't test the actual UI, we'll just verify command execution
+    # We mock to prevent actual execution
+    with patch("py2glsl.main.animate") as mock_animate:
+        result = runner.invoke(
+            app, [
+                "show",
+                sample_shader_file,
+                "--width", "200",
+                "--height", "200"
+            ]
+        )
+        # Command should execute successfully
+        assert result.exit_code == 0
+        # Animate should be called
+        assert mock_animate.called
+
+
+def test_watch_command(sample_shader_file):
+    """Test the watch command (partial test without actually watching)."""
+    # Since we can't test file watching easily, we'll just verify command execution
+    # We need to patch both the Observer and the handler's run_shader method
+    with patch("py2glsl.main.watchdog.observers.Observer") as mock_observer, \
+         patch("py2glsl.main.ShaderChangeHandler") as mock_handler:
+            # Make the handler's run_shader method return immediately
+            mock_handler.return_value.run_shader.return_value = None
+
+            result = runner.invoke(
+                app, [
+                    "watch",
+                    sample_shader_file,
+                    "--width", "200",
+                    "--height", "200"
+                ]
+            )
+            # Check if the command runs without errors
+            assert result.exit_code == 0
+            # Observer should be instantiated
+            assert mock_observer.called
+            # Handler should be instantiated
+            assert mock_handler.called

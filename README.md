@@ -28,6 +28,7 @@ def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     uv = vs_uv * 2.0 - 1.0  # Center UV coordinates
     d = length(uv)
     color = sin(d * 10.0 - u_time * 2.0) * 0.5 + 0.5
+    # Example of flexible vector construction
     return vec4(color, color * 0.5, 1.0 - color, 1.0)
 ```
 
@@ -35,22 +36,28 @@ Run it using the command-line interface:
 
 ```bash
 # Interactive preview
-py2glsl show run plasma.py
+py2glsl show plasma.py
+
+# Live preview with auto-reload on file changes
+py2glsl watch plasma.py
 
 # Save as image
-py2glsl image render plasma.py output.png
+py2glsl render-image plasma.py output.png
 
 # Create animated GIF
-py2glsl gif render plasma.py animation.gif --duration 5.0
+py2glsl render-gif plasma.py animation.gif --duration 5.0
 
-# Specify a particular function to use (default is 'shader')
-py2glsl show run plasma.py --main my_custom_shader
+# Create video 
+py2glsl render-video plasma.py animation.mp4 --duration 5.0
+
+# Specify a particular function to use (default auto-detects shader function)
+py2glsl show plasma.py --main my_custom_shader
 
 # Export code for Shadertoy
-py2glsl code export plasma.py shadertoy.glsl --target shadertoy --format wrapped
+py2glsl export-code plasma.py shadertoy.glsl --target shadertoy --format wrapped
 
 # Export Shadertoy-compatible code (removes built-in uniforms)
-py2glsl code export plasma.py shadertoy_ready.glsl --target shadertoy --format wrapped --shadertoy-compatible
+py2glsl export-code plasma.py shadertoy_ready.glsl --target shadertoy --format wrapped --shadertoy-compatible
 ```
 
 Or use the library directly in your code:
@@ -71,10 +78,11 @@ animate(plasma, fps=30)
   and more directly in Python.
 - **Command-Line Interface**:
   - Interactive preview with `py2glsl show`
-  - Static image rendering with `py2glsl image`  
-  - Video rendering with `py2glsl video`
-  - GIF creation with `py2glsl gif`
-  - Code export with `py2glsl code` (includes Shadertoy-compatibility mode)
+  - Live preview with auto-reload using `py2glsl watch` 
+  - Static image rendering with `py2glsl render-image`
+  - Video rendering with `py2glsl render-video`
+  - GIF creation with `py2glsl render-gif`
+  - Code export with `py2glsl export-code` (includes Shadertoy-compatibility mode)
 - **Flexible Rendering API**:
   - Real-time animations with `animate()` (with framerate control)
   - Static images with `render_image()`
@@ -86,6 +94,8 @@ animate(plasma, fps=30)
   - More coming soon (HLSL, WGSL)
 - **IDE-Friendly**: Leverages Python's type system for autocompletion and error checking.
 - **No GLSL Boilerplate**: Focus on shader logic without writing vertex/fragment wrappers.
+- **Convenient Vectors**: Flexible vector initialization, like `vec4(vs_uv, 0.0, 1.0)` or `vec3(1.0)`.
+- **Relaxed Type Annotations**: Optional return type hints in shader functions.
 
 ## Installation
 
@@ -126,7 +136,20 @@ py2glsl provides a comprehensive command-line interface for working with shaders
 ### Interactive Preview
 
 ```bash
-py2glsl show run shader_file.py [OPTIONS]
+py2glsl show shader_file.py [OPTIONS]
+
+Options:
+  -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
+  -m, --main TEXT        Specific shader function to use
+  -w, --width INTEGER    Window width  [default: 800]
+  -h, --height INTEGER   Window height  [default: 600]
+  --fps INTEGER          Target framerate (0 for unlimited)  [default: 30]
+```
+
+### Watch Mode with Auto-Reload
+
+```bash
+py2glsl watch shader_file.py [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
@@ -139,7 +162,7 @@ Options:
 ### Render to Image
 
 ```bash
-py2glsl image render shader_file.py output.png [OPTIONS]
+py2glsl render-image shader_file.py output.png [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
@@ -152,7 +175,7 @@ Options:
 ### Render to Video
 
 ```bash
-py2glsl video render shader_file.py output.mp4 [OPTIONS]
+py2glsl render-video shader_file.py output.mp4 [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
@@ -169,7 +192,7 @@ Options:
 ### Render to GIF
 
 ```bash
-py2glsl gif render shader_file.py output.gif [OPTIONS]
+py2glsl render-gif shader_file.py output.gif [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
@@ -184,7 +207,7 @@ Options:
 ### Export Shader Code
 
 ```bash
-py2glsl code export shader_file.py output.glsl [OPTIONS]
+py2glsl export-code shader_file.py output.glsl [OPTIONS]
 
 Options:
   -t, --target TEXT           Target language (glsl, shadertoy)  [default: glsl]
@@ -298,15 +321,24 @@ def march(ro: vec3, rd: vec3) -> RayMarchResult:
     return rm
 
 
-def main(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def main(vs_uv: vec2, u_time: float, u_aspect: float):  # Return type hint is optional
     """Ray-marched sphere with animation."""
     ro = vec3(0.0, 0.0, 5.0 + sin(u_time))
+    # Convenient vector construction with vs_uv directly in vec3
     rd = normalize(vec3(vs_uv * 2.0 - 1.0, -1.0))
     rm = march(ro, rd)
-    color = vec3(0.1, 0.2, 0.3)  # Background
+    
+    # Create background color with scalar constructor
+    bg_color = vec3(0.1)  # Same as vec3(0.1, 0.1, 0.1)
+    
+    # Determine final color
+    color = bg_color
     if rm.sd_last < RM_EPS:
-        color = vec3(1.0, 0.5, 0.2)  # Hit color
-    return vec4(color, 1.0)
+        # Hit color with standard construction
+        color = vec3(1.0, 0.5, 0.2)
+    
+    # Add alpha channel to create vec4
+    return vec4(color, 1.0)  # vec4(vec3, float) constructor
 
 
 # Transpile with constants and structs

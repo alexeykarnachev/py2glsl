@@ -59,31 +59,36 @@ class DependencyResolver:
             main_func: The name of the main function
 
         Returns:
-            List of function names in dependency order
+            List of function names in dependency order, with main_func always first
         """
-        ordered: list[str] = []
-        visited: set[str] = set()
+        # Ensure main function is always first in the ordered list
+        ordered: list[str] = [main_func]
+        visited: set[str] = {main_func}
 
-        def visit(func_name: str) -> None:
-            """Visit a function and its dependencies."""
-            if func_name in visited:
-                return
+        # First process all direct dependencies of main
+        for dep in self.dependencies.get(main_func, set()):
+            self._visit_dependency(dep, ordered, visited)
 
-            # Visit dependencies first
-            for dep in self.dependencies.get(func_name, set()):
-                visit(dep)
-
-            ordered.append(func_name)
-            visited.add(func_name)
-
-        # Start with main function
-        visit(main_func)
-
-        # Add any remaining functions that weren't dependencies of main
+        # Then process any other functions
         for func_name in self.collected.functions:
-            visit(func_name)
+            if func_name != main_func:  # Skip main which we already added
+                self._visit_dependency(func_name, ordered, visited)
 
         return ordered
+
+    def _visit_dependency(
+        self, func_name: str, ordered: list[str], visited: set[str]
+    ) -> None:
+        """Visit a function and its dependencies."""
+        if func_name in visited:
+            return
+
+        # Visit dependencies first
+        for dep in self.dependencies.get(func_name, set()):
+            self._visit_dependency(dep, ordered, visited)
+
+        ordered.append(func_name)
+        visited.add(func_name)
 
 
 T = TypeVar("T")
