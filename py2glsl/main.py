@@ -67,11 +67,14 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
     # Track global constants with type annotations
     globals_dict: dict[str, Any] = {}
 
-    # Track all helper functions
-    helper_functions: dict[str, Any] = {}
+    # Track all functions with return annotation vec4
+    vec4_functions: dict[str, Callable[..., Any]] = {}
+
+    # Track all other helper functions
+    helper_functions: dict[str, Callable[..., Any]] = {}
 
     # Find the main shader function
-    main_func = None
+    main_func: Callable[..., Any] | None = None
 
     # First collect all globals and functions
     for name, obj in inspect.getmembers(module):
@@ -86,19 +89,11 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
 
             # Store all functions with return annotations as potential helpers
             if sig.return_annotation is not inspect.Signature.empty:
-                helper_functions[name] = obj
-
                 # If it returns vec4, it's a potential main function
                 if sig.return_annotation == vec4:
-                    # Check if it has standard parameters (vs_uv, u_time, u_aspect)
-                    params = list(sig.parameters.keys())
-                    # Priority for functions with standard names and parameters
-                    preferred_names = ["main_shader", "simple_shader", "shader"]
-                    has_required_params = "vs_uv" in params and "u_time" in params
-                    if has_required_params and name in preferred_names:
-                        main_func = obj
-                        logger.info(f"Found main shader function: {name}")
-                        break
+                    vec4_functions[name] = obj
+                else:
+                    helper_functions[name] = obj
 
         # Check if it's a global constant with type annotation or a dataclass
         elif (
@@ -109,22 +104,34 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
             globals_dict[name] = obj
             logger.info(f"Found global constant: {name} = {obj}")
 
-    # If no preferred name function is found, use any function returning vec4
-    if main_func is None:
-        for name, obj in helper_functions.items():
-            sig = inspect.signature(obj)
-            if sig.return_annotation == vec4:
-                params = list(sig.parameters.keys())
-                if "vs_uv" in params and "u_time" in params:
-                    main_func = obj
-                    logger.info(f"Using function {name} as main shader")
-                    break
+    # No shader functions found
+    if not vec4_functions:
+        raise ValueError("No shader functions returning vec4 found in the module")
 
-    if main_func is None:
-        raise ValueError("No suitable shader function found in the module")
+    # If we found exactly one vec4 function, use it
+    if len(vec4_functions) == 1:
+        name, func = next(iter(vec4_functions.items()))
+        main_func = func
+        logger.info(f"Using the only vec4 function as main shader: {name}")
+    else:
+        # Multiple vec4 functions, try to find the most suitable one
+        # First, check for functions with vs_uv and u_time parameters
+        for name, func in vec4_functions.items():
+            sig = inspect.signature(func)
+            params = list(sig.parameters.keys())
+            if "vs_uv" in params and "u_time" in params:
+                main_func = func
+                logger.info(f"Selected shader with standard parameters: {name}")
+                break
 
-    # Add all helper functions to the globals dict so they're included in transpilation
-    for name, func in helper_functions.items():
+        # If still no main function, just use the first one
+        if main_func is None:
+            name, func = next(iter(vec4_functions.items()))
+            main_func = func
+            logger.info(f"Using first vec4 function as main shader: {name}")
+
+    # Add all helper and vec4 functions to globals for transpilation
+    for name, func in {**helper_functions, **vec4_functions}.items():
         if func != main_func:  # Don't include the main function twice
             globals_dict[name] = func
 
@@ -179,25 +186,93 @@ def _map_target(target: str) -> tuple[TargetLanguageType, BackendType]:
         return TargetLanguageType.GLSL, BackendType.STANDARD
 
 
+def _prepare_transpilation_args(
+    globals_dict: dict[str, Any],
+    main_func: Callable[..., Any]
+) -> tuple[list[Callable[..., Any]], dict[str, Any]]:
+    """Prepare arguments for transpilation.
+
+    Args:
+        globals_dict: Dictionary of global objects
+        main_func: Main shader function
+
+    Returns:
+        Tuple containing:
+        - List of functions to transpile (main function first)
+        - Dictionary of other globals to pass as kwargs
+    """
+    function_args: list[Callable[..., Any]] = []
+    other_globals: dict[str, Any] = {}
+
+    for name, item in globals_dict.items():
+        # Include only actual functions, not classes or builtins
+        is_callable = callable(item) and not name.startswith("__")
+        if is_callable and not isinstance(item, type):
+            # Only include user-defined functions, not builtins
+            has_module = hasattr(item, "__module__")
+            if has_module:
+                is_builtin = item.__module__.startswith("py2glsl.builtins")
+            else:
+                is_builtin = False
+            not_builtin = has_module and not is_builtin
+            if not_builtin:
+                function_args.append(item)
+        else:
+            other_globals[name] = item
+
+    # The main function should be first in the list for proper processing
+    if main_func not in function_args:
+        function_args.insert(0, main_func)
+
+    return function_args, other_globals
+
+
 def _get_transpiled_shader(
     shader_file: str,
     target: str = "glsl",
+    main_function_name: str = "",
 ) -> tuple[str, BackendType, TargetLanguageType]:
     """Transpile a Python shader file to GLSL.
 
     Args:
         shader_file: Path to the Python shader file
         target: Target language (glsl or shadertoy)
+        main_function_name: Optional name of the main function to use
 
     Returns:
         Tuple of (GLSL code, backend type, target type)
     """
     try:
+        # Type annotation for the main function
+        main_func: Callable[..., Any] | None = None
+
         # Load the shader module
         shader_module = _load_shader_module(shader_file)
 
-        # Find main shader function and global constants
-        main_func, globals_dict = _find_shader_function(shader_module)
+        # Find shader functions and global constants
+        # If main_function_name is provided, find that function specifically
+        if main_function_name:
+            # Try to find the specified function
+            if hasattr(shader_module, main_function_name):
+                func = getattr(shader_module, main_function_name)
+                if inspect.isfunction(func):
+                    sig = inspect.signature(func)
+                    if sig.return_annotation == vec4:
+                        main_func = func
+                        # We still need to collect other functions and globals
+                        _, globals_dict = _find_shader_function(shader_module)
+                        logger.info(f"Using specified function: {main_function_name}")
+                    else:
+                        msg = f"Function '{main_function_name}' must return vec4"
+                        raise ValueError(msg)
+                else:
+                    msg = f"'{main_function_name}' is not a function"
+                    raise ValueError(msg)
+            else:
+                raise ValueError(f"Function '{main_function_name}' not found in module")
+        else:
+            # Auto-detect main function
+            main_func, globals_dict = _find_shader_function(shader_module)
 
         # Map target string to enum values
         target_type, backend_type = _map_target(target)
@@ -207,30 +282,9 @@ def _get_transpiled_shader(
         logger.info(f"Transpiling main function: {main_func.__name__}")
         logger.info(f"Globals: {list(globals_dict.keys())}")
 
-        # Extract functions and other globals for proper transpilation
-        function_args = []
-        other_globals = {}
-
-        for name, item in globals_dict.items():
-            # Include only actual functions, not classes or builtins
-            is_callable = callable(item) and not name.startswith("__")
-            if is_callable and not isinstance(item, type):
-                # Only include user-defined functions, not builtins
-                has_module = hasattr(item, "__module__")
-                if has_module:
-                    is_builtin = item.__module__.startswith("py2glsl.builtins")
-                else:
-                    is_builtin = False
-                not_builtin = has_module and not is_builtin
-                if not_builtin:
-                    function_args.append(item)
-            else:
-                other_globals[name] = item
-
-        # The main function should be first in the list for proper processing
-        if main_func not in function_args:
-            function_args.insert(0, main_func)
-
+        # Extract functions and other globals
+        result = _prepare_transpilation_args(globals_dict, main_func)
+        function_args, other_globals = result
         logger.info(f"Including functions: {[func.__name__ for func in function_args]}")
 
         glsl_code, used_uniforms = transpile(
@@ -276,13 +330,17 @@ def show_shader(
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
+    main_function: str = typer.Option(
+        "", "--main", "-m", help="Specific shader function to use"
+    ),
     width: int = typer.Option(800, "--width", "-w", help="Window width"),
     height: int = typer.Option(600, "--height", "-h", help="Window height"),
     fps: int = typer.Option(30, "--fps", help="Target framerate (0 for unlimited)"),
 ) -> None:
     """Run interactive shader preview."""
     # Get transpiled shader (error handling is inside the function)
-    glsl_code, backend_type, _ = _get_transpiled_shader(shader_file, target)
+    code = _get_transpiled_shader(shader_file, target, main_function)
+    glsl_code, backend_type, _ = code
 
     # Set output size
     size = _get_size(width, height)
@@ -309,13 +367,17 @@ def render_shader_image(
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
+    main_function: str = typer.Option(
+        "", "--main", "-m", help="Specific shader function to use"
+    ),
     width: int = typer.Option(800, "--width", "-w", help="Image width"),
     height: int = typer.Option(600, "--height", "-h", help="Image height"),
     time: float = typer.Option(0.0, "--time", help="Time value for the image"),
 ) -> None:
     """Render shader to static image."""
     # Get transpiled shader
-    glsl_code, backend_type, _ = _get_transpiled_shader(shader_file, target)
+    code = _get_transpiled_shader(shader_file, target, main_function)
+    glsl_code, backend_type, _ = code
 
     # Set output size
     size = _get_size(width, height)
@@ -344,6 +406,9 @@ def render_shader_video(
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
+    main_function: str = typer.Option(
+        "", "--main", "-m", help="Specific shader function to use"
+    ),
     width: int = typer.Option(800, "--width", "-w", help="Video width"),
     height: int = typer.Option(600, "--height", "-h", help="Video height"),
     fps: int = typer.Option(30, "--fps", help="Frames per second"),
@@ -356,7 +421,8 @@ def render_shader_video(
 ) -> None:
     """Render shader to video."""
     # Get transpiled shader
-    glsl_code, backend_type, _ = _get_transpiled_shader(shader_file, target)
+    code = _get_transpiled_shader(shader_file, target, main_function)
+    glsl_code, backend_type, _ = code
 
     # Set output size
     size = _get_size(width, height)
@@ -389,6 +455,9 @@ def render_shader_gif(
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
+    main_function: str = typer.Option(
+        "", "--main", "-m", help="Specific shader function to use"
+    ),
     width: int = typer.Option(800, "--width", "-w", help="GIF width"),
     height: int = typer.Option(600, "--height", "-h", help="GIF height"),
     fps: int = typer.Option(30, "--fps", help="Frames per second"),
@@ -399,7 +468,8 @@ def render_shader_gif(
 ) -> None:
     """Render shader to animated GIF."""
     # Get transpiled shader
-    glsl_code, backend_type, _ = _get_transpiled_shader(shader_file, target)
+    code = _get_transpiled_shader(shader_file, target, main_function)
+    glsl_code, backend_type, _ = code
 
     # Set output size
     size = _get_size(width, height)
@@ -537,6 +607,9 @@ def export_shader_code(
     target: str = typer.Option(
         "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
     ),
+    main_function: str = typer.Option(
+        "", "--main", "-m", help="Specific shader function to use"
+    ),
     format: str = typer.Option(
         "plain", "--format", "-f", help="Code format (plain, commented, wrapped)"
     ),
@@ -549,7 +622,8 @@ def export_shader_code(
 ) -> None:
     """Export shader code to file for copy-pasting."""
     # Get transpiled shader
-    glsl_code, _, target_type = _get_transpiled_shader(shader_file, target)
+    code = _get_transpiled_shader(shader_file, target, main_function)
+    glsl_code, _, target_type = code
 
     # Auto-suggest format for Shadertoy
     if target_type == TargetLanguageType.SHADERTOY and format == "plain":
