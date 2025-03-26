@@ -566,7 +566,7 @@ class WatchdogHandler(Protocol):
         ...
 
 
-class ShaderChangeHandler(FileSystemEventHandler):
+class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
     """Event handler for shader file changes."""
 
     def __init__(

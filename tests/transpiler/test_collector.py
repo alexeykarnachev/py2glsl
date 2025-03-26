@@ -142,6 +142,35 @@ class TestCollectInfo:
         # Assert
         assert "RegularClass" not in collected.structs
 
+    def test_collect_module_style_dataclass(self):
+        """Test collecting dataclass using module.attribute style import."""
+        # Using the string parsing approach for simplicity and clarity
+        code = textwrap.dedent("""
+            import dataclasses
+
+            @dataclasses.dataclass
+            class ModuleStyleStruct:
+                x: 'float'
+                y: 'float'
+                z: 'float' = 0.0
+        """)
+
+        # Create AST tree directly
+        tree = ast.parse(code)
+
+        # Run with the actual collector to check full functionality of our fix
+        collected = collect_info(tree)
+
+        # Assert
+        assert "ModuleStyleStruct" in collected.structs
+        struct_def = collected.structs["ModuleStyleStruct"]
+        assert struct_def.name == "ModuleStyleStruct"
+        assert len(struct_def.fields) == 3
+        assert struct_def.fields[0].name == "x"
+        assert struct_def.fields[0].type_name == "float"
+        assert struct_def.fields[2].name == "z"
+        assert struct_def.fields[2].default_value == "0.0"
+
     def test_collect_complex_global_skipped(self):
         """Test that complex global expressions are skipped."""
         # Arrange

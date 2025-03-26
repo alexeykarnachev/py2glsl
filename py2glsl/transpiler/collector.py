@@ -57,7 +57,11 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
             Processes classes marked with @dataclass and extracts their fields.
             """
             is_dataclass = any(
-                isinstance(d, ast.Name) and d.id == "dataclass"
+                (isinstance(d, ast.Name) and d.id == "dataclass") or
+                (isinstance(d, ast.Attribute) and
+                 isinstance(d.value, ast.Name) and
+                 d.value.id == "dataclasses" and
+                 d.attr == "dataclass")
                 for d in node.decorator_list
             )
             if is_dataclass:
