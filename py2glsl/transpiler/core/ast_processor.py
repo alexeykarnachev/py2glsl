@@ -59,20 +59,22 @@ class DependencyResolver:
             main_func: The name of the main function
 
         Returns:
-            List of function names in dependency order, with main_func always first
+            List of function names in dependency order, with helper functions first
+            and main_func last to ensure GLSL compilation works correctly
         """
-        # Ensure main function is always first in the ordered list
-        ordered: list[str] = [main_func]
-        visited: set[str] = {main_func}
+        # Initialize with empty lists
+        ordered: list[str] = []
+        visited: set[str] = set()
 
-        # First process all direct dependencies of main
-        for dep in self.dependencies.get(main_func, set()):
-            self._visit_dependency(dep, ordered, visited)
-
-        # Then process any other functions
+        # First include all helper functions
         for func_name in self.collected.functions:
-            if func_name != main_func:  # Skip main which we already added
-                self._visit_dependency(func_name, ordered, visited)
+            # Skip main and already visited functions
+            if func_name != main_func and func_name not in visited:
+                ordered.append(func_name)
+                visited.add(func_name)
+
+        # Add main function last to ensure all helper functions are defined first
+        ordered.append(main_func)
 
         return ordered
 

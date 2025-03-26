@@ -10,7 +10,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 import arrow
 import typer
@@ -216,18 +216,37 @@ def _prepare_transpilation_args(
     function_args: list[Callable[..., Any]] = []
     other_globals: dict[str, Any] = {}
 
+    # List of modules to exclude from function transpilation
+    excluded_modules = ["builtins", "dataclasses"]
+
+    # List of decorator function names to skip
+    decorator_functions = ["dataclass"]
+
+    # Special module handling
+    py2glsl_builtins_module = "py2glsl.builtins"
+
     for name, item in globals_dict.items():
         # Include only actual functions, not classes or builtins
         is_callable = callable(item) and not name.startswith("__")
         if is_callable and not isinstance(item, type):
-            # Only include user-defined functions, not builtins
+            # Skip decorator functions by name
+            if name in decorator_functions:
+                continue
+
+            # Only include user-defined functions
             has_module = hasattr(item, "__module__")
+
             if has_module:
-                is_builtin = item.__module__.startswith("py2glsl.builtins")
-            else:
-                is_builtin = False
-            not_builtin = has_module and not is_builtin
-            if not_builtin:
+                # Skip Python built-ins and standard library functions
+                if any(item.__module__.startswith(mod) for mod in excluded_modules):
+                    continue
+
+                # Skip GLSL builtins from py2glsl.builtins module
+                if item.__module__ == py2glsl_builtins_module:
+                    # These are already available in GLSL, no need to include them
+                    continue
+
+                # This is a user-defined function, include it
                 function_args.append(item)
         else:
             other_globals[name] = item
@@ -538,7 +557,16 @@ def _run_shader_animation(
         )
 
 
-class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
+@runtime_checkable
+class WatchdogHandler(Protocol):
+    """Protocol for Watchdog's FileSystemEventHandler to satisfy mypy."""
+
+    def on_modified(self, event: watchdog.events.FileSystemEvent) -> None:
+        """Handle modified events."""
+        ...
+
+
+class ShaderChangeHandler(FileSystemEventHandler):
     """Event handler for shader file changes."""
 
     def __init__(

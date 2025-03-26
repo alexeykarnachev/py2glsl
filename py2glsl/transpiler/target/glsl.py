@@ -3,7 +3,6 @@
 This module implements the TargetLanguage interface for GLSL.
 """
 
-
 from py2glsl.transpiler.core.ast_processor import DependencyResolver, SymbolTable
 from py2glsl.transpiler.core.interfaces import (
     LanguageConfig,
@@ -244,8 +243,8 @@ class GLSLStandardDialect(TargetLanguage):
         lines = [""]  # Start with blank line for readability
         function_lines = []
 
-        # Main function is the first one in the ordered list
-        main_func_name = ordered_functions[0]
+        # Main function is the last one in the ordered list
+        main_func_name = ordered_functions[-1]
 
         # Generate functions in dependency order
         for func_name in ordered_functions:

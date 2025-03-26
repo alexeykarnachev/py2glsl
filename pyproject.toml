@@ -113,6 +113,10 @@ warn_return_any = false
 warn_unused_ignores = false
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+module = "watchdog.*"
+ignore_errors = true
+
 [dependency-groups]
 dev = [
     "mypy>=1.9.0",
