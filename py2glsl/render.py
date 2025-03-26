@@ -548,6 +548,7 @@ def animate(
     reload_callback: Callable[[], bool] | None = None,
     reload_function: Callable[[], tuple[str, Any]] | None = None,
     detached: bool = False,
+    max_runtime: float | None = None,
 ) -> None:
     """Run a real-time shader animation in a window.
 
@@ -561,6 +562,7 @@ def animate(
         reload_callback: Function that returns True when shader should be reloaded
         reload_function: Function that returns new shader code and backend type
         detached: Whether to run in detached mode (no output/logging)
+        max_runtime: Maximum runtime in seconds (stops animation after this time)
     """
     with _setup_rendering_context(
         shader_input,
@@ -573,16 +575,30 @@ def animate(
         # Setup mouse tracking and FPS tracking
         mouse_pos, mouse_uv = _setup_mouse_tracking(render_ctx.window, size)
         frame_count, fps_timer = 0, time_module.time()
+        start_time = time_module.time()
 
         # Configure frame rate
         frame_interval, previous_time = _configure_frame_rate(fps, detached)
         lag = 0.0
 
         # Print startup message
-        log_info(f"Running animation at {fps}fps (press ESC to exit)", detached)
+        if max_runtime:
+            msg = f"Running animation at {fps}fps for {max_runtime:.2f}s"
+            msg += " (press ESC to exit)"
+            log_info(msg, detached)
+        else:
+            log_info(f"Running animation at {fps}fps (press ESC to exit)", detached)
 
         # Main animation loop
         while not glfw.window_should_close(render_ctx.window):
+            # Check if we've exceeded max_runtime
+            elapsed_total = time_module.time() - start_time
+            if max_runtime is not None and elapsed_total >= max_runtime:
+                log_info(
+                    f"Maximum runtime of {max_runtime:.2f}s reached, stopping",
+                    detached
+                )
+                break
             # Calculate time delta with fixed time step approach
             current_time = time_module.time()
             elapsed = current_time - previous_time

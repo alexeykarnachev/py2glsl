@@ -363,19 +363,29 @@ def animate_shader(
     height: int = typer.Option(600, "--height", "-h", help="Window height"),
     fps: int = typer.Option(30, "--fps", help="Target framerate (0 for unlimited)"),
     detach: bool = typer.Option(
-        False, "--detach", "-d", help="Run in detached mode (no output/logging)"
+        False,
+        "--detach",
+        "-d",
+        help="Run as a background process (immediately returns control to shell)",
     ),
     watch: bool = typer.Option(
         False, "--watch", help="Watch shader file and auto-reload on changes"
+    ),
+    max_runtime: float = typer.Option(
+        None,
+        "--max-runtime",
+        help="Maximum runtime in seconds (stops animation after this time)",
     ),
 ) -> None:
     """Run a shader animation in an interactive window.
 
     The shader will run in realtime in a window, with the ability to close
     with ESC key. Use --watch to automatically reload the shader when the file changes.
+    Use --detach to run in the background as a separate process.
 
     Example: py2glsl animate examples/shader.py
     Example: py2glsl animate examples/shader.py --watch
+    Example: py2glsl animate examples/shader.py --detach --watch
     """
     # Get absolute path
     abs_shader_file = os.path.abspath(shader_file)
@@ -383,13 +393,119 @@ def animate_shader(
     # Set output size
     size = _get_size(width, height)
 
+    # If detach is requested, start a background process
+    if detach:
+        log_info("Detaching process...", False)  # Always show this message
+
+        import tempfile
+
+        import daemon
+
+        # Create log file for the daemon process
+        log_file = tempfile.NamedTemporaryFile(
+            prefix="py2glsl_", suffix=".log", delete=False
+        )
+        log_path = log_file.name
+        log_file.close()
+
+        # Get all file descriptors to preserve for OpenGL/GLFW
+        preserve_files = []
+        try:
+            # Try to identify important file descriptors, but not stdin/stdout/stderr
+            for fd in range(3, 1024):
+                try:
+                    os.fstat(fd)
+                    preserve_files.append(fd)
+                except OSError:
+                    continue
+        except Exception:
+            pass
+
+        # Open log files for daemon process
+        # We can't use context managers here as they would close the files when exiting
+        # the context, but we need them to stay open for the daemon
+        daemon_stdout = open(log_path, "w")  # noqa: SIM115
+        daemon_stderr = open(log_path, "a")  # noqa: SIM115
+
+        # Create daemon context
+        with daemon.DaemonContext(
+            detach_process=True,
+            files_preserve=preserve_files,
+            working_directory=os.getcwd(),
+            # Redirect stdout/stderr to log file
+            stdout=daemon_stdout,
+            stderr=daemon_stderr,
+            # Explicitly close stdin
+            stdin=open(os.devnull),
+        ):
+            # Configure logger for daemon process
+            logger.remove()  # Remove existing handlers
+            logger.add(log_path, level="INFO")  # Add file handler
+
+            # Run in daemon process
+            try:
+                _run_shader_animation(
+                    abs_shader_file,
+                    target,
+                    main_function,
+                    size,
+                    fps,
+                    detach,
+                    watch,
+                    max_runtime,
+                )
+            except Exception as e:
+                logger.error(f"Error in daemon process: {e}")
+                sys.exit(1)
+
+        # Parent process returns immediately after daemon is started
+        logger.info(f"Shader is running in the background. Logs: {log_path}")
+        return
+
+    # If not detaching, run normally
+    _run_shader_animation(
+        abs_shader_file, target, main_function, size, fps, detach, watch, max_runtime
+    )
+
+
+def _run_shader_animation(
+    abs_shader_file: str,
+    target: str,
+    main_function: str,
+    size: tuple[int, int],
+    fps: int,
+    detached: bool,
+    watch: bool,
+    max_runtime: float | None = None,
+) -> None:
+    """Run the shader animation with the specified parameters.
+
+    This function is extracted to be called either directly or from a detached process.
+
+    Args:
+        abs_shader_file: Absolute path to the shader file
+        target: Target language
+        main_function: Main function name
+        size: Tuple of (width, height)
+        fps: Target framerate
+        detached: Whether running in detached mode
+        watch: Whether to watch for file changes
+        max_runtime: Maximum runtime in seconds (stops animation after this time)
+    """
     if watch:
         # Create file system observer for auto-reload
         observer = watchdog.observers.Observer()
 
         # Create handler
         handler = ShaderChangeHandler(
-            abs_shader_file, target, main_function, width, height, fps, detach
+            abs_shader_file,
+            target,
+            main_function,
+            size[0],
+            size[1],
+            fps,
+            detached,
+            max_runtime,
         )
 
         # Watch the file's directory, not the file itself
@@ -401,23 +517,24 @@ def animate_shader(
             # Run the shader (will reload on changes)
             handler.run_shader()
         except KeyboardInterrupt:
-            log_info("Keyboard interrupt received, stopping...", detach)
+            log_info("Keyboard interrupt received, stopping...", detached)
         finally:
             observer.stop()
             observer.join()
     else:
         # Get transpiled shader (error handling is inside the function)
-        code = _get_transpiled_shader(shader_file, target, main_function)
+        code = _get_transpiled_shader(abs_shader_file, target, main_function)
         glsl_code, backend_type, _ = code
 
         # Run interactive animation
-        log_info(f"Running animation at {fps}fps (press ESC to exit)", detach)
+        log_info(f"Running animation at {fps}fps (press ESC to exit)", detached)
         animate(
             shader_input=glsl_code,
             backend_type=backend_type,
             size=size,
             fps=fps,
-            detached=detach,
+            detached=detached,
+            max_runtime=max_runtime,
         )
 
 
@@ -433,6 +550,7 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
         height: int,
         fps: int,
         detached: bool = False,
+        max_runtime: float | None = None,
     ):
         """Initialize shader change handler.
 
@@ -444,6 +562,7 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
             height: Window height
             fps: Target framerate
             detached: Whether to run in detached mode (no output/logging)
+            max_runtime: Maximum runtime in seconds (stops animation after this time)
         """
         self.shader_file = shader_file
         self.target = target
@@ -452,6 +571,7 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
         self.height = height
         self.fps = fps
         self.detached = detached
+        self.max_runtime = max_runtime
         self.is_running = False
         self.needs_reload = False
         self.size = _get_size(width, height)
@@ -500,6 +620,7 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
                 reload_callback=should_reload,
                 reload_function=lambda: self._reload_shader(),
                 detached=self.detached,
+                max_runtime=self.max_runtime,
             )
 
         except Exception as e:

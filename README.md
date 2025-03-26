@@ -41,6 +41,12 @@ py2glsl animate plasma.py
 # Live animation with auto-reload on file changes
 py2glsl animate plasma.py --watch
 
+# Run in background (detached) with auto-reload
+py2glsl animate plasma.py --watch --detach
+
+# Run animation for a specific duration (e.g., 5 seconds)
+py2glsl animate plasma.py --max-runtime 5.0
+
 # Save as image
 py2glsl render-image plasma.py output.png
 
@@ -145,8 +151,9 @@ Options:
   -w, --width INTEGER    Window width  [default: 800]
   -h, --height INTEGER   Window height  [default: 600]
   --fps INTEGER          Target framerate (0 for unlimited)  [default: 30]
-  -d, --detach           Run in detached mode (no output/logging)
+  -d, --detach           Run in background (immediately returns control to shell)
   --watch                Watch shader file and auto-reload on changes
+  --max-runtime FLOAT    Maximum runtime in seconds (stops animation after this time)
 ```
 
 ### Render to Image
@@ -390,9 +397,10 @@ def main(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     return vec4(c, c * 0.5, 1.0 - c, 1.0)
 
 # Real-time animation with frame rate control
-animate(main, fps=30)            # Cap at 30fps
-animate(main, fps=0)             # Unlimited frame rate (default)
-animate(main, fps=30, detached=True)  # Run without logging output
+animate(main, fps=30)                   # Cap at 30fps
+animate(main, fps=0)                    # Unlimited frame rate (default)
+animate(main, fps=30, detached=True)    # Run without logging output (silent mode)
+animate(main, fps=30, max_runtime=5.0)  # Run for 5 seconds then stop
 
 # Interactive animation with Shadertoy compatibility
 animate(main, backend_type=BackendType.SHADERTOY, fps=60)
