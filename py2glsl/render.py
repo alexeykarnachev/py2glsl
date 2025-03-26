@@ -17,10 +17,19 @@ from py2glsl.transpiler.render.opengl import (
     StandardOpenGLRenderer,
 )
 
+# Define a custom error type for ModernGL errors
+ModernGLError = Exception
+
+# Type aliases for better abstraction
+WindowHandle = Any  # Avoids direct dependency on glfw._GLFWwindow
 
 @dataclass
 class RenderContext:
-    """Holds all resources for rendering."""
+    """Holds all resources for rendering.
+
+    This class manages both OpenGL resources and rendering configuration,
+    providing a unified interface for the rendering functions.
+    """
 
     ctx: moderngl.Context
     program: moderngl.Program
@@ -28,12 +37,35 @@ class RenderContext:
     vao: moderngl.VertexArray
     renderer: RenderInterface
     fbo: moderngl.Framebuffer | None = None
-    window: glfw._GLFWwindow | None = None
+    window: WindowHandle | None = None
 
+    def __del__(self) -> None:
+        """Clean up resources when the context is garbage collected."""
+        try:
+            if self.fbo:
+                self.fbo.release()
+            if self.vao:
+                self.vao.release()
+            if self.vbo:
+                self.vbo.release()
+            if self.program:
+                self.program.release()
+            # Note: ctx and window are handled by _setup_rendering_context
+        except Exception:
+            # Ignore errors during cleanup
+            pass
+
+
+# Type for uniform values (could be single value, vector, or matrix)
+UniformValue = float | tuple[float, ...] | tuple[tuple[float, ...], ...]
 
 @dataclass
 class FrameParams:
-    """Parameters for rendering a single frame."""
+    """Parameters for rendering a single frame.
+
+    This class contains all the information needed to render a single frame,
+    including OpenGL resources, uniforms, and rendering configuration.
+    """
 
     ctx: moderngl.Context
     program: moderngl.Program
@@ -41,7 +73,7 @@ class FrameParams:
     target: moderngl.Framebuffer | moderngl.Context | None  # None for error handling
     size: tuple[int, int]
     time: float
-    uniforms: dict[str, float | tuple[float, ...]] | None = None
+    uniforms: dict[str, UniformValue] | None = None
     mouse_pos: list[float] | None = None
     mouse_uv: list[float] | None = None
     resolution: tuple[int, int] | None = None
@@ -73,28 +105,44 @@ def _init_glfw(
     require_version = major_version * 100 + minor_version * 10  # e.g. 4.6 -> 460
 
     if windowed:
-        if not glfw.init():
-            logger.error("Failed to initialize GLFW")
-            raise RuntimeError("Failed to initialize GLFW")
+        try:
+            if not glfw.init():
+                raise RuntimeError("Failed to initialize GLFW")
 
-        # Set OpenGL version from backend
-        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, major_version)
-        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, minor_version)
+            # Set OpenGL version from backend
+            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, major_version)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, minor_version)
 
-        # Set profile from backend
-        if profile == "core":
-            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        elif profile == "compatibility":
-            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_COMPAT_PROFILE)
+            # Set profile from backend
+            if profile == "core":
+                glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+            elif profile == "compatibility":
+                glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_COMPAT_PROFILE)
+            else:
+                log_warning(f"Unknown OpenGL profile: {profile}, using core profile")
+                glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 
-        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
+            glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
 
-        window = glfw.create_window(size[0], size[1], window_title, None, None)
-        if not window:
-            logger.error("Failed to create GLFW window")
-            glfw.terminate()
-            raise RuntimeError("Failed to create GLFW window")
+            window = glfw.create_window(size[0], size[1], window_title, None, None)
+            if not window:
+                raise RuntimeError("Failed to create GLFW window")
+        except Exception as e:
+            log_error(f"GLFW initialization error: {e}")
+            if 'glfw' in locals() and glfw._glfw is not None:
+                glfw.terminate()
+            raise
         glfw.make_context_current(window)
+
+        # Setup key callback to close window on ESC key
+        def key_callback(
+            win: glfw._GLFWwindow, key: int, _scancode: int, action: int, _mods: int
+        ) -> None:
+            if key == glfw.KEY_ESCAPE and action == glfw.PRESS:
+                glfw.set_window_should_close(win, True)
+
+        glfw.set_key_callback(window, key_callback)
+
         ctx = moderngl.create_context()
     else:
         window = None
@@ -104,10 +152,44 @@ def _init_glfw(
     return ctx, window
 
 
+def log_info(message: str, detached: bool = False) -> None:
+    """Log info message if not in detached mode.
+
+    Args:
+        message: Message to log
+        detached: Whether running in detached mode
+    """
+    if not detached:
+        logger.info(message)
+
+
+def log_warning(message: str, detached: bool = False) -> None:
+    """Log warning message if not in detached mode.
+
+    Args:
+        message: Message to log
+        detached: Whether running in detached mode
+    """
+    if not detached:
+        logger.warning(message)
+
+
+def log_error(message: str, detached: bool = False) -> None:
+    """Log error message if not in detached mode.
+
+    Args:
+        message: Message to log
+        detached: Whether running in detached mode
+    """
+    if not detached:
+        logger.error(message)
+
+
 def _compile_program(
     ctx: moderngl.Context,
     glsl_code: str,
     renderer: RenderInterface,
+    detached: bool = False,
 ) -> moderngl.Program:
     """Compile shader program.
 
@@ -115,6 +197,7 @@ def _compile_program(
         ctx: ModernGL context
         glsl_code: Fragment shader code
         renderer: The render interface to use
+        detached: Whether to run in detached mode (no output/logging)
 
     Returns:
         Compiled shader program
@@ -125,14 +208,14 @@ def _compile_program(
     try:
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
         # Store the renderer with the program for later reference
-        # We use setattr rather than direct assignment for type safety
-        setattr(program, "_renderer", renderer)
+        program._renderer = renderer  # Add attribute directly
 
-        logger.info("Shader program compiled successfully")
-        logger.info(f"Available uniforms: {list(program)}")
+        log_info("Shader program compiled successfully", detached)
+        log_info(f"Available uniforms: {list(program)}", detached)
         return program
-    except Exception as e:
-        logger.error(f"Shader compilation error: {e}")
+    except Exception:
+        log_error("Shader compilation error", detached)
+        # Re-raise without arguments to preserve the original traceback
         raise
 
 
@@ -153,6 +236,7 @@ def _setup_rendering_context(
     windowed: bool = False,
     window_title: str = "GLSL Shader",
     backend_type: Any = None,
+    detached: bool = False,
 ) -> Generator[RenderContext, None, None]:
     """Sets up all rendering resources and cleans them up when done.
 
@@ -162,6 +246,7 @@ def _setup_rendering_context(
         windowed: Whether to create a window or use offscreen rendering
         window_title: Title of the window (if windowed is True)
         backend_type: Backend type enum
+        detached: Whether to run in detached mode (no output/logging)
 
     Yields:
         RenderContext object containing all rendering resources
@@ -195,7 +280,7 @@ def _setup_rendering_context(
     ctx, window = _init_glfw(size, windowed, window_title, gl_version, gl_profile)
 
     # Compile shader program
-    program = _compile_program(ctx, glsl_code, renderer)
+    program = _compile_program(ctx, glsl_code, renderer, detached)
 
     # Setup rendering primitives
     vbo, vao = _setup_primitives(ctx, program)
@@ -247,7 +332,7 @@ def _setup_mouse_tracking(
     return mouse_pos, mouse_uv
 
 
-def _render_frame(params: FrameParams) -> Any | None:
+def _render_frame(params: FrameParams) -> np.ndarray | None:
     """Render a single frame.
 
     Args:
@@ -257,23 +342,28 @@ def _render_frame(params: FrameParams) -> Any | None:
         Numpy array with rendered image if rendering to a framebuffer, None otherwise
     """
     if params.target is None:
-        logger.error("No target specified for rendering")
+        log_error("No target specified for rendering")
         return None
 
+    # Set the appropriate rendering target
     if isinstance(params.target, moderngl.Framebuffer):
         params.target.use()
-    # If it's a context, no need to call use()
+    elif not isinstance(params.target, moderngl.Context):
+        log_error(f"Unsupported target type: {type(params.target)}")
+        return None
+
+    # Clear the screen/framebuffer
     params.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
     # Prepare standard uniforms dict - start with user-provided uniforms
-    standard_uniforms: dict[str, float | tuple[float, ...]] = {}
+    standard_uniforms: dict[str, UniformValue] = {}
     if params.uniforms:
         # Copy from user-provided uniforms
         for key, value in params.uniforms.items():
             standard_uniforms[key] = value
 
     # Always include these standard uniforms
-    base_uniforms: dict[str, float | tuple[float, ...]] = {
+    base_uniforms: dict[str, UniformValue] = {
         "u_resolution": params.size,
         "u_time": params.time,
         "u_aspect": params.size[0] / params.size[1],
@@ -342,11 +432,12 @@ def _render_frame(params: FrameParams) -> Any | None:
     return None
 
 
-def _configure_frame_rate(fps: int) -> tuple[float, float]:
+def _configure_frame_rate(fps: int, detached: bool = False) -> tuple[float, float]:
     """Configure frame rate settings for animation.
 
     Args:
         fps: Target frame rate (0 = unlimited)
+        detached: Whether to run in detached mode (no output/logging)
 
     Returns:
         Tuple of (frame_interval, previous_time)
@@ -355,17 +446,17 @@ def _configure_frame_rate(fps: int) -> tuple[float, float]:
         # Try to use vertical sync if available
         try:
             glfw.swap_interval(1)
-            logger.info("Using vsync for frame timing")
+            log_info("Using vsync for frame timing", detached)
         except Exception:
-            logger.info("Could not set vsync, using manual timing")
+            log_info("Could not set vsync, using manual timing", detached)
 
         frame_interval = 1.0 / fps
-        logger.info(f"Target FPS: {fps}")
+        log_info(f"Target FPS: {fps}", detached)
     else:
         # Run at maximum speed
         glfw.swap_interval(0)  # Disable vsync
         frame_interval = 0
-        logger.info("Target FPS: unlimited")
+        log_info("Target FPS: unlimited", detached)
 
     # Initial time tracking
     previous_time = time_module.time()
@@ -374,13 +465,15 @@ def _configure_frame_rate(fps: int) -> tuple[float, float]:
 
 def _reload_shader(
     render_ctx: RenderContext,
-    reload_function: Callable[[], tuple[str, Any]]
+    reload_function: Callable[[], tuple[str, Any]],
+    detached: bool = False,
 ) -> None:
     """Reload shader during animation.
 
     Args:
         render_ctx: Current rendering context
         reload_function: Function that returns new shader code and backend type
+        detached: Whether to run in detached mode (no output/logging)
     """
     try:
         # Get new shader code and backend type
@@ -390,28 +483,30 @@ def _reload_shader(
         render_ctx.program.release()
 
         # Create new renderer based on backend type
-        if new_backend_type is not None:
-            from py2glsl.transpiler.backends.models import BackendType
+        from py2glsl.transpiler.backends.models import BackendType
 
-            if new_backend_type == BackendType.SHADERTOY:
-                render_ctx.renderer = ShadertoyOpenGLRenderer()
-            else:
-                render_ctx.renderer = StandardOpenGLRenderer()
+        # Always use a specific backend type
+        if new_backend_type == BackendType.SHADERTOY:
+            render_ctx.renderer = ShadertoyOpenGLRenderer()
+        else:
+            render_ctx.renderer = StandardOpenGLRenderer()
 
         # Recompile program
         render_ctx.program = _compile_program(
-            render_ctx.ctx, new_shader_code, render_ctx.renderer
+            render_ctx.ctx, new_shader_code, render_ctx.renderer, detached
         )
 
         # Recreate VAO
         render_ctx.vao.release()
-        _, render_ctx.vao = _setup_primitives(
-            render_ctx.ctx, render_ctx.program
-        )
+        _, render_ctx.vao = _setup_primitives(render_ctx.ctx, render_ctx.program)
 
-        logger.info("Shader reloaded successfully")
+        log_info("Shader reloaded successfully", detached)
+    except ModernGLError as e:
+        log_error(f"GL error when reloading shader: {e}", detached)
+    except ValueError as e:
+        log_error(f"Shader code error: {e}", detached)
     except Exception as e:
-        logger.error(f"Error reloading shader: {e}")
+        log_error(f"Error reloading shader: {e}", detached)
 
 
 def _should_render_frame(
@@ -447,11 +542,12 @@ def animate(
     shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     window_title: str = "GLSL Shader",
-    uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    uniforms: dict[str, UniformValue] | None = None,
     backend_type: Any = None,
     fps: int = 0,  # 0 means unlimited
     reload_callback: Callable[[], bool] | None = None,
     reload_function: Callable[[], tuple[str, Any]] | None = None,
+    detached: bool = False,
 ) -> None:
     """Run a real-time shader animation in a window.
 
@@ -464,6 +560,7 @@ def animate(
         fps: Target frame rate (0 = unlimited)
         reload_callback: Function that returns True when shader should be reloaded
         reload_function: Function that returns new shader code and backend type
+        detached: Whether to run in detached mode (no output/logging)
     """
     with _setup_rendering_context(
         shader_input,
@@ -471,14 +568,18 @@ def animate(
         windowed=True,
         window_title=window_title,
         backend_type=backend_type,
+        detached=detached,
     ) as render_ctx:
         # Setup mouse tracking and FPS tracking
         mouse_pos, mouse_uv = _setup_mouse_tracking(render_ctx.window, size)
         frame_count, fps_timer = 0, time_module.time()
 
         # Configure frame rate
-        frame_interval, previous_time = _configure_frame_rate(fps)
+        frame_interval, previous_time = _configure_frame_rate(fps, detached)
         lag = 0.0
+
+        # Print startup message
+        log_info(f"Running animation at {fps}fps (press ESC to exit)", detached)
 
         # Main animation loop
         while not glfw.window_should_close(render_ctx.window):
@@ -493,7 +594,7 @@ def animate(
 
             # Reload shader if needed
             if reload_callback and reload_function and reload_callback():
-                _reload_shader(render_ctx, reload_function)
+                _reload_shader(render_ctx, reload_function, detached)
 
             # Check if we should render this frame
             should_render, lag = _should_render_frame(fps, lag, frame_interval)
@@ -504,7 +605,7 @@ def animate(
             frame_count += 1
             if current_time - fps_timer >= 1.0:
                 measured_fps = frame_count / (current_time - fps_timer)
-                logger.info(f"FPS: {measured_fps:.2f}")
+                log_info(f"FPS: {measured_fps:.2f}", detached)
                 frame_count, fps_timer = 0, current_time
 
             # Create frame parameters and render
@@ -532,9 +633,10 @@ def render_array(
     shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     time: float = 0.0,
-    uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    uniforms: dict[str, UniformValue] | None = None,
     backend_type: Any = None,
-) -> Any:  # Use Any type to bypass mypy issues with numpy typings
+    detached: bool = False,
+) -> np.ndarray:
     """Render shader to a numpy array.
 
     Args:
@@ -543,17 +645,19 @@ def render_array(
         time: Shader time value
         uniforms: Additional uniform values to pass to the shader
         backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        detached: Whether to run in detached mode (no output/logging)
 
     Returns:
         Numpy array containing the rendered image
     """
-    logger.info("Rendering to array")
+    log_info("Rendering to array", detached)
 
     with _setup_rendering_context(
         shader_input,
         size,
         windowed=False,
         backend_type=backend_type,
+        detached=detached,
     ) as render_ctx:
         # Create frame parameters
         frame_params = FrameParams(
@@ -578,10 +682,11 @@ def render_image(
     shader_input: Callable[..., Any] | str,
     size: tuple[int, int] = (1200, 800),
     time: float = 0.0,
-    uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    uniforms: dict[str, UniformValue] | None = None,
     output_path: str | None = None,
     image_format: str = "PNG",
     backend_type: Any = None,
+    detached: bool = False,
 ) -> Image.Image:
     """Render shader to a PIL Image.
 
@@ -593,14 +698,15 @@ def render_image(
         output_path: Path to save the image, if desired
         image_format: Format to save the image in (e.g., "PNG", "JPEG")
         backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        detached: Whether to run in detached mode (no output/logging)
 
     Returns:
         PIL Image containing the rendered image
     """
-    logger.info("Rendering to image")
+    log_info("Rendering to image", detached)
 
     with _setup_rendering_context(
-        shader_input, size, windowed=False, backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type, detached=detached
     ) as render_ctx:
         # Create frame parameters
         frame_params = FrameParams(
@@ -616,7 +722,8 @@ def render_image(
         # Render frame
         array = _render_frame(frame_params)
 
-        assert array is not None
+        if array is None:
+            raise RuntimeError("Rendering failed to produce an image")
         image = Image.fromarray(array, mode="RGBA")
         if output_path:
             image.save(output_path, format=image_format)
@@ -629,11 +736,12 @@ def render_gif(
     size: tuple[int, int] = (1200, 800),
     duration: float = 5.0,
     fps: int = 30,
-    uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    uniforms: dict[str, UniformValue] | None = None,
     output_path: str | None = None,
     time_offset: float = 0.0,
     backend_type: Any = None,
-) -> tuple[Image.Image, list[Any]]:
+    detached: bool = False,
+) -> tuple[Image.Image, list[np.ndarray]]:
     """Render shader to an animated GIF, returning first frame and raw frames.
 
     Args:
@@ -645,14 +753,15 @@ def render_gif(
         output_path: Path to save the GIF, if desired
         time_offset: Starting time for the animation (seconds)
         backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        detached: Whether to run in detached mode (no output/logging)
 
     Returns:
         Tuple of (first frame as PIL Image, list of raw frames as numpy arrays)
     """
-    logger.info("Rendering to GIF")
+    log_info("Rendering to GIF", detached)
 
     with _setup_rendering_context(
-        shader_input, size, windowed=False, backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type, detached=detached
     ) as render_ctx:
         num_frames = int(duration * fps)
         raw_frames: list[Any] = []
@@ -676,7 +785,8 @@ def render_gif(
             # Render frame
             array = _render_frame(frame_params)
 
-            assert array is not None
+            if array is None:
+                raise RuntimeError(f"Rendering failed on frame {i+1}/{num_frames}")
             raw_frames.append(array)
             pil_frames.append(Image.fromarray(array, mode="RGBA"))
 
@@ -688,7 +798,7 @@ def render_gif(
                 duration=int(1000 / fps),
                 loop=0,
             )
-            logger.info(f"GIF saved to {output_path}")
+            log_info(f"GIF saved to {output_path}", detached)
         return pil_frames[0], raw_frames
 
 
@@ -701,10 +811,11 @@ def render_video(
     codec: str = "h264",
     quality: int = 8,
     pixel_format: str = "yuv420p",
-    uniforms: dict[str, float | tuple[float, ...]] | None = None,
+    uniforms: dict[str, UniformValue] | None = None,
     time_offset: float = 0.0,
     backend_type: Any = None,
-) -> tuple[str, list[Any]]:
+    detached: bool = False,
+) -> tuple[str, list[np.ndarray]]:
     """Render shader to a video file, returning path and raw frames.
 
     Args:
@@ -719,14 +830,15 @@ def render_video(
         uniforms: Additional uniform values to pass to the shader
         time_offset: Starting time for the animation (seconds)
         backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        detached: Whether to run in detached mode (no output/logging)
 
     Returns:
         Tuple of (output path, list of raw frames as numpy arrays)
     """
-    logger.info(f"Rendering to video file {output_path} with {codec} codec")
+    log_info(f"Rendering to video file {output_path} with {codec} codec", detached)
 
     with _setup_rendering_context(
-        shader_input, size, windowed=False, backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type, detached=detached
     ) as render_ctx:
         writer = imageio.get_writer(
             output_path,
@@ -757,10 +869,11 @@ def render_video(
             # Render frame
             array = _render_frame(frame_params)
 
-            assert array is not None
+            if array is None:
+                raise RuntimeError(f"Rendering failed on frame {i+1}/{num_frames}")
             raw_frames.append(array)
             writer.append_data(array)
 
         writer.close()
-        logger.info(f"Video saved to {output_path}")
+        log_info(f"Video saved to {output_path}", detached)
         return output_path, raw_frames

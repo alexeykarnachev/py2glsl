@@ -41,26 +41,29 @@ def test_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "Transform Python functions into GLSL shaders" in result.stdout
-    # Check new commands are listed
-    assert "show" in result.stdout
-    assert "watch" in result.stdout
+    # Check commands are listed
+    assert "animate" in result.stdout
     assert "render-image" in result.stdout
     assert "render-video" in result.stdout
     assert "render-gif" in result.stdout
     assert "export-code" in result.stdout
+    # Check 'watch' is NOT listed as a separate command
+    assert "Commands: animate, render-image" in result.stdout
+    assert "Commands: animate, watch, render-image" not in result.stdout
 
 
-def test_show_help():
-    """Test that the show command help works."""
-    result = runner.invoke(app, ["show", "--help"])
+def test_animate_help():
+    """Test that the animate command help works."""
+    result = runner.invoke(app, ["animate", "--help"])
     assert result.exit_code == 0
-    assert "Display shader in an interactive window" in result.stdout
+    assert "Run a shader animation in an interactive window" in result.stdout
 
 
-def test_watch_help():
-    """Test that the watch command help works."""
-    result = runner.invoke(app, ["watch", "--help"])
+def test_animate_with_watch_help():
+    """Test that the animate command with watch flag help works."""
+    result = runner.invoke(app, ["animate", "--help"])
     assert result.exit_code == 0
+    assert "--watch" in result.stdout
     assert "Watch shader file and auto-reload on changes" in result.stdout
 
 
@@ -302,14 +305,14 @@ def test_error_handling(mock_transpile, sample_shader_file):
     assert result.exit_code != 0
 
 
-def test_show_command(sample_shader_file):
-    """Test the show command (partial test without actually showing GUI)."""
+def test_animate_command(sample_shader_file):
+    """Test the animate command (partial test without actually showing GUI)."""
     # Since we can't test the actual UI, we'll just verify command execution
     # We mock to prevent actual execution
     with patch("py2glsl.main.animate") as mock_animate:
         result = runner.invoke(
             app, [
-                "show",
+                "animate",
                 sample_shader_file,
                 "--width", "200",
                 "--height", "200"
@@ -321,8 +324,8 @@ def test_show_command(sample_shader_file):
         assert mock_animate.called
 
 
-def test_watch_command(sample_shader_file):
-    """Test the watch command (partial test without actually watching)."""
+def test_animate_with_watch_flag(sample_shader_file):
+    """Test the animate command with --watch flag."""
     # Since we can't test file watching easily, we'll just verify command execution
     # We need to patch both the Observer and the handler's run_shader method
     with patch("py2glsl.main.watchdog.observers.Observer") as mock_observer, \
@@ -332,10 +335,11 @@ def test_watch_command(sample_shader_file):
 
             result = runner.invoke(
                 app, [
-                    "watch",
+                    "animate",
                     sample_shader_file,
                     "--width", "200",
-                    "--height", "200"
+                    "--height", "200",
+                    "--watch"
                 ]
             )
             # Check if the command runs without errors
@@ -344,3 +348,50 @@ def test_watch_command(sample_shader_file):
             assert mock_observer.called
             # Handler should be instantiated
             assert mock_handler.called
+
+
+def test_animate_with_detach_flag(sample_shader_file):
+    """Test the animate command with --detach flag."""
+    with patch("py2glsl.main.animate") as mock_animate:
+        result = runner.invoke(
+            app, [
+                "animate",
+                sample_shader_file,
+                "--width", "200",
+                "--height", "200",
+                "--detach"
+            ]
+        )
+        # Command should execute successfully
+        assert result.exit_code == 0
+        # Animate should be called with detached=True
+        mock_animate.assert_called_once()
+        # Check that detached parameter was passed
+        assert mock_animate.call_args[1]["detached"] is True
+
+
+def test_animate_with_watch_and_detach(sample_shader_file):
+    """Test the animate command with both --watch and --detach flags."""
+    with patch("py2glsl.main.watchdog.observers.Observer") as mock_observer, \
+         patch("py2glsl.main.ShaderChangeHandler") as mock_handler:
+            # Make the handler's run_shader method return immediately
+            mock_handler.return_value.run_shader.return_value = None
+
+            result = runner.invoke(
+                app, [
+                    "animate",
+                    sample_shader_file,
+                    "--width", "200",
+                    "--height", "200",
+                    "--watch",
+                    "--detach"
+                ]
+            )
+            # Check if the command runs without errors
+            assert result.exit_code == 0
+            # Observer should be instantiated
+            assert mock_observer.called
+            # Handler should be instantiated with detach=True
+            mock_handler.assert_called_once()
+            # Check that the detach parameter was passed
+            assert mock_handler.call_args[0][6] is True

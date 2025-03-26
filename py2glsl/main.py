@@ -8,7 +8,6 @@ import importlib.util
 import inspect
 import os
 import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar, cast
@@ -21,7 +20,14 @@ from loguru import logger
 from watchdog.events import FileSystemEventHandler
 
 from py2glsl.builtins import vec4
-from py2glsl.render import animate, render_gif, render_image, render_video
+from py2glsl.render import (
+    animate,
+    log_error,
+    log_info,
+    render_gif,
+    render_image,
+    render_video,
+)
 from py2glsl.transpiler import transpile
 from py2glsl.transpiler.backends.models import BackendType
 from py2glsl.transpiler.core.interfaces import TargetLanguageType
@@ -44,7 +50,7 @@ app = typer.Typer(
     name="py2glsl",
     help=(
         "Transform Python functions into GLSL shaders. "
-        "Commands: show, watch, render-image, render-video, render-gif, export-code."
+        "Commands: animate, render-image, render-video, render-gif, export-code."
     ),
     add_completion=False,
 )
@@ -342,8 +348,8 @@ def _get_size(width: int, height: int) -> tuple[int, int]:
     return (width, height)
 
 
-@typed_command(app.command("show"))
-def show_shader(
+@typed_command(app.command("animate"))
+def animate_shader(
     shader_file: str = typer.Argument(
         ..., help="Python file containing shader functions"
     ),
@@ -356,29 +362,63 @@ def show_shader(
     width: int = typer.Option(800, "--width", "-w", help="Window width"),
     height: int = typer.Option(600, "--height", "-h", help="Window height"),
     fps: int = typer.Option(30, "--fps", help="Target framerate (0 for unlimited)"),
+    detach: bool = typer.Option(
+        False, "--detach", "-d", help="Run in detached mode (no output/logging)"
+    ),
+    watch: bool = typer.Option(
+        False, "--watch", help="Watch shader file and auto-reload on changes"
+    ),
 ) -> None:
-    """Display shader in an interactive window.
+    """Run a shader animation in an interactive window.
 
     The shader will run in realtime in a window, with the ability to close
-    with ESC key.
+    with ESC key. Use --watch to automatically reload the shader when the file changes.
 
-    Example: py2glsl show examples/shader.py
+    Example: py2glsl animate examples/shader.py
+    Example: py2glsl animate examples/shader.py --watch
     """
-    # Get transpiled shader (error handling is inside the function)
-    code = _get_transpiled_shader(shader_file, target, main_function)
-    glsl_code, backend_type, _ = code
+    # Get absolute path
+    abs_shader_file = os.path.abspath(shader_file)
 
     # Set output size
     size = _get_size(width, height)
 
-    # Run interactive animation
-    logger.info(f"Running interactive animation at {fps}fps (press ESC to exit)...")
-    animate(
-        shader_input=glsl_code,
-        backend_type=backend_type,
-        size=size,
-        fps=fps,
-    )
+    if watch:
+        # Create file system observer for auto-reload
+        observer = watchdog.observers.Observer()
+
+        # Create handler
+        handler = ShaderChangeHandler(
+            abs_shader_file, target, main_function, width, height, fps, detach
+        )
+
+        # Watch the file's directory, not the file itself
+        directory = os.path.dirname(abs_shader_file)
+        observer.schedule(handler, path=directory, recursive=False)
+        observer.start()
+
+        try:
+            # Run the shader (will reload on changes)
+            handler.run_shader()
+        except KeyboardInterrupt:
+            log_info("Keyboard interrupt received, stopping...", detach)
+        finally:
+            observer.stop()
+            observer.join()
+    else:
+        # Get transpiled shader (error handling is inside the function)
+        code = _get_transpiled_shader(shader_file, target, main_function)
+        glsl_code, backend_type, _ = code
+
+        # Run interactive animation
+        log_info(f"Running animation at {fps}fps (press ESC to exit)", detach)
+        animate(
+            shader_input=glsl_code,
+            backend_type=backend_type,
+            size=size,
+            fps=fps,
+            detached=detach,
+        )
 
 
 class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
@@ -392,6 +432,7 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
         width: int,
         height: int,
         fps: int,
+        detached: bool = False,
     ):
         """Initialize shader change handler.
 
@@ -402,6 +443,7 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
             width: Window width
             height: Window height
             fps: Target framerate
+            detached: Whether to run in detached mode (no output/logging)
         """
         self.shader_file = shader_file
         self.target = target
@@ -409,8 +451,10 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
         self.width = width
         self.height = height
         self.fps = fps
+        self.detached = detached
         self.is_running = False
         self.needs_reload = False
+        self.size = _get_size(width, height)
 
     def on_modified(self, event: watchdog.events.FileSystemEvent) -> None:
         """Handle file modified event.
@@ -419,7 +463,7 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
             event: File system event
         """
         if event.src_path == os.path.abspath(self.shader_file):
-            logger.info(f"Detected changes in {self.shader_file}")
+            log_info(f"Detected changes in {self.shader_file}", self.detached)
             self.needs_reload = True
 
     def run_shader(self) -> None:
@@ -427,48 +471,39 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
         self.is_running = True
 
         try:
-            # First time - try to transpile and run
-            try:
-                code = _get_transpiled_shader(
-                    self.shader_file, self.target, self.main_function
-                )
-                glsl_code, backend_type, _ = code
+            # Initial transpilation
+            code = _get_transpiled_shader(
+                self.shader_file, self.target, self.main_function
+            )
+            glsl_code, backend_type, _ = code
 
-                # Set output size
-                size = _get_size(self.width, self.height)
+            # Run animation with auto-reload capability
+            log_info(
+                f"Running shader in watch mode at {self.fps}fps "
+                "(press ESC to exit, shader will reload on file changes)",
+                self.detached,
+            )
 
-                # Run animation with auto-reload
-                logger.info(
-                    f"Running shader in watch mode at {self.fps}fps "
-                    "(press ESC to exit, shader will reload on file changes)..."
-                )
-
-                # Run with auto-reload callback
-                def should_reload() -> bool:
-                    if self.needs_reload:
-                        self.needs_reload = False
-                        return True
-                    return False
-
-                animate(
-                    shader_input=glsl_code,
-                    backend_type=backend_type,
-                    size=size,
-                    fps=self.fps,
-                    reload_callback=should_reload,
-                    reload_function=lambda: self._reload_shader(),
-                )
-            except Exception as e:
-                logger.error(f"Error running shader: {e}")
-                # Wait for file changes
-                while self.is_running and not self.needs_reload:
-                    time.sleep(0.1)
-
+            # Setup reload callback
+            def should_reload() -> bool:
                 if self.needs_reload:
                     self.needs_reload = False
-                    self.run_shader()  # Recursive call to retry
-        except KeyboardInterrupt:
-            self.is_running = False
+                    return True
+                return False
+
+            # Start the animation with live reload capability
+            animate(
+                shader_input=glsl_code,
+                backend_type=backend_type,
+                size=self.size,
+                fps=self.fps,
+                reload_callback=should_reload,
+                reload_function=lambda: self._reload_shader(),
+                detached=self.detached,
+            )
+
+        except Exception as e:
+            log_error(f"Error running shader: {e}", self.detached)
         finally:
             self.is_running = False
 
@@ -479,14 +514,14 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
             Tuple of (GLSL code, backend type)
         """
         try:
-            logger.info(f"Reloading shader from {self.shader_file}")
+            log_info(f"Reloading shader from {self.shader_file}", self.detached)
             code = _get_transpiled_shader(
                 self.shader_file, self.target, self.main_function
             )
             glsl_code, backend_type, _ = code
             return glsl_code, backend_type
         except Exception as e:
-            logger.error(f"Error reloading shader: {e}")
+            log_error(f"Error reloading shader: {e}", self.detached)
             # Return empty shader that won't crash but will display an error message
             error_shader = """
             void main() {
@@ -494,54 +529,6 @@ class ShaderChangeHandler(FileSystemEventHandler):  # type: ignore
             }
             """
             return error_shader, BackendType.STANDARD
-
-
-@typed_command(app.command("watch"))
-def watch_shader(
-    shader_file: str = typer.Argument(
-        ..., help="Python file containing shader functions"
-    ),
-    target: str = typer.Option(
-        "glsl", "--target", "-t", help="Target language (glsl, shadertoy)"
-    ),
-    main_function: str = typer.Option(
-        "", "--main", "-m", help="Specific shader function to use"
-    ),
-    width: int = typer.Option(800, "--width", "-w", help="Window width"),
-    height: int = typer.Option(600, "--height", "-h", help="Window height"),
-    fps: int = typer.Option(30, "--fps", help="Target framerate (0 for unlimited)"),
-) -> None:
-    """Watch shader file and auto-reload on changes.
-
-    Monitors the shader file and automatically reloads it when changes are
-    detected, without having to restart the application.
-
-    Example: py2glsl watch examples/shader.py
-    """
-    # Create file system observer for auto-reload
-    observer = watchdog.observers.Observer()
-
-    # Get absolute path
-    abs_shader_file = os.path.abspath(shader_file)
-
-    # Create handler
-    handler = ShaderChangeHandler(
-        abs_shader_file, target, main_function, width, height, fps
-    )
-
-    # Watch the file's directory, not the file itself
-    directory = os.path.dirname(abs_shader_file)
-    observer.schedule(handler, path=directory, recursive=False)
-    observer.start()
-
-    try:
-        # Run the shader (will reload on changes)
-        handler.run_shader()
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received, stopping...")
-    finally:
-        observer.stop()
-        observer.join()
 
 
 # Define reusable argument

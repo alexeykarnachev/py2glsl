@@ -35,11 +35,11 @@ def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
 Run it using the command-line interface:
 
 ```bash
-# Interactive preview
-py2glsl show plasma.py
+# Interactive animation preview
+py2glsl animate plasma.py
 
-# Live preview with auto-reload on file changes
-py2glsl watch plasma.py
+# Live animation with auto-reload on file changes
+py2glsl animate plasma.py --watch
 
 # Save as image
 py2glsl render-image plasma.py output.png
@@ -51,7 +51,7 @@ py2glsl render-gif plasma.py animation.gif --duration 5.0
 py2glsl render-video plasma.py animation.mp4 --duration 5.0
 
 # Specify a particular function to use (default auto-detects shader function)
-py2glsl show plasma.py --main my_custom_shader
+py2glsl animate plasma.py --main my_custom_shader
 
 # Export code for Shadertoy
 py2glsl export-code plasma.py shadertoy.glsl --target shadertoy --format wrapped
@@ -77,8 +77,9 @@ animate(plasma, fps=30)
 - **Built-in GLSL Functions**: Use familiar functions like sin, cos, length, normalize,
   and more directly in Python.
 - **Command-Line Interface**:
-  - Interactive preview with `py2glsl show`
-  - Live preview with auto-reload using `py2glsl watch` 
+  - Interactive animation with `py2glsl animate`
+  - Live animation with auto-reload using `py2glsl animate --watch` 
+  - Detached mode operation with `--detach` flag for headless usage
   - Static image rendering with `py2glsl render-image`
   - Video rendering with `py2glsl render-video`
   - GIF creation with `py2glsl render-gif`
@@ -133,10 +134,10 @@ pre-commit install
 
 py2glsl provides a comprehensive command-line interface for working with shaders.
 
-### Interactive Preview
+### Interactive Animation
 
 ```bash
-py2glsl show shader_file.py [OPTIONS]
+py2glsl animate shader_file.py [OPTIONS]
 
 Options:
   -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
@@ -144,19 +145,8 @@ Options:
   -w, --width INTEGER    Window width  [default: 800]
   -h, --height INTEGER   Window height  [default: 600]
   --fps INTEGER          Target framerate (0 for unlimited)  [default: 30]
-```
-
-### Watch Mode with Auto-Reload
-
-```bash
-py2glsl watch shader_file.py [OPTIONS]
-
-Options:
-  -t, --target TEXT      Target language (glsl, shadertoy)  [default: glsl]
-  -m, --main TEXT        Specific shader function to use
-  -w, --width INTEGER    Window width  [default: 800]
-  -h, --height INTEGER   Window height  [default: 600]
-  --fps INTEGER          Target framerate (0 for unlimited)  [default: 30]
+  -d, --detach           Run in detached mode (no output/logging)
+  --watch                Watch shader file and auto-reload on changes
 ```
 
 ### Render to Image
@@ -170,6 +160,7 @@ Options:
   -w, --width INTEGER    Image width  [default: 800]
   -h, --height INTEGER   Image height  [default: 600]
   --time FLOAT           Time value for the image  [default: 0.0]
+  -d, --detach           Run in detached mode (no output/logging)
 ```
 
 ### Render to Video
@@ -399,8 +390,9 @@ def main(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     return vec4(c, c * 0.5, 1.0 - c, 1.0)
 
 # Real-time animation with frame rate control
-animate(main, fps=30)  # Cap at 30fps
-animate(main, fps=0)   # Unlimited frame rate (default)
+animate(main, fps=30)            # Cap at 30fps
+animate(main, fps=0)             # Unlimited frame rate (default)
+animate(main, fps=30, detached=True)  # Run without logging output
 
 # Interactive animation with Shadertoy compatibility
 animate(main, backend_type=BackendType.SHADERTOY, fps=60)
