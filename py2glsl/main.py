@@ -350,7 +350,8 @@ def _get_transpiled_shader(
         logger.error(f"Invalid shader function: {e}")
         raise typer.Exit(1) from e
     except Exception as e:
-        logger.error(f"Transpilation error: {e}")
+        error_msg = str(e)
+        logger.error(f"Transpilation error: {error_msg}")
         raise typer.Exit(1) from e
 
 

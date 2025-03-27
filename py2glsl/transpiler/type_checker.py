@@ -6,6 +6,7 @@ and validating type compatibility in operations.
 """
 
 import ast
+import os
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS
 from py2glsl.transpiler.errors import TranspilerError
@@ -45,7 +46,7 @@ class ExpressionTypeChecker(ast.NodeVisitor):
         Raises:
             TranspilerError: Always raised for unsupported nodes
         """
-        raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")
+        raise TranspilerError(f"Cannot determine type for: {type(node).__name__}", node)
 
     def visit_Name(self, node: ast.Name) -> None:
         """Get the type of a name expression."""
@@ -103,12 +104,12 @@ def _get_name_type(
     if node.id in symbols:
         symbol_type = symbols[node.id]
         if symbol_type is None:
-            raise TranspilerError(f"Variable has no type: {node.id}")
+            raise TranspilerError(f"Variable has no type: {node.id}", node)
         return symbol_type
     # Check if it's a global constant
     elif node.id in collected.globals:
         return collected.globals[node.id][0]  # Return the type of the global constant
-    raise TranspilerError(f"Undefined variable: {node.id}")
+    raise TranspilerError(f"Undefined variable: {node.id}", node)
 
 
 def _get_constant_type(node: ast.Constant) -> str:
@@ -165,6 +166,7 @@ def _find_matching_signature(
     func_name: str,
     signatures: list[tuple[str, list[str]]],
     arg_types: list[str],
+    node: ast.AST = None,
 ) -> str:
     """Find a matching function signature for the given argument types.
 
@@ -172,6 +174,7 @@ def _find_matching_signature(
         func_name: Name of the function
         signatures: List of function signatures
         arg_types: Types of the arguments passed to the function
+        node: AST node where the function is called (for error reporting)
 
     Returns:
         The return type of the matching signature
@@ -195,9 +198,27 @@ def _find_matching_signature(
             return return_type
 
     # If we're here, no matching overload was found
-    raise TranspilerError(
-        f"No matching overload for function {func_name} with argument types {arg_types}"
-    )
+    error_msg = f"No matching overload for function {func_name}() with argument types {arg_types}"
+    
+    # Add context about which expression is causing the issue
+    if node and hasattr(node, 'func') and hasattr(node.func, 'id'):
+        error_msg += f" in expression: {node.func.id}(...)"
+    
+    # Calculate the actual file line 
+    if node and hasattr(node, 'lineno'):
+        ast_line = node.lineno
+        # Get line offset from environment if it exists
+        line_offset = 0
+        if os.environ.get("PY2GLSL_LINE_OFFSET"):
+            try:
+                line_offset = int(os.environ.get("PY2GLSL_LINE_OFFSET"))
+            except ValueError:
+                pass
+        
+        # Set the actual file line on the node
+        node.actual_file_line = ast_line + line_offset
+        
+    raise TranspilerError(error_msg, node)
 
 
 def _get_call_type(
@@ -236,7 +257,14 @@ def _get_call_type(
 
         # For overloaded functions, find the matching signature
         arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
-        return _find_matching_signature(func_name, func_signatures, arg_types)
+        
+        
+        return _find_matching_signature(
+            func_name, 
+            func_signatures, 
+            arg_types,
+            node
+        )
 
     # Check user-defined functions
     elif func_name in collected.functions:

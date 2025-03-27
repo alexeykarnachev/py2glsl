@@ -7,6 +7,7 @@ and extracting basic information like type annotations.
 
 import ast
 import inspect
+import os
 import textwrap
 from typing import Any, Protocol, TypeVar
 
@@ -91,6 +92,7 @@ def parse_shader_code(
     logger.debug("Parsing shader input")
     tree = None
     effective_main_func = main_func
+    original_source_file = os.environ.get("PY2GLSL_CURRENT_FILE", "")
 
     # Process dictionary of functions/classes
     if isinstance(shader_input, dict):
@@ -99,10 +101,31 @@ def parse_shader_code(
             try:
                 source = textwrap.dedent(inspect.getsource(obj))
                 source_lines.append(source)
+                
+                # Store source file information for more accurate error reporting
+                if hasattr(obj, "__code__") and not original_source_file:
+                    original_source_file = obj.__code__.co_filename
+                    os.environ["PY2GLSL_CURRENT_FILE"] = original_source_file
+                    
+                    # Also store the original line number offset
+                    if hasattr(obj, "__code__"):
+                        line_offset = obj.__code__.co_firstlineno - 1
+                        os.environ["PY2GLSL_LINE_OFFSET"] = str(line_offset)
+                        
+                    
             except (OSError, TypeError) as e:
                 raise TranspilerError(f"Failed to get source for {name}: {e}") from e
+                
         full_source = "\n".join(source_lines)
         tree = ast.parse(full_source)
+        
+        # Add source file information for the AST
+        if original_source_file:
+            for node in ast.walk(tree):
+                if hasattr(node, 'lineno'):
+                    # Store the original file as a custom attribute
+                    setattr(node, 'source_file', original_source_file)
+        
         if not effective_main_func:
             for node in tree.body:
                 if isinstance(node, ast.FunctionDef):
@@ -115,6 +138,14 @@ def parse_shader_code(
         if not shader_code:
             raise TranspilerError("Empty shader code provided")
         tree = ast.parse(shader_code)
+        
+        # Add source file information for the AST
+        if original_source_file:
+            for node in ast.walk(tree):
+                if hasattr(node, 'lineno'):
+                    # Store the original file as a custom attribute
+                    setattr(node, 'source_file', original_source_file)
+                    
         if not effective_main_func:
             effective_main_func = "shader"
 
