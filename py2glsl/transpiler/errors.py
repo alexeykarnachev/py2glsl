@@ -5,9 +5,8 @@ This module defines custom exceptions that are raised during the transpilation p
 """
 
 import os
-import inspect
 import traceback
-from typing import Optional, Any
+from typing import Any
 
 
 class TranspilerError(Exception):
@@ -24,7 +23,7 @@ class TranspilerError(Exception):
         TranspilerError: Unknown function: my_func
     """
 
-    def __init__(self, message: str, node: Optional[Any] = None):
+    def __init__(self, message: str, node: Any | None = None):
         """Initialize the exception with a message and optional AST node.
 
         Args:
@@ -36,35 +35,36 @@ class TranspilerError(Exception):
         self.transpiler_frame = None
         self.file_path = None
         self.lineno = None
-            
+
         # Try to get the original file and line info from traceback
         stack = traceback.extract_stack()
-        
-        # First check if node has the actual file line 
-        if node and hasattr(node, 'actual_file_line'):
-            self.lineno = getattr(node, 'actual_file_line')
+
+        # First check if node has the actual file line
+        if node and hasattr(node, "actual_file_line"):
+            self.lineno = getattr(node, "actual_file_line")
             if os.environ.get("PY2GLSL_CURRENT_FILE"):
                 self.file_path = os.environ.get("PY2GLSL_CURRENT_FILE")
         # Next check if we have source file information directly on the node
-        elif node and hasattr(node, 'source_file'):
-            self.file_path = getattr(node, 'source_file')
-            if hasattr(node, 'lineno'):
-                self.lineno = getattr(node, 'lineno')
+        elif node and hasattr(node, "source_file"):
+            self.file_path = getattr(node, "source_file")
+            if hasattr(node, "lineno"):
+                self.lineno = getattr(node, "lineno")
         # Otherwise, check if we have source file info from environment
         elif os.environ.get("PY2GLSL_CURRENT_FILE"):
             self.file_path = os.environ.get("PY2GLSL_CURRENT_FILE")
-            if node and hasattr(node, 'lineno'):
-                # Get the AST line number 
-                ast_lineno = getattr(node, 'lineno')
-                
+            if node and hasattr(node, "lineno"):
+                # Get the AST line number
+                ast_lineno = getattr(node, "lineno")
+
                 # Get line offset from environment if it exists
                 line_offset = 0
-                if os.environ.get("PY2GLSL_LINE_OFFSET"):
+                env_value = os.environ.get("PY2GLSL_LINE_OFFSET", "0")
+                if env_value is not None:
                     try:
-                        line_offset = int(os.environ.get("PY2GLSL_LINE_OFFSET"))
+                        line_offset = int(env_value)
                     except ValueError:
-                        pass
-                        
+                        line_offset = 0
+
                 # Calculate actual file line number by adding offset
                 self.lineno = ast_lineno + line_offset
         # Finally, fall back to extracting info from the stack
@@ -77,7 +77,7 @@ class TranspilerError(Exception):
                     self.file_path = file_path
                     self.lineno = lineno
                     break
-        
+
         # Format the message with location info if available
         location_info = ""
         if self.file_path:
@@ -86,16 +86,16 @@ class TranspilerError(Exception):
             location_info = f" in {filename}"
             if self.lineno:
                 location_info += f" at line {self.lineno}"
-        
+
         # Call the parent constructor with our formatted message
         super().__init__(f"{message}{location_info}")
-    
-    def with_node(self, node: Any) -> 'TranspilerError':
+
+    def with_node(self, node: Any) -> "TranspilerError":
         """Create a new TranspilerError with the same message but a different node.
-        
+
         Args:
             node: AST node to associate with the error
-            
+
         Returns:
             A new TranspilerError instance with the updated node
         """

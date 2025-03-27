@@ -166,7 +166,7 @@ def _find_matching_signature(
     func_name: str,
     signatures: list[tuple[str, list[str]]],
     arg_types: list[str],
-    node: ast.AST = None,
+    node: ast.AST | None = None,
 ) -> str:
     """Find a matching function signature for the given argument types.
 
@@ -198,26 +198,32 @@ def _find_matching_signature(
             return return_type
 
     # If we're here, no matching overload was found
-    error_msg = f"No matching overload for function {func_name}() with argument types {arg_types}"
-    
+    error_msg = (
+        f"No matching overload for function {func_name}() "
+        f"with argument types {arg_types}"
+    )
+
     # Add context about which expression is causing the issue
-    if node and hasattr(node, 'func') and hasattr(node.func, 'id'):
+    if node and hasattr(node, "func") and hasattr(node.func, "id"):
         error_msg += f" in expression: {node.func.id}(...)"
-    
-    # Calculate the actual file line 
-    if node and hasattr(node, 'lineno'):
+
+    # Calculate the actual file line
+    if node and hasattr(node, "lineno"):
         ast_line = node.lineno
         # Get line offset from environment if it exists
         line_offset = 0
-        if os.environ.get("PY2GLSL_LINE_OFFSET"):
+        env_value = os.environ.get("PY2GLSL_LINE_OFFSET", "0")
+        if env_value is not None:
             try:
-                line_offset = int(os.environ.get("PY2GLSL_LINE_OFFSET"))
+                line_offset = int(env_value)
             except ValueError:
-                pass
-        
+                line_offset = 0
+
         # Set the actual file line on the node
-        node.actual_file_line = ast_line + line_offset
-        
+        # This is technically adding a new attribute to the AST node
+        # It's safe here as we're just using it for error reporting
+        setattr(node, "actual_file_line", ast_line + line_offset)
+
     raise TranspilerError(error_msg, node)
 
 
@@ -257,14 +263,8 @@ def _get_call_type(
 
         # For overloaded functions, find the matching signature
         arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
-        
-        
-        return _find_matching_signature(
-            func_name, 
-            func_signatures, 
-            arg_types,
-            node
-        )
+
+        return _find_matching_signature(func_name, func_signatures, arg_types, node)
 
     # Check user-defined functions
     elif func_name in collected.functions:

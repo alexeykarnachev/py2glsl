@@ -6,7 +6,6 @@ various shader languages.
 """
 
 import inspect
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -196,7 +195,7 @@ def _extract_structs_from_kwargs(
                     name=field_name,
                     type_name=type_name,
                     # Default values not supported for kwargs structs
-                    default_value=None
+                    default_value=None,
                 )
                 fields.append(field)
 

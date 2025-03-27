@@ -132,10 +132,10 @@ def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     ro = cam_pos
     rd = normalize(ray_target - cam_pos)
 
-    # Ray march
-    rm = march(ro, rd)
+    # Ray march (currently unused but would be used for shading)
+    _rm = march(ro, rd)
 
-    # Color calculation
+    # Fixed color for now
     color = vec3(1.0, 1.0, 1.0)
 
     return vec4(color.x, color.y, color.z, 1.0)
