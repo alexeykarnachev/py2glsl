@@ -4,12 +4,14 @@ repos:
   hooks:
   - id: ruff
     args: [
-      "--ignore", "PLR0913,PLR0912,B009,B010",
-      "--select", "F,E,W,I,N,UP,B,C4,SIM,ERA,PL,RUF,ARG", 
+      "--ignore", "PLR0913,PLR0912,PLR2004,B009,B010",
+      "--select", "F,E,W,I,N,UP,B,C4,SIM,ERA,PL,RUF,ARG",
       "--fix"
     ]
+    files: ^(py2glsl|tests|examples)/.*\.py$
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: v1.11.2
   hooks:
   - id: mypy
     additional_dependencies: [types-Pillow]
+    files: ^(py2glsl|tests|examples)/.*\.py$

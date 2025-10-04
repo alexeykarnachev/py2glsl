@@ -1,6 +1,5 @@
 """Standard GLSL render backend implementation."""
 
-
 from py2glsl.transpiler.backends.render import BaseRenderBackend, UniformProvider
 
 

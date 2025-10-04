@@ -434,6 +434,54 @@ else:
         assert "count = count + 1;" in result[3]
         assert result[4] == "    }"
 
+    def test_generate_if_statement_variable_hoisting(self, symbols, collected_info):
+        """Test that variables assigned in all branches are hoisted."""
+        # Arrange
+        node = ast.parse(
+            """
+if time > 0.0:
+    result = time * 2.0
+else:
+    result = time * 3.0
+"""
+        ).body[0]
+
+        # Act
+        result = generate_if_statement(node, symbols, "    ", collected_info)
+
+        # Assert - variable should be declared before if statement
+        assert "float result;" in result[0]
+        assert result[1] == "    if (time > 0.0) {"
+        assert "result = time * 2.0;" in result[2]
+        assert result[3] == "    } else {"
+        assert "result = time * 3.0;" in result[4]
+        assert result[-1] == "    }"
+
+    def test_generate_if_elif_else_variable_hoisting(self, symbols, collected_info):
+        """Test variable hoisting with if/elif/else."""
+        # Arrange
+        node = ast.parse(
+            """
+if time > 1.0:
+    val = 1.0
+elif time > 0.0:
+    val = 2.0
+else:
+    val = 3.0
+"""
+        ).body[0]
+
+        # Act
+        result = generate_if_statement(node, symbols, "    ", collected_info)
+
+        # Assert - val should be declared before if
+        assert "float val;" in result[0]
+        assert "if (time > 1.0)" in result[1]
+        assert "val = 1.0;" in result[2]
+        assert "} else {" in result[3]
+        assert "if (time > 0.0)" in result[4]
+        assert "val = 2.0;" in result[5]
+
 
 class TestGenerateReturnStatement:
     """Tests for the generate_return_statement function."""

@@ -1,6 +1,6 @@
 """Tests for GLSL builtin function support and overloading."""
 
-from py2glsl.builtins import length, mix, smoothstep, vec2, vec3, vec4
+from py2glsl.builtins import length, mat2, mat3, mat4, mix, smoothstep, vec2, vec3, vec4
 from py2glsl.transpiler import transpile
 
 
@@ -161,3 +161,85 @@ class TestBuiltinFunctions:
         assert "vec2 min_vec2 = min(v2a, v2b);" in glsl_code
         assert "vec2 max_vec2 = max(v2a, v2b);" in glsl_code
         assert "vec3 min_vec3 = min(v3a, v3b);" in glsl_code
+
+    def test_mat2_constructor(self):
+        """Test the mat2() constructor."""
+
+        # Arrange
+        def shader() -> "vec4":
+            # Full constructor
+            m = mat2(1.0, 2.0, 3.0, 4.0)  # type: ignore
+            # Identity-like constructor
+            m2 = mat2(1.0)  # type: ignore
+            # Access matrix elements
+            v = vec2(m[0][0], m[1][1])  # type: ignore
+            return vec4(v, m2[0][0], m2[1][1])  # type: ignore
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert "mat2 m = mat2(1.0, 2.0, 3.0, 4.0);" in glsl_code
+        assert "mat2 m2 = mat2(1.0);" in glsl_code
+        assert "vec2 v = vec2(m[0][0], m[1][1]);" in glsl_code
+
+    def test_mat3_constructor(self):
+        """Test the mat3() constructor."""
+
+        # Arrange
+        def shader() -> "vec4":
+            # Full constructor
+            m = mat3(
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0
+            )  # type: ignore
+            # Identity-like constructor
+            m2 = mat3(1.0)  # type: ignore
+            v = vec3(m[0][0], m[1][1], m[2][2])  # type: ignore
+            return vec4(v, m2[0][0])  # type: ignore
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert (
+            "mat3 m = mat3(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0);" in glsl_code
+        )
+        assert "mat3 m2 = mat3(1.0);" in glsl_code
+        assert "vec3 v = vec3(m[0][0], m[1][1], m[2][2]);" in glsl_code
+
+    def test_mat4_constructor(self):
+        """Test the mat4() constructor."""
+
+        # Arrange
+        def shader() -> "vec4":
+            # Full constructor
+            m = mat4(
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+                5.0,
+                6.0,
+                7.0,
+                8.0,
+                9.0,
+                10.0,
+                11.0,
+                12.0,
+                13.0,
+                14.0,
+                15.0,
+                16.0,
+            )  # type: ignore
+            v = vec4(m[0][0], m[1][1], m[2][2], m[3][3])  # type: ignore
+            return v
+
+        # Act
+        glsl_code, _ = transpile(shader)
+
+        # Assert
+        assert (
+            "mat4 m = mat4(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, "
+            "12.0, 13.0, 14.0, 15.0, 16.0);" in glsl_code
+        )
+        assert "vec4 v = vec4(m[0][0], m[1][1], m[2][2], m[3][3]);" in glsl_code

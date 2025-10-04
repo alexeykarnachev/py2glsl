@@ -47,7 +47,7 @@ class GLSLAdapter(LanguageAdapter):
 
 
 def create_target(
-    target_type: TargetLanguageType = TargetLanguageType.GLSL
+    target_type: TargetLanguageType = TargetLanguageType.GLSL,
 ) -> tuple[TargetLanguage, RenderInterface, LanguageAdapter]:
     """Create a target language, renderer, and adapter based on type.
 
@@ -77,7 +77,7 @@ def create_target(
 
 
 def create_glsl_target(
-    shadertoy: bool = False
+    shadertoy: bool = False,
 ) -> tuple[TargetLanguage, RenderInterface, LanguageAdapter]:
     """Create a GLSL target with optional Shadertoy compatibility.
 

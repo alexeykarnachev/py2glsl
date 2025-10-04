@@ -49,6 +49,10 @@ class vec2:
     def __rmul__(self, scalar: float) -> "vec2":
         return self.__mul__(scalar)
 
+    def __getitem__(self, index: int) -> float:
+        """Support vector indexing: vec2[i] returns float."""
+        return float(self.data[index])
+
     def __str__(self) -> str:
         return f"vec2({self.x}, {self.y})"
 
@@ -106,12 +110,30 @@ class vec3:
         result = self.data - other.data
         return vec3(float(result[0]), float(result[1]), float(result[2]))
 
-    def __mul__(self, scalar: float) -> "vec3":
-        result = self.data * scalar
+    def __mul__(self, other: "float | vec3") -> "vec3":
+        if isinstance(other, vec3):
+            # Element-wise multiplication
+            result = self.data * other.data
+            return vec3(float(result[0]), float(result[1]), float(result[2]))
+        # Scalar multiplication
+        result = self.data * other
         return vec3(float(result[0]), float(result[1]), float(result[2]))
 
-    def __rmul__(self, scalar: float) -> "vec3":
+    def __rmul__(self, scalar: "float | vec3") -> "vec3":
+        if isinstance(scalar, vec3):
+            # Element-wise multiplication
+            result = self.data * scalar.data
+            return vec3(float(result[0]), float(result[1]), float(result[2]))
         return self.__mul__(scalar)
+
+    def __neg__(self) -> "vec3":
+        """Unary negation."""
+        result = -self.data
+        return vec3(float(result[0]), float(result[1]), float(result[2]))
+
+    def __getitem__(self, index: int) -> float:
+        """Support vector indexing: vec3[i] returns float."""
+        return float(self.data[index])
 
     def __str__(self) -> str:
         return f"vec3({self.x}, {self.y}, {self.z})"
@@ -180,6 +202,10 @@ class vec4:
     def __rmul__(self, scalar: float) -> "vec4":
         return self.__mul__(scalar)
 
+    def __getitem__(self, index: int) -> float:
+        """Support vector indexing: vec4[i] returns float."""
+        return float(self.data[index])
+
     def __str__(self) -> str:
         return f"vec4({self.x}, {self.y}, {self.z}, {self.w})"
 
@@ -197,6 +223,11 @@ class mat2:
             )
         else:
             self.data = np.eye(2, dtype=np.float32)  # Identity matrix
+
+    def __getitem__(self, index: int) -> "vec2":
+        """Support matrix indexing: mat2[i] returns vec2."""
+        row = self.data[index]
+        return vec2(float(row[0]), float(row[1]))
 
 
 class mat3:
@@ -217,6 +248,11 @@ class mat3:
         else:
             self.data = np.eye(3, dtype=np.float32)  # Identity matrix
 
+    def __getitem__(self, index: int) -> "vec3":
+        """Support matrix indexing: mat3[i] returns vec3."""
+        row = self.data[index]
+        return vec3(float(row[0]), float(row[1]), float(row[2]))
+
 
 class mat4:
     data: FloatArray
@@ -236,6 +272,11 @@ class mat4:
             )
         else:
             self.data = np.eye(4, dtype=np.float32)  # Identity matrix
+
+    def __getitem__(self, index: int) -> "vec4":
+        """Support matrix indexing: mat4[i] returns vec4."""
+        row = self.data[index]
+        return vec4(float(row[0]), float(row[1]), float(row[2]), float(row[3]))
 
 
 # GLSL built-in functions
@@ -593,6 +634,10 @@ def radians(degrees: float) -> float:
 
 def sqrt(x: float) -> float:
     return float(np.sqrt(x))
+
+
+def pow(x: float, y: float) -> float:
+    return float(np.power(x, y))
 
 
 @overload

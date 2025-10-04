@@ -3,7 +3,6 @@
 This module implements the TargetLanguage interface for GLSL.
 """
 
-
 from py2glsl.transpiler.core.ast_processor import DependencyResolver, SymbolTable
 from py2glsl.transpiler.core.interfaces import (
     LanguageConfig,

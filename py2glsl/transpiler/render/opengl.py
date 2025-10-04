@@ -94,8 +94,9 @@ void main() {
 
         now = datetime.now()
         # Convert time to seconds since midnight
-        secs = (now.hour * 3600 + now.minute * 60 + now.second +
-               now.microsecond / 1000000)
+        secs = (
+            now.hour * 3600 + now.minute * 60 + now.second + now.microsecond / 1000000
+        )
         result["iDate"] = (now.year, now.month, now.day, secs)
 
         # Other defaults

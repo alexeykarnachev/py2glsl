@@ -442,6 +442,59 @@ def generate_while_loop(
     return code
 
 
+def _find_assignments_in_body(body: list[ast.stmt]) -> set[str]:
+    """Find all variable names that are assigned in a body of statements.
+
+    Args:
+        body: List of AST statement nodes
+
+    Returns:
+        Set of variable names that are assigned in the body
+    """
+    assigned_vars = set()
+
+    for stmt in body:
+        if isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if isinstance(target, ast.Name):
+                    assigned_vars.add(target.id)
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            assigned_vars.add(stmt.target.id)
+        elif isinstance(stmt, ast.If):
+            # Recursively check nested if statements
+            assigned_vars.update(_find_assignments_in_body(stmt.body))
+            if stmt.orelse:
+                assigned_vars.update(_find_assignments_in_body(stmt.orelse))
+
+    return assigned_vars
+
+
+def _collect_all_branches(stmt: ast.If) -> list[list[ast.stmt]]:
+    """Collect all branches (if, elif, else) from an if statement.
+
+    Args:
+        stmt: AST if statement node
+
+    Returns:
+        List of all branch bodies
+    """
+    branches = [stmt.body]
+
+    # Check if there's an else/elif
+    current = stmt
+    while current.orelse:
+        # If orelse is a single If statement, it's an elif
+        if len(current.orelse) == 1 and isinstance(current.orelse[0], ast.If):
+            current = current.orelse[0]
+            branches.append(current.body)
+        else:
+            # It's an else clause
+            branches.append(current.orelse)
+            break
+
+    return branches
+
+
 def generate_if_statement(
     stmt: ast.If, symbols: dict[str, str | None], indent: str, collected: CollectedInfo
 ) -> list[str]:
@@ -457,6 +510,32 @@ def generate_if_statement(
         List of generated GLSL code lines for the if statement
     """
     code = []
+
+    # Find variables that are assigned in all branches
+    branches = _collect_all_branches(stmt)
+    if len(branches) > 1:  # Only hoist if we have multiple branches
+        # Find variables assigned in each branch
+        assigned_in_branches = [
+            _find_assignments_in_body(branch) for branch in branches
+        ]
+
+        # Find variables assigned in ALL branches (intersection)
+        if assigned_in_branches:
+            common_vars = set.intersection(*assigned_in_branches)
+        else:
+            common_vars = set()
+
+        # Filter out variables that already exist in parent scope
+        vars_to_hoist = {var for var in common_vars if var not in symbols}
+
+        # Declare hoisted variables before the if statement
+        # We need to infer their types by analyzing the first branch
+        for var in vars_to_hoist:
+            # Find the type by analyzing assignments in the first branch
+            var_type = _infer_hoisted_var_type(var, branches[0], symbols, collected)
+            if var_type:
+                code.append(f"{indent}{var_type} {var};")
+                symbols[var] = var_type
 
     condition = generate_expr(stmt.test, symbols, 0, collected)
     # Type is preserved when copying the symbols dictionary
@@ -475,6 +554,41 @@ def generate_if_statement(
 
     code.append(f"{indent}}}")
     return code
+
+
+def _infer_hoisted_var_type(
+    var_name: str,
+    body: list[ast.stmt],
+    symbols: dict[str, str | None],
+    collected: CollectedInfo,
+) -> str | None:
+    """Infer the type of a variable from its assignment in a body.
+
+    Args:
+        var_name: Name of the variable
+        body: List of statements to search
+        symbols: Symbol table
+        collected: Collected information
+
+    Returns:
+        The inferred type, or None if not found
+    """
+    for stmt in body:
+        if isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if isinstance(target, ast.Name) and target.id == var_name:
+                    return get_expr_type(stmt.value, symbols, collected)
+        elif (
+            isinstance(stmt, ast.AnnAssign)
+            and isinstance(stmt.target, ast.Name)
+            and stmt.target.id == var_name
+        ):
+            if stmt.value:
+                return get_expr_type(stmt.value, symbols, collected)
+            # If no value, get type from annotation
+            return get_annotation_type(stmt.annotation)
+
+    return None
 
 
 def generate_return_statement(

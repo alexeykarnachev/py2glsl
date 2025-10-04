@@ -83,6 +83,10 @@ class ExpressionTypeChecker(ast.NodeVisitor):
         """Get the type of a unary operation expression."""
         self._result = _get_unaryop_type(node, self.symbols, self.collected)
 
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        """Get the type of a subscript expression."""
+        self._result = _get_subscript_type(node, self.symbols, self.collected)
+
 
 def _get_name_type(
     node: ast.Name, symbols: dict[str, str | None], collected: CollectedInfo
@@ -395,6 +399,45 @@ def _get_unaryop_type(
 
 
 # Simplified - removed unnecessary wrapper functions and type checkers dictionary
+
+
+def _get_subscript_type(
+    node: ast.Subscript, symbols: dict[str, str | None], collected: CollectedInfo
+) -> str:
+    """Determine the type of a subscript expression (array/matrix indexing).
+
+    Args:
+        node: AST subscript node
+        symbols: Dictionary of variable names to their types
+        collected: Information about functions, structs, and globals
+
+    Returns:
+        The GLSL type of the subscript expression
+
+    Raises:
+        TranspilerError: If the type cannot be determined
+    """
+    # Get the type of the value being indexed
+    value_type = get_expr_type(node.value, symbols, collected)
+
+    # For matrix types, subscripting returns a vector
+    # mat2[i] -> vec2, mat3[i] -> vec3, mat4[i] -> vec4
+    matrix_to_vector = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
+    if value_type in matrix_to_vector:
+        return matrix_to_vector[value_type]
+
+    # For vector types, subscripting returns float
+    # vec2[i] -> float, vec3[i] -> float, vec4[i] -> float
+    if value_type in ("vec2", "vec3", "vec4"):
+        return "float"
+
+    # For array types like "float[3]", extract the element type
+    if "[" in value_type:
+        element_type = value_type.split("[")[0]
+        return element_type
+
+    # Default: return the same type (for unknown cases)
+    return value_type
 
 
 def get_expr_type(

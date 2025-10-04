@@ -49,8 +49,6 @@ class FrameParams:
     renderer: RenderInterface | None = None
 
 
-
-
 def _init_glfw(
     size: tuple[int, int],
     windowed: bool,
@@ -183,6 +181,7 @@ def _setup_rendering_context(
     # Prepare shader code
     if callable(shader_input):
         from py2glsl.transpiler import transpile
+
         glsl_code, _ = transpile(shader_input, target_type=target_type)
     else:
         glsl_code = shader_input
@@ -549,10 +548,7 @@ def render_image(
     logger.info("Rendering to image")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         # Create frame parameters
         frame_params = FrameParams(
@@ -604,10 +600,7 @@ def render_gif(
     logger.info("Rendering to GIF")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         num_frames = int(duration * fps)
         raw_frames: list[Any] = []
@@ -681,10 +674,7 @@ def render_video(
     logger.info(f"Rendering to video file {output_path} with {codec} codec")
 
     with _setup_rendering_context(
-        shader_input,
-        size,
-        windowed=False,
-        backend_type=backend_type
+        shader_input, size, windowed=False, backend_type=backend_type
     ) as render_ctx:
         writer = imageio.get_writer(
             output_path,

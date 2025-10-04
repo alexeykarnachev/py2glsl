@@ -15,6 +15,7 @@ from py2glsl.transpiler.code_gen_expr import (
     generate_if_expr,
     generate_name_expr,
     generate_struct_constructor,
+    generate_subscript_expr,
     generate_unary_op_expr,
 )
 from py2glsl.transpiler.errors import TranspilerError
@@ -177,6 +178,28 @@ class TestGenerateBinaryOpExpr:
 
         # Assert - should not be wrapped in parentheses
         assert result == "uv * 2.0"
+
+    def test_generate_binary_op_expr_power(self, symbols, collected_info):
+        """Test generating code for power operation (converts to pow())."""
+        # Arrange
+        node = ast.parse("time ** 2.0", mode="eval").body
+
+        # Act
+        result = generate_binary_op_expr(node, symbols, 0, collected_info)
+
+        # Assert
+        assert result == "pow(time, 2.0)"
+
+    def test_generate_binary_op_expr_power_complex(self, symbols, collected_info):
+        """Test generating code for complex power expression."""
+        # Arrange
+        node = ast.parse("(time + 1.0) ** (2.0 * count)", mode="eval").body
+
+        # Act
+        result = generate_binary_op_expr(node, symbols, 0, collected_info)
+
+        # Assert - parentheses are preserved based on precedence rules
+        assert result == "pow(time + 1.0, 2.0 * count)"
 
     def test_generate_binary_op_expr_unsupported(self, symbols, collected_info):
         """Test that unsupported binary operations raise TranspilerError."""
@@ -544,6 +567,58 @@ class TestGenerateUnaryOpExpr:
         # Act & Assert
         with pytest.raises(TranspilerError, match="Unsupported unary op"):
             generate_unary_op_expr(node, symbols, 0, collected_info)
+
+
+class TestGenerateSubscriptExpr:
+    """Tests for the generate_subscript_expr function."""
+
+    def test_generate_subscript_expr_constant_index(self, symbols, collected_info):
+        """Test generating code for subscript with constant index."""
+        # Arrange - add an array variable to symbols
+        symbols["arr"] = "float[3]"
+        node = ast.parse("arr[0]", mode="eval").body
+
+        # Act
+        result = generate_subscript_expr(node, symbols, collected_info)
+
+        # Assert
+        assert result == "arr[0]"
+
+    def test_generate_subscript_expr_variable_index(self, symbols, collected_info):
+        """Test generating code for subscript with variable index."""
+        # Arrange - add matrix to symbols
+        symbols["matrix"] = "mat3"
+        node = ast.parse("matrix[count]", mode="eval").body
+
+        # Act
+        result = generate_subscript_expr(node, symbols, collected_info)
+
+        # Assert
+        assert result == "matrix[count]"
+
+    def test_generate_subscript_expr_expression_index(self, symbols, collected_info):
+        """Test generating code for subscript with expression index."""
+        # Arrange
+        symbols["matrix"] = "mat4"
+        node = ast.parse("matrix[count + 1]", mode="eval").body
+
+        # Act
+        result = generate_subscript_expr(node, symbols, collected_info)
+
+        # Assert
+        assert result == "matrix[count + 1]"
+
+    def test_generate_subscript_expr_nested(self, symbols, collected_info):
+        """Test generating code for nested subscript (2D array access)."""
+        # Arrange
+        symbols["matrix"] = "mat2"
+        node = ast.parse("matrix[0][1]", mode="eval").body
+
+        # Act
+        result = generate_subscript_expr(node, symbols, collected_info)
+
+        # Assert
+        assert result == "matrix[0][1]"
 
 
 class TestGenerateExpr:

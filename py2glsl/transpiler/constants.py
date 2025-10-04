@@ -143,6 +143,52 @@ BUILTIN_FUNCTIONS: dict[str, Any] = {
         ("vec4", ["vec2", "vec2"]),
         ("vec4", ["float"]),  # Same value for all components
     ],
+    # Matrix constructors
+    "mat2": [
+        ("mat2", ["float", "float", "float", "float"]),
+        ("mat2", ["float"]),  # Identity-like diagonal
+    ],
+    "mat3": [
+        (
+            "mat3",
+            [
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+            ],
+        ),
+        ("mat3", ["float"]),  # Identity-like diagonal
+    ],
+    "mat4": [
+        (
+            "mat4",
+            [
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+                "float",
+            ],
+        ),
+        ("mat4", ["float"]),  # Identity-like diagonal
+    ],
 }
 
 

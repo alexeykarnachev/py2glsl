@@ -63,6 +63,12 @@ def generate_binary_op_expr(
     Raises:
         TranspilerError: If the operation is not supported
     """
+    # Handle power operator specially - convert to pow() function call
+    if isinstance(node.op, ast.Pow):
+        left = generate_expr(node.left, symbols, 0, collected)
+        right = generate_expr(node.right, symbols, 0, collected)
+        return f"pow({left}, {right})"
+
     op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
     op = op_map.get(type(node.op))
     if not op:
@@ -338,6 +344,36 @@ def generate_unary_op_expr(
     return f"({expr})" if precedence < parent_precedence else expr
 
 
+def generate_subscript_expr(
+    node: ast.Subscript,
+    symbols: dict[str, str | None],
+    collected: CollectedInfo,
+) -> str:
+    """Generate GLSL code for a subscript expression (array/matrix indexing).
+
+    Args:
+        node: AST subscript node
+        symbols: Dictionary of variable names to their types
+        collected: Information about functions, structs, and globals
+
+    Returns:
+        Generated GLSL code for the subscript expression
+
+    Raises:
+        TranspilerError: If the subscript operation is not supported
+    """
+    value = generate_expr(node.value, symbols, OPERATOR_PRECEDENCE["member"], collected)
+
+    # Handle simple index (e.g., arr[0])
+    if isinstance(node.slice, ast.Constant):
+        index = str(node.slice.value)
+        return f"{value}[{index}]"
+
+    # Handle expression index (e.g., arr[i], arr[i + 1])
+    index = generate_expr(node.slice, symbols, 0, collected)
+    return f"{value}[{index}]"
+
+
 # Implementation of the Visitor pattern for expression generation
 class ExpressionCodeGenerator(ast.NodeVisitor):
     """Visitor class for generating GLSL code from AST expressions."""
@@ -412,9 +448,7 @@ class ExpressionCodeGenerator(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         """Handle Attribute nodes by delegating to generate_attribute_expr."""
-        self._result = generate_attribute_expr(
-            node, self.symbols, self.collected
-        )
+        self._result = generate_attribute_expr(node, self.symbols, self.collected)
 
     def visit_IfExp(self, node: ast.IfExp) -> None:
         """Handle IfExp nodes by delegating to generate_if_expr."""
@@ -427,6 +461,10 @@ class ExpressionCodeGenerator(ast.NodeVisitor):
         self._result = generate_unary_op_expr(
             node, self.symbols, self.parent_precedence, self.collected
         )
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        """Handle Subscript nodes by delegating to generate_subscript_expr."""
+        self._result = generate_subscript_expr(node, self.symbols, self.collected)
 
 
 def generate_expr(
