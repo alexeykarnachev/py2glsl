@@ -125,8 +125,7 @@ def _compile_program(
     try:
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
         # Store the renderer with the program for later reference
-        # We use setattr rather than direct assignment for type safety
-        program._renderer = renderer
+        setattr(program, "_renderer", renderer)
 
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")

@@ -87,7 +87,7 @@ def _get_call_type(node: ast.Call, symbols: Symbols, collected: CollectedInfo) -
     if func_name in BUILTIN_FUNCTIONS:
         func_signatures = BUILTIN_FUNCTIONS[func_name]
         if isinstance(func_signatures, tuple):
-            return func_signatures[0]
+            return str(func_signatures[0])
         arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
         return _find_matching_signature(func_name, func_signatures, arg_types)
 
