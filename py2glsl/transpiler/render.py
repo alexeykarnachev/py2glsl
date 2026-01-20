@@ -1,11 +1,26 @@
-"""OpenGL rendering backend implementation.
+"""OpenGL rendering backend implementation."""
 
-This module provides rendering backends for OpenGL-based shaders.
-"""
-
+from abc import ABC, abstractmethod
 from typing import Any
 
-from py2glsl.transpiler.core import RenderInterface
+
+class RenderInterface(ABC):
+    """Abstract interface for rendering backends."""
+
+    @abstractmethod
+    def get_vertex_code(self) -> str:
+        """Get vertex shader code."""
+        ...
+
+    @abstractmethod
+    def setup_uniforms(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Transform uniform values to backend-specific format."""
+        ...
+
+    @abstractmethod
+    def get_render_requirements(self) -> dict[str, Any]:
+        """Get renderer requirements (version, profile, etc.)."""
+        ...
 
 
 class StandardOpenGLRenderer(RenderInterface):

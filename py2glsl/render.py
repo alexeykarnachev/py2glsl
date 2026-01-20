@@ -11,8 +11,11 @@ import numpy as np
 from loguru import logger
 from PIL import Image
 
-from py2glsl.transpiler.core import RenderInterface
-from py2glsl.transpiler.render import ShadertoyOpenGLRenderer, StandardOpenGLRenderer
+from py2glsl.transpiler.render import (
+    RenderInterface,
+    ShadertoyOpenGLRenderer,
+    StandardOpenGLRenderer,
+)
 
 
 @dataclass
