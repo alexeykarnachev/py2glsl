@@ -18,7 +18,7 @@ runner = CliRunner()
 def sample_shader_file():
     """Create a temporary shader file for testing."""
     with NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
-        f.write('''
+        f.write("""
 from py2glsl.builtins import length, sin, vec2, vec4
 
 def simple_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
@@ -27,7 +27,7 @@ def simple_shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     d = length(uv)
     color = sin(d * 10.0 - u_time * 2.0) * 0.5 + 0.5
     return vec4(color, color * 0.5, 1.0 - color, 1.0)
-''')
+""")
         path = f.name
 
     yield path
@@ -69,12 +69,15 @@ def test_code_export(sample_shader_file):
         # Test with different format options
         for format_opt in ["plain", "commented", "wrapped"]:
             result = runner.invoke(
-                app, [
-                    "code", "export",
+                app,
+                [
+                    "code",
+                    "export",
                     sample_shader_file,
                     str(output_file),
-                    "--format", format_opt
-                ]
+                    "--format",
+                    format_opt,
+                ],
             )
 
             assert result.exit_code == 0
@@ -101,13 +104,17 @@ def test_render_image(sample_shader_file):
         output_file = Path(temp_dir) / "output.png"
 
         result = runner.invoke(
-            app, [
-                "image", "render",
+            app,
+            [
+                "image",
+                "render",
                 sample_shader_file,
                 str(output_file),
-                "--width", "200",
-                "--height", "200"
-            ]
+                "--width",
+                "200",
+                "--height",
+                "200",
+            ],
         )
 
         assert result.exit_code == 0
@@ -122,15 +129,21 @@ def test_render_gif(sample_shader_file):
         output_file = Path(temp_dir) / "output.gif"
 
         result = runner.invoke(
-            app, [
-                "gif", "render",
+            app,
+            [
+                "gif",
+                "render",
                 sample_shader_file,
                 str(output_file),
-                "--width", "200",
-                "--height", "200",
-                "--fps", "10",
-                "--duration", "0.5"  # Keep duration short for testing
-            ]
+                "--width",
+                "200",
+                "--height",
+                "200",
+                "--fps",
+                "10",
+                "--duration",
+                "0.5",  # Keep duration short for testing
+            ],
         )
 
         assert result.exit_code == 0
@@ -138,23 +151,24 @@ def test_render_gif(sample_shader_file):
         # Could add GIF verification here
 
 
-@pytest.mark.parametrize(
-    "target_format",
-    ["glsl", "shadertoy"]
-)
+@pytest.mark.parametrize("target_format", ["glsl", "shadertoy"])
 def test_target_formats(sample_shader_file, target_format):
     """Test different target formats."""
     with TemporaryDirectory() as temp_dir:
         output_file = Path(temp_dir) / f"output_{target_format}.glsl"
 
         result = runner.invoke(
-            app, [
-                "code", "export",
+            app,
+            [
+                "code",
+                "export",
                 sample_shader_file,
                 str(output_file),
-                "--target", target_format,
-                "--format", "commented"
-            ]
+                "--target",
+                target_format,
+                "--format",
+                "commented",
+            ],
         )
 
         assert result.exit_code == 0
@@ -178,13 +192,16 @@ def test_shadertoy_compatibility(sample_shader_file):
         # Test with flag on
         compat_file = Path(temp_dir) / "shadertoy_compatible.glsl"
         result = runner.invoke(
-            app, [
-                "code", "export",
+            app,
+            [
+                "code",
+                "export",
                 sample_shader_file,
                 str(compat_file),
-                "--target", "shadertoy",
-                "--shadertoy-compatible"
-            ]
+                "--target",
+                "shadertoy",
+                "--shadertoy-compatible",
+            ],
         )
 
         assert result.exit_code == 0
@@ -192,12 +209,15 @@ def test_shadertoy_compatibility(sample_shader_file):
         # Test with flag off
         regular_file = Path(temp_dir) / "shadertoy_regular.glsl"
         result = runner.invoke(
-            app, [
-                "code", "export",
+            app,
+            [
+                "code",
+                "export",
                 sample_shader_file,
                 str(regular_file),
-                "--target", "shadertoy"
-            ]
+                "--target",
+                "shadertoy",
+            ],
         )
 
         assert result.exit_code == 0
@@ -212,16 +232,16 @@ def test_shadertoy_compatibility(sample_shader_file):
         # Compatible version should not have these uniforms
         # (at least one should be missing)
         shadertoy_uniforms_missing = (
-            "uniform vec3 iResolution;" not in compat_content or
-            "uniform float iTime;" not in compat_content
+            "uniform vec3 iResolution;" not in compat_content
+            or "uniform float iTime;" not in compat_content
         )
         assert shadertoy_uniforms_missing
 
         # Regular version should have at least some uniforms
         assert (
-            "uniform vec3 iResolution;" in regular_content or
-            "uniform float iTime;" in regular_content or
-            "uniform" in regular_content
+            "uniform vec3 iResolution;" in regular_content
+            or "uniform float iTime;" in regular_content
+            or "uniform" in regular_content
         )
 
         # Both should still have the mainImage function
@@ -235,13 +255,7 @@ def test_error_handling(mock_transpile, sample_shader_file):
     # Simulate transpilation error
     mock_transpile.side_effect = ValueError("Test error")
 
-    result = runner.invoke(
-        app, [
-            "code", "export",
-            sample_shader_file,
-            "output.glsl"
-        ]
-    )
+    result = runner.invoke(app, ["code", "export", sample_shader_file, "output.glsl"])
 
     # We only check that the exit code is non-zero, indicating an error
     assert result.exit_code != 0

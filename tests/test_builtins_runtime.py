@@ -1,6 +1,5 @@
 """Tests for runtime behavior of builtin types (vec2, vec3, vec4, mat2, mat3, mat4)."""
 
-
 from py2glsl.builtins import mat2, mat3, mat4, vec2, vec3, vec4
 
 

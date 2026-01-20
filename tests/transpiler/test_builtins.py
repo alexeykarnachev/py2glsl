@@ -189,9 +189,7 @@ class TestBuiltinFunctions:
         # Arrange
         def shader() -> "vec4":
             # Full constructor
-            m = mat3(
-                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0
-            )  # type: ignore
+            m = mat3(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0)  # type: ignore
             # Identity-like constructor
             m2 = mat3(1.0)  # type: ignore
             v = vec3(m[0][0], m[1][1], m[2][2])  # type: ignore

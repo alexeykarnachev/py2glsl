@@ -4,6 +4,7 @@ import ast
 
 import pytest
 
+from py2glsl.transpiler.ast_parser import get_annotation_type
 from py2glsl.transpiler.code_gen_stmt import (
     generate_annotated_assignment,
     generate_assignment,
@@ -14,7 +15,6 @@ from py2glsl.transpiler.code_gen_stmt import (
     generate_list_declaration,
     generate_return_statement,
     generate_while_loop,
-    get_annotation_type,
 )
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
@@ -97,13 +97,10 @@ class TestGetAnnotationType:
         assert result == "float"
 
     def test_get_annotation_type_unsupported(self):
-        """Test that unsupported annotation types raise an error."""
-        # Arrange
+        """Test that unsupported annotation types return None."""
         annotation = ast.List(elts=[], ctx=ast.Load())
-
-        # Act & Assert
-        with pytest.raises(TranspilerError, match="Unsupported annotation type"):
-            get_annotation_type(annotation)
+        result = get_annotation_type(annotation)
+        assert result is None
 
 
 class TestGenerateAssignment:
@@ -111,42 +108,25 @@ class TestGenerateAssignment:
 
     def test_generate_assignment_new_var(self, symbols, collected_info):
         """Test generating code for assignment to a new variable."""
-        # Arrange
         node = ast.parse("x = 1.0").body[0]
-
-        # Act
-        result = generate_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    float x = 1.0;"
-        assert "x" in symbols
+        result = generate_assignment(node, symbols, collected_info)
+        assert result == "float x = 1.0;"
         assert symbols["x"] == "float"
 
     def test_generate_assignment_existing_var(self, symbols, collected_info):
         """Test generating code for assignment to an existing variable."""
-        # Arrange
         node = ast.parse("time = 2.0").body[0]
-
-        # Act
-        result = generate_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    time = 2.0;"
+        result = generate_assignment(node, symbols, collected_info)
+        assert result == "time = 2.0;"
 
     def test_generate_assignment_attribute(self, symbols, collected_info):
         """Test generating code for assignment to an attribute."""
-        # Arrange
         node = ast.parse("test_struct.value = 5.0").body[0]
-
-        # Act
-        result = generate_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    test_struct.value = 5.0;"
+        result = generate_assignment(node, symbols, collected_info)
+        assert result == "test_struct.value = 5.0;"
 
     def test_generate_assignment_unsupported_target(self, symbols, collected_info):
         """Test that assignment to unsupported targets raises an error."""
-        # Arrange - list element assignment
         node = ast.Assign(
             targets=[
                 ast.Subscript(
@@ -157,10 +137,8 @@ class TestGenerateAssignment:
             ],
             value=ast.Constant(value=1.0),
         )
-
-        # Act & Assert
         with pytest.raises(TranspilerError, match="Unsupported assignment target"):
-            generate_assignment(node, symbols, "    ", collected_info)
+            generate_assignment(node, symbols, collected_info)
 
 
 class TestGenerateAnnotatedAssignment:
@@ -168,35 +146,22 @@ class TestGenerateAnnotatedAssignment:
 
     def test_generate_annotated_assignment_with_value(self, symbols, collected_info):
         """Test generating code for annotated assignment with a value."""
-        # Arrange
         node = ast.parse("x: 'float' = 1.0").body[0]
-
-        # Act
-        result = generate_annotated_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    float x = 1.0;"
-        assert "x" in symbols
+        result = generate_annotated_assignment(node, symbols, collected_info)
+        assert result == "float x = 1.0;"
         assert symbols["x"] == "float"
 
     def test_generate_annotated_assignment_without_value(self, symbols, collected_info):
         """Test generating code for annotated assignment without a value."""
-        # Arrange
         node = ast.parse("x: 'vec3'").body[0]
-
-        # Act
-        result = generate_annotated_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    vec3 x;"
-        assert "x" in symbols
+        result = generate_annotated_assignment(node, symbols, collected_info)
+        assert result == "vec3 x;"
         assert symbols["x"] == "vec3"
 
     def test_generate_annotated_assignment_unsupported_target(
         self, symbols, collected_info
     ):
         """Test that annotated assignment to unsupported targets raises an error."""
-        # Arrange - we need to create this manually as it's not valid Python syntax
         node = ast.AnnAssign(
             target=ast.Attribute(
                 value=ast.Name(id="test_struct", ctx=ast.Load()),
@@ -207,12 +172,10 @@ class TestGenerateAnnotatedAssignment:
             value=None,
             simple=0,
         )
-
-        # Act & Assert
         with pytest.raises(
             TranspilerError, match="Unsupported annotated assignment target"
         ):
-            generate_annotated_assignment(node, symbols, "    ", collected_info)
+            generate_annotated_assignment(node, symbols, collected_info)
 
 
 class TestGenerateAugmentedAssignment:
@@ -220,62 +183,39 @@ class TestGenerateAugmentedAssignment:
 
     def test_generate_augmented_assignment_add(self, symbols, collected_info):
         """Test generating code for augmented addition assignment."""
-        # Arrange
         node = ast.parse("count += 1").body[0]
-
-        # Act
-        result = generate_augmented_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    count = count + 1;"
+        result = generate_augmented_assignment(node, symbols, collected_info)
+        assert result == "count = count + 1;"
 
     def test_generate_augmented_assignment_subtract(self, symbols, collected_info):
         """Test generating code for augmented subtraction assignment."""
-        # Arrange
         node = ast.parse("time -= 0.1").body[0]
-
-        # Act
-        result = generate_augmented_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    time = time - 0.1;"
+        result = generate_augmented_assignment(node, symbols, collected_info)
+        assert result == "time = time - 0.1;"
 
     def test_generate_augmented_assignment_multiply(self, symbols, collected_info):
         """Test generating code for augmented multiplication assignment."""
-        # Arrange
         node = ast.parse("uv *= 2.0").body[0]
-
-        # Act
-        result = generate_augmented_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    uv = uv * 2.0;"
+        result = generate_augmented_assignment(node, symbols, collected_info)
+        assert result == "uv = uv * 2.0;"
 
     def test_generate_augmented_assignment_divide(self, symbols, collected_info):
         """Test generating code for augmented division assignment."""
-        # Arrange
         node = ast.parse("time /= 2.0").body[0]
-
-        # Act
-        result = generate_augmented_assignment(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    time = time / 2.0;"
+        result = generate_augmented_assignment(node, symbols, collected_info)
+        assert result == "time = time / 2.0;"
 
     def test_generate_augmented_assignment_unsupported_op(
         self, symbols, collected_info
     ):
         """Test that unsupported augmented assignment operators raise an error."""
-        # Arrange - modulo operator isn't directly supported
         node = ast.AugAssign(
             target=ast.Name(id="count", ctx=ast.Store()),
             op=ast.Mod(),
             value=ast.Constant(value=10),
         )
-
-        # Act & Assert
         with pytest.raises(TranspilerError, match="Unsupported augmented operator"):
-            generate_augmented_assignment(node, symbols, "    ", collected_info)
+            generate_augmented_assignment(node, symbols, collected_info)
 
 
 class TestGenerateForLoop:
@@ -283,87 +223,39 @@ class TestGenerateForLoop:
 
     def test_generate_for_loop_simple(self, symbols, collected_info):
         """Test generating code for a simple for loop."""
-        # Arrange
-        node = ast.parse(
-            """
-for i in range(5):
-    count += i
-"""
-        ).body[0]
-
-        # Act
-        result = generate_for_loop(node, symbols, "    ", collected_info)
-
-        # Assert
+        node = ast.parse("for i in range(5):\n    count += i").body[0]
+        result = generate_for_loop(node, symbols, collected_info)
         assert len(result) == 3
-        assert result[0] == "    for (int i = 0; i < 5; i += 1) {"
+        assert result[0] == "for (int i = 0; i < 5; i += 1) {"
         assert "count = count + i;" in result[1]
-        assert result[2] == "    }"
+        assert result[2] == "}"
 
     def test_generate_for_loop_start_end(self, symbols, collected_info):
         """Test generating code for a for loop with start and end."""
-        # Arrange
-        node = ast.parse(
-            """
-for i in range(2, 10):
-    count += i
-"""
-        ).body[0]
-
-        # Act
-        result = generate_for_loop(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result[0] == "    for (int i = 2; i < 10; i += 1) {"
+        node = ast.parse("for i in range(2, 10):\n    count += i").body[0]
+        result = generate_for_loop(node, symbols, collected_info)
+        assert result[0] == "for (int i = 2; i < 10; i += 1) {"
 
     def test_generate_for_loop_start_end_step(self, symbols, collected_info):
         """Test generating code for a for loop with start, end, and step."""
-        # Arrange
-        node = ast.parse(
-            """
-for i in range(0, 10, 2):
-    count += i
-"""
-        ).body[0]
-
-        # Act
-        result = generate_for_loop(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result[0] == "    for (int i = 0; i < 10; i += 2) {"
+        node = ast.parse("for i in range(0, 10, 2):\n    count += i").body[0]
+        result = generate_for_loop(node, symbols, collected_info)
+        assert result[0] == "for (int i = 0; i < 10; i += 2) {"
 
     def test_generate_for_loop_pass(self, symbols, collected_info):
         """Test generating code for a for loop with just a pass statement."""
-        # Arrange
-        node = ast.parse(
-            """
-for i in range(5):
-    pass
-"""
-        ).body[0]
-
-        # Act
-        result = generate_for_loop(node, symbols, "    ", collected_info)
-
-        # Assert
+        node = ast.parse("for i in range(5):\n    pass").body[0]
+        result = generate_for_loop(node, symbols, collected_info)
         assert len(result) == 3
-        assert result[0] == "    for (int i = 0; i < 5; i += 1) {"
+        assert result[0] == "for (int i = 0; i < 5; i += 1) {"
         assert "// Pass statement" in result[1]
-        assert result[2] == "    }"
+        assert result[2] == "}"
 
     def test_generate_for_loop_non_range(self, symbols, collected_info):
         """Test that non-range-based for loops raise an error."""
-        # Arrange
-        node = ast.parse(
-            """
-for item in items:
-    count += 1
-"""
-        ).body[0]
-
-        # Act & Assert
+        node = ast.parse("for item in items:\n    count += 1").body[0]
         with pytest.raises(TranspilerError, match="Unsupported iterable: unknown"):
-            generate_for_loop(node, symbols, "    ", collected_info)
+            generate_for_loop(node, symbols, collected_info)
 
 
 class TestGenerateWhileLoop:
@@ -371,22 +263,12 @@ class TestGenerateWhileLoop:
 
     def test_generate_while_loop(self, symbols, collected_info):
         """Test generating code for a while loop."""
-        # Arrange
-        node = ast.parse(
-            """
-while count < 10:
-    count += 1
-"""
-        ).body[0]
-
-        # Act
-        result = generate_while_loop(node, symbols, "    ", collected_info)
-
-        # Assert
+        node = ast.parse("while count < 10:\n    count += 1").body[0]
+        result = generate_while_loop(node, symbols, collected_info)
         assert len(result) == 3
-        assert result[0] == "    while (count < 10) {"
+        assert result[0] == "while (count < 10) {"
         assert "count = count + 1;" in result[1]
-        assert result[2] == "    }"
+        assert result[2] == "}"
 
 
 class TestGenerateIfStatement:
@@ -394,87 +276,43 @@ class TestGenerateIfStatement:
 
     def test_generate_if_statement_no_else(self, symbols, collected_info):
         """Test generating code for an if statement without an else clause."""
-        # Arrange
-        node = ast.parse(
-            """
-if count > 5:
-    count = 0
-"""
-        ).body[0]
-
-        # Act
-        result = generate_if_statement(node, symbols, "    ", collected_info)
-
-        # Assert
+        node = ast.parse("if count > 5:\n    count = 0").body[0]
+        result = generate_if_statement(node, symbols, collected_info)
         assert len(result) == 3
-        assert result[0] == "    if (count > 5) {"
+        assert result[0] == "if (count > 5) {"
         assert "count = 0;" in result[1]
-        assert result[2] == "    }"
+        assert result[2] == "}"
 
     def test_generate_if_statement_with_else(self, symbols, collected_info):
         """Test generating code for an if statement with an else clause."""
-        # Arrange
-        node = ast.parse(
-            """
-if count > 5:
-    count = 0
-else:
-    count += 1
-"""
-        ).body[0]
-
-        # Act
-        result = generate_if_statement(node, symbols, "    ", collected_info)
-
-        # Assert
+        node = ast.parse("if count > 5:\n    count = 0\nelse:\n    count += 1").body[0]
+        result = generate_if_statement(node, symbols, collected_info)
         assert len(result) == 5
-        assert result[0] == "    if (count > 5) {"
+        assert result[0] == "if (count > 5) {"
         assert "count = 0;" in result[1]
-        assert result[2] == "    } else {"
+        assert result[2] == "} else {"
         assert "count = count + 1;" in result[3]
-        assert result[4] == "    }"
+        assert result[4] == "}"
 
     def test_generate_if_statement_variable_hoisting(self, symbols, collected_info):
         """Test that variables assigned in all branches are hoisted."""
-        # Arrange
-        node = ast.parse(
-            """
-if time > 0.0:
-    result = time * 2.0
-else:
-    result = time * 3.0
-"""
-        ).body[0]
-
-        # Act
-        result = generate_if_statement(node, symbols, "    ", collected_info)
-
-        # Assert - variable should be declared before if statement
+        code = "if time > 0.0:\n    result = time * 2.0\nelse:\n    result = time * 3.0"
+        node = ast.parse(code).body[0]
+        result = generate_if_statement(node, symbols, collected_info)
+        # Variable should be declared before if statement
         assert "float result;" in result[0]
-        assert result[1] == "    if (time > 0.0) {"
+        assert result[1] == "if (time > 0.0) {"
         assert "result = time * 2.0;" in result[2]
-        assert result[3] == "    } else {"
+        assert result[3] == "} else {"
         assert "result = time * 3.0;" in result[4]
-        assert result[-1] == "    }"
+        assert result[-1] == "}"
 
     def test_generate_if_elif_else_variable_hoisting(self, symbols, collected_info):
         """Test variable hoisting with if/elif/else."""
-        # Arrange
-        node = ast.parse(
-            """
-if time > 1.0:
-    val = 1.0
-elif time > 0.0:
-    val = 2.0
-else:
-    val = 3.0
-"""
-        ).body[0]
-
-        # Act
-        result = generate_if_statement(node, symbols, "    ", collected_info)
-
-        # Assert - val should be declared before if
+        code = "if time > 1.0:\n    val = 1.0\nelif time > 0.0:\n    val = 2.0\nelse:\n    val = 3.0"
+        node = ast.parse(code).body[0]
+        result = generate_if_statement(node, symbols, collected_info)
+        # val should be declared before if
         assert "float val;" in result[0]
         assert "if (time > 1.0)" in result[1]
         assert "val = 1.0;" in result[2]
@@ -488,14 +326,9 @@ class TestGenerateReturnStatement:
 
     def test_generate_return_statement(self, symbols, collected_info):
         """Test generating code for a return statement."""
-        # Arrange
         node = ast.parse("return vec4(uv, 0.0, 1.0)").body[0]
-
-        # Act
-        result = generate_return_statement(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    return vec4(uv, 0.0, 1.0);"
+        result = generate_return_statement(node, symbols, collected_info)
+        assert result == "return vec4(uv, 0.0, 1.0);"
 
 
 class TestGenerateBody:
@@ -739,7 +572,7 @@ while count < 10:
             "        continue;",
             "    }",
             "    count = count + 2;",
-            "}"
+            "}",
         ]
         for line in expected:
             assert line in result, f"Expected line not found: {line}"
@@ -750,42 +583,22 @@ class TestGenerateListDeclaration:
 
     def test_generate_list_declaration_static(self, symbols, collected_info):
         """Test generating code for a static list assignment."""
-        # Arrange
-        code = "some_list = [vec3(1.0), vec3(2.0), vec3(3.0)]"
-        node = ast.parse(code).body[0]
-
-        # Act
-        result = generate_list_declaration(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert (
-            result
-            == "    vec3 some_list[3] = vec3[3](vec3(1.0), vec3(2.0), vec3(3.0));"
-        )
+        node = ast.parse("some_list = [vec3(1.0), vec3(2.0), vec3(3.0)]").body[0]
+        result = generate_list_declaration(node, symbols, collected_info)
+        assert result == "vec3 some_list[3] = vec3[3](vec3(1.0), vec3(2.0), vec3(3.0));"
         assert symbols["some_list"] == "list[vec3]"
         assert collected_info.globals["some_list_size"] == ("int", "3")
 
     def test_generate_list_declaration_empty(self, symbols, collected_info):
         """Test generating code for an empty list assignment."""
-        # Arrange
-        code = "some_list = []"
-        node = ast.parse(code).body[0]
-
-        # Act
-        result = generate_list_declaration(node, symbols, "    ", collected_info)
-
-        # Assert
-        assert result == "    vec3 some_list[0];"
+        node = ast.parse("some_list = []").body[0]
+        result = generate_list_declaration(node, symbols, collected_info)
+        assert result == "vec3 some_list[0];"
         assert symbols["some_list"] == "list[vec3]"
         assert collected_info.globals["some_list_size"] == ("int", "0")
 
     def test_generate_list_declaration_type_mismatch(self, symbols, collected_info):
         """Test that type mismatch in list elements raises an error."""
-        # Arrange
-        code = "some_list = [vec3(1.0), 2.0]"  # Mixed types
-        node = ast.parse(code).body[0]
-
-        # Act & Assert
+        node = ast.parse("some_list = [vec3(1.0), 2.0]").body[0]  # Mixed types
         with pytest.raises(TranspilerError, match="Type mismatch in list elements"):
-            generate_list_declaration(node, symbols, "    ", collected_info)
-
+            generate_list_declaration(node, symbols, collected_info)

@@ -69,14 +69,12 @@ def gl_context() -> moderngl.Context:
         pytest.skip(f"Failed to create ModernGL context: {e}")
     finally:
         # Release the context if it was created
-        if 'ctx' in locals():
+        if "ctx" in locals():
             ctx.release()
 
 
 def compare_images(
-    array1: NDArray[np.uint8],
-    array2: NDArray[np.uint8],
-    tolerance: int = 0
+    array1: NDArray[np.uint8], array2: NDArray[np.uint8], tolerance: int = 0
 ) -> None:
     """Compare two RGBA arrays with a tolerance for minor rendering differences."""
     if array1.shape[-1] == 3:
@@ -113,7 +111,7 @@ def load_or_generate_reference(
                 Image.fromarray(result).save(ref_path)
             elif isinstance(result, tuple) and len(result) >= 2:
                 # First element is either an Image or path string, second is frames
-                if hasattr(result[0], 'save'):
+                if hasattr(result[0], "save"):
                     result[0].save(ref_path)
                 else:
                     # For render_video that returns (path, frames)
@@ -134,7 +132,7 @@ def generate_expected_frames(
     glsl_code: str,
     size: tuple[int, int],
     num_frames: int,
-    fps: int
+    fps: int,
 ) -> list[NDArray[np.uint8]]:
     """Generate expected frames one by one with individual contexts."""
     frames: list[NDArray[np.uint8]] = []
@@ -249,9 +247,9 @@ def test_render_gif(gl_context: moderngl.Context, isolated_test_dir: Path) -> No
                 gl_context, TIME_GLSL, TEST_SIZE, num_frames, TEST_FPS
             )
 
-            assert (
-                len(result_frames) == num_frames
-            ), f"Expected {num_frames} frames, got {len(result_frames)}"
+            assert len(result_frames) == num_frames, (
+                f"Expected {num_frames} frames, got {len(result_frames)}"
+            )
             for _i, (result_frame, expected_frame) in enumerate(
                 zip(result_frames, expected_frames, strict=False)
             ):
@@ -310,9 +308,9 @@ def test_render_video(gl_context: moderngl.Context, isolated_test_dir: Path) -> 
                 gl_context, TIME_GLSL, TEST_SIZE, num_frames, TEST_FPS
             )
 
-            assert (
-                len(result_frames) == num_frames
-            ), f"Expected {num_frames} frames, got {len(result_frames)}"
+            assert len(result_frames) == num_frames, (
+                f"Expected {num_frames} frames, got {len(result_frames)}"
+            )
             for _i, (result_frame, expected_frame) in enumerate(
                 zip(result_frames, expected_frames, strict=False)
             ):

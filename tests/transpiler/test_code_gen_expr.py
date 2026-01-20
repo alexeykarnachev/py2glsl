@@ -554,7 +554,7 @@ class TestGenerateUnaryOpExpr:
 
         # Assert
         assert result_high == "(-time)"  # Wrapped due to higher precedence
-        assert result_low == "-time"     # Not wrapped due to lower precedence
+        assert result_low == "-time"  # Not wrapped due to lower precedence
 
     def test_generate_unary_op_expr_unsupported(self, symbols, collected_info):
         """Test that unsupported unary operations raise TranspilerError."""
