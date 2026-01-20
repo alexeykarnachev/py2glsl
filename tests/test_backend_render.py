@@ -28,7 +28,7 @@ from PIL import Image
 
 from py2glsl.builtins import cos, sin, vec2, vec4
 from py2glsl.render import render_array
-from py2glsl.transpiler.backends.models import BackendType
+from py2glsl.transpiler.backends import BackendType
 
 # Directory setup
 TEST_DIR = Path(__file__).parent

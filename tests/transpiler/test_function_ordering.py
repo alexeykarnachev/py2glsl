@@ -2,8 +2,7 @@
 
 import ast
 
-from py2glsl.transpiler.backends import create_backend
-from py2glsl.transpiler.backends.models import BackendType
+from py2glsl.transpiler.backends import BackendType, create_backend
 from py2glsl.transpiler.models import CollectedInfo, FunctionInfo
 
 

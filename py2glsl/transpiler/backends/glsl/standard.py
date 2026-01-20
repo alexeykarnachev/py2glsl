@@ -1,5 +1,8 @@
-from py2glsl.transpiler.backends.base import GLSLBackend
-from py2glsl.transpiler.backends.models import BackendConfig, EntryPointConfig
+from py2glsl.transpiler.backends.base import (
+    BackendConfig,
+    EntryPointConfig,
+    GLSLBackend,
+)
 from py2glsl.transpiler.models import FunctionInfo
 
 

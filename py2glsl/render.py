@@ -12,10 +12,7 @@ from loguru import logger
 from PIL import Image
 
 from py2glsl.transpiler.core import RenderInterface
-from py2glsl.transpiler.render.opengl import (
-    ShadertoyOpenGLRenderer,
-    StandardOpenGLRenderer,
-)
+from py2glsl.transpiler.render import ShadertoyOpenGLRenderer, StandardOpenGLRenderer
 
 
 @dataclass
@@ -165,23 +162,22 @@ def _setup_rendering_context(
     Yields:
         RenderContext object containing all rendering resources
     """
-    from py2glsl.transpiler.backends.models import BackendType
-    from py2glsl.transpiler.core import TargetLanguageType
+    from py2glsl.transpiler.backends import BackendType
 
     # Create the appropriate renderer based on backend type
     renderer: RenderInterface
     if backend_type == BackendType.SHADERTOY:
         renderer = ShadertoyOpenGLRenderer()
-        target_type = TargetLanguageType.SHADERTOY
+        effective_backend = BackendType.SHADERTOY
     else:
         renderer = StandardOpenGLRenderer()
-        target_type = TargetLanguageType.GLSL
+        effective_backend = BackendType.STANDARD
 
     # Prepare shader code
     if callable(shader_input):
         from py2glsl.transpiler import transpile
 
-        glsl_code, _ = transpile(shader_input, target_type=target_type)
+        glsl_code, _ = transpile(shader_input, backend_type=effective_backend)
     else:
         glsl_code = shader_input
 

@@ -19,8 +19,7 @@ from loguru import logger
 from py2glsl.builtins import vec4
 from py2glsl.render import animate, render_gif, render_image, render_video
 from py2glsl.transpiler import transpile
-from py2glsl.transpiler.backends.models import BackendType
-from py2glsl.transpiler.core import TargetLanguageType
+from py2glsl.transpiler.backends import BackendType
 
 # Define type variables for TypedCallable
 F = TypeVar("F", bound=Callable[..., Any])
@@ -175,23 +174,23 @@ def _load_shader_module(file_path: str) -> Any:
     return shader_module
 
 
-def _map_target(target: str) -> tuple[TargetLanguageType, BackendType]:
-    """Map a target string to target language and backend types.
+def _map_target(target: str) -> BackendType:
+    """Map a target string to backend type.
 
     Args:
         target: Target string ("glsl", "shadertoy", etc.)
 
     Returns:
-        Tuple of (target language type, backend type)
+        Backend type
     """
     target = target.lower()
     if target in ("glsl", "standard"):
-        return TargetLanguageType.GLSL, BackendType.STANDARD
+        return BackendType.STANDARD
     elif target == "shadertoy":
-        return TargetLanguageType.SHADERTOY, BackendType.SHADERTOY
+        return BackendType.SHADERTOY
     else:
-        logger.warning(f"Unknown target: {target}. Using GLSL as default.")
-        return TargetLanguageType.GLSL, BackendType.STANDARD
+        logger.warning(f"Unknown target: {target}. Using STANDARD as default.")
+        return BackendType.STANDARD
 
 
 def _prepare_transpilation_args(
@@ -238,7 +237,7 @@ def _get_transpiled_shader(
     shader_file: str,
     target: str = "glsl",
     main_function_name: str = "shader",
-) -> tuple[str, BackendType, TargetLanguageType]:
+) -> tuple[str, BackendType]:
     """Transpile a Python shader file to GLSL.
 
     Args:
@@ -249,7 +248,7 @@ def _get_transpiled_shader(
                            Default is "shader".
 
     Returns:
-        Tuple of (GLSL code, backend type, target type)
+        Tuple of (GLSL code, backend type)
     """
     # Enforce naming convention to avoid conflicts with GLSL reserved names
     if main_function_name == "main":
@@ -290,9 +289,9 @@ def _get_transpiled_shader(
             # Auto-detect main function
             main_func, globals_dict = _find_shader_function(shader_module)
 
-        # Map target string to enum values
-        target_type, backend_type = _map_target(target)
-        logger.info(f"Using {target_type.name} target language")
+        # Map target string to backend type
+        backend_type = _map_target(target)
+        logger.info(f"Using {backend_type.name} backend")
 
         # Transpile the shader - include the main function and helper functions
         logger.info(f"Transpiling main function: {main_func.__name__}")
@@ -306,13 +305,13 @@ def _get_transpiled_shader(
         glsl_code, used_uniforms = transpile(
             *function_args,
             main_func=main_func.__name__,
-            target_type=target_type,
+            backend_type=backend_type,
             **other_globals,
         )
 
         logger.info(f"Used uniforms: {used_uniforms}")
 
-        return glsl_code, backend_type, target_type
+        return glsl_code, backend_type
 
     except ImportError as e:
         logger.error(f"Failed to load shader module: {e}")
@@ -356,7 +355,7 @@ def show_shader(
     """Run interactive shader preview."""
     # Get transpiled shader (error handling is inside the function)
     code = _get_transpiled_shader(shader_file, target, main_function)
-    glsl_code, backend_type, _ = code
+    glsl_code, backend_type = code
 
     # Set output size
     size = _get_size(width, height)
@@ -394,7 +393,7 @@ def render_shader_image(
     """Render shader to static image."""
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
-    glsl_code, backend_type, _ = code
+    glsl_code, backend_type = code
 
     # Set output size
     size = _get_size(width, height)
@@ -440,7 +439,7 @@ def render_shader_video(
     """Render shader to video."""
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
-    glsl_code, backend_type, _ = code
+    glsl_code, backend_type = code
 
     # Set output size
     size = _get_size(width, height)
@@ -488,7 +487,7 @@ def render_shader_gif(
     """Render shader to animated GIF."""
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
-    glsl_code, backend_type, _ = code
+    glsl_code, backend_type = code
 
     # Set output size
     size = _get_size(width, height)
@@ -606,7 +605,7 @@ def _prepare_shadertoy_code(code: str) -> str:
 def _add_header_comments(
     code: str,
     source_file: str,
-    target_type: TargetLanguageType,
+    backend_type: BackendType,
     shadertoy_compatible: bool,
 ) -> str:
     """Add header comments to the code.
@@ -614,7 +613,7 @@ def _add_header_comments(
     Args:
         code: Source code
         source_file: Source Python file
-        target_type: Target language type
+        backend_type: Target language type
         shadertoy_compatible: Whether Shadertoy compatibility is enabled
 
     Returns:
@@ -624,9 +623,9 @@ def _add_header_comments(
     header = f"// Generated by py2glsl v{__import__('py2glsl').__version__}\n"
     header += f"// Generation time: {timestamp}\n"
     header += f"// Source file: {os.path.basename(source_file)}\n"
-    header += f"// Target: {target_type.name}\n"
+    header += f"// Target: {backend_type.name}\n"
 
-    if shadertoy_compatible and target_type == TargetLanguageType.SHADERTOY:
+    if shadertoy_compatible and backend_type == BackendType.SHADERTOY:
         header += "// Shadertoy-compatible: Built-in uniforms removed\n"
 
     header += "\n"
@@ -636,7 +635,7 @@ def _add_header_comments(
 def _format_shader_code(
     code: str,
     format_type: str,
-    target_type: TargetLanguageType,
+    backend_type: BackendType,
     source_file: str,
     shadertoy_compatible: bool = False,
 ) -> str:
@@ -645,7 +644,7 @@ def _format_shader_code(
     Args:
         code: Raw shader code
         format_type: Format type (plain, commented, wrapped)
-        target_type: Target language type
+        backend_type: Target language type
         source_file: Source Python file
         shadertoy_compatible: If True, remove shadertoy uniforms for direct copy-paste
 
@@ -655,17 +654,17 @@ def _format_shader_code(
     formatted_code = code
 
     # Process for Shadertoy compatibility - prepare code for copy-pasting
-    if shadertoy_compatible and target_type == TargetLanguageType.SHADERTOY:
+    if shadertoy_compatible and backend_type == BackendType.SHADERTOY:
         formatted_code = _prepare_shadertoy_code(formatted_code)
 
     # Always add header comments for Shadertoy exports, or when specifically requested
     if shadertoy_compatible or format_type in ("commented", "wrapped"):
         formatted_code = _add_header_comments(
-            formatted_code, source_file, target_type, shadertoy_compatible
+            formatted_code, source_file, backend_type, shadertoy_compatible
         )
 
     # For Shadertoy, wrap in HTML comment for easy copying
-    if format_type == "wrapped" and target_type == TargetLanguageType.SHADERTOY:
+    if format_type == "wrapped" and backend_type == BackendType.SHADERTOY:
         formatted_code = f"/*\n{formatted_code}\n*/\n"
 
     return formatted_code
@@ -704,14 +703,14 @@ def export_shader_code(
     """Export shader code to file for copy-pasting."""
     # Get transpiled shader
     code = _get_transpiled_shader(shader_file, target, main_function)
-    glsl_code, _, target_type = code
+    glsl_code, backend_type = code
 
     # Auto-suggest format for Shadertoy
-    if target_type == TargetLanguageType.SHADERTOY and format == "plain":
+    if backend_type == BackendType.SHADERTOY and format == "plain":
         logger.info("Tip: Using --format wrapped helps with Shadertoy copy-pasting")
 
     # If target isn't shadertoy but flag is set, warn user
-    if shadertoy_compatible and target_type != TargetLanguageType.SHADERTOY:
+    if shadertoy_compatible and backend_type != BackendType.SHADERTOY:
         logger.warning(
             "--shadertoy-compatible flag only applies to shadertoy target. Ignoring."
         )
@@ -719,7 +718,7 @@ def export_shader_code(
 
     # Format the code
     formatted_code = _format_shader_code(
-        glsl_code, format, target_type, shader_file, shadertoy_compatible
+        glsl_code, format, backend_type, shader_file, shadertoy_compatible
     )
 
     # Write to file
@@ -730,7 +729,7 @@ def export_shader_code(
     logger.info(f"Shader code exported to {output}")
 
     # Show some usage hints
-    if target_type == TargetLanguageType.SHADERTOY:
+    if backend_type == BackendType.SHADERTOY:
         if shadertoy_compatible:
             logger.info(
                 "✓ Ready for direct Shadertoy paste (version and uniforms removed)"

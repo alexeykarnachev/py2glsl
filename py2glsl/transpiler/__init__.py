@@ -7,17 +7,16 @@ from typing import Any
 from loguru import logger
 
 from py2glsl.transpiler.ast_parser import parse_shader_code
+from py2glsl.transpiler.backends import BackendType, create_backend
 from py2glsl.transpiler.collector import collect_info
-from py2glsl.transpiler.core import TargetLanguageType
 from py2glsl.transpiler.models import (
     CollectedInfo,
     StructDefinition,
     StructField,
     TranspilerError,
 )
-from py2glsl.transpiler.target import create_target
 
-_RESERVED_KWARGS = {"main_func", "target_type", "shadertoy"}
+_RESERVED_KWARGS = {"main_func", "backend_type", "shadertoy"}
 
 ShaderInput = str | dict[str, Callable[..., Any] | type[Any]]
 
@@ -137,7 +136,7 @@ def _determine_shader_input(
 def transpile(
     *args: str | Callable[..., Any] | type[Any] | object,
     main_func: str | None = None,
-    target_type: TargetLanguageType = TargetLanguageType.GLSL,
+    backend_type: BackendType = BackendType.STANDARD,
     shadertoy: bool = False,
     **kwargs: Any,
 ) -> tuple[str, set[str]]:
@@ -146,17 +145,17 @@ def transpile(
     Args:
         *args: Python code string, function(s), or class(es) to transpile
         main_func: Entry point function name (auto-detected if not provided)
-        target_type: Target language (GLSL or SHADERTOY)
-        shadertoy: Deprecated, use target_type=TargetLanguageType.SHADERTOY
+        backend_type: Backend type (STANDARD or SHADERTOY)
+        shadertoy: Deprecated, use backend_type=BackendType.SHADERTOY
         **kwargs: Global constants (int/float/bool) or dataclass structs
 
     Returns:
         Tuple of (shader code, set of uniform names)
     """
-    if shadertoy and target_type == TargetLanguageType.GLSL:
-        target_type = TargetLanguageType.SHADERTOY
+    if shadertoy and backend_type == BackendType.STANDARD:
+        backend_type = BackendType.SHADERTOY
 
-    logger.debug(f"Transpiling: args={args}, main={main_func}, target={target_type}")
+    logger.debug(f"Transpiling: args={args}, main={main_func}, backend={backend_type}")
 
     global_constants = _extract_global_constants(kwargs)
     shader_input, effective_main_func = _determine_shader_input(args, main_func)
@@ -177,5 +176,5 @@ def transpile(
                 f"Helper function '{func_name}' lacks return type annotation"
             )
 
-    language, _, _ = create_target(target_type)
-    return language.generate_code(collected, effective_main_func)
+    backend = create_backend(backend_type)
+    return backend.generate_code(collected, effective_main_func)

@@ -1,8 +1,31 @@
 import ast
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any
 
-from py2glsl.transpiler.backends.models import BackendConfig
 from py2glsl.transpiler.models import CollectedInfo, FunctionInfo, TranspilerError
+
+
+@dataclass
+class EntryPointConfig:
+    """Configuration for shader entry point generation."""
+
+    input_variables: dict[str, str] = field(default_factory=dict)
+    output_variables: dict[str, str] = field(default_factory=dict)
+    main_wrapper_template: str = ""
+
+
+@dataclass
+class BackendConfig:
+    """Configuration for a GLSL backend."""
+
+    name: str
+    version_directive: str
+    entry_point: EntryPointConfig
+    predefined_uniforms: dict[str, str] = field(default_factory=dict)
+    extensions: list[str] = field(default_factory=list)
+    preprocessor_defines: dict[str, str | None] = field(default_factory=dict)
+    additional_options: dict[str, Any] = field(default_factory=dict)
 
 
 class Backend(ABC):
@@ -188,8 +211,8 @@ class GLSLBackend(Backend):
         lines = [""]  # Start with blank line for readability
         for struct_name, struct_def in collected.structs.items():
             lines.append(f"struct {struct_name} {{")
-            for field in struct_def.fields:
-                lines.append(f"    {field.type_name} {field.name};")
+            for f in struct_def.fields:
+                lines.append(f"    {f.type_name} {f.name};")
             lines.append("};")
 
         return lines
