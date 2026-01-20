@@ -5,7 +5,7 @@ This module provides rendering backends for OpenGL-based shaders.
 
 from typing import Any
 
-from py2glsl.transpiler.core.interfaces import RenderInterface
+from py2glsl.transpiler.core import RenderInterface
 
 
 class StandardOpenGLRenderer(RenderInterface):

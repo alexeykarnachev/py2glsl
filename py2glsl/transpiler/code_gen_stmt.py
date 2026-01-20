@@ -10,8 +10,7 @@ from typing import cast
 
 from py2glsl.transpiler.ast_parser import get_annotation_type
 from py2glsl.transpiler.code_gen_expr import generate_attribute_expr, generate_expr
-from py2glsl.transpiler.errors import TranspilerError
-from py2glsl.transpiler.models import CollectedInfo
+from py2glsl.transpiler.models import CollectedInfo, TranspilerError
 from py2glsl.transpiler.type_checker import get_expr_type
 
 # Type aliases for common parameter types

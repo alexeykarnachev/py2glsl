@@ -5,7 +5,7 @@ import pytest
 
 from py2glsl.builtins import dot, normalize, vec2, vec3, vec4
 from py2glsl.transpiler import transpile
-from py2glsl.transpiler.errors import TranspilerError
+from py2glsl.transpiler.models import TranspilerError
 
 
 class TestTranspile:

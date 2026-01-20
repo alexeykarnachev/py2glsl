@@ -8,9 +8,13 @@ from loguru import logger
 
 from py2glsl.transpiler.ast_parser import parse_shader_code
 from py2glsl.transpiler.collector import collect_info
-from py2glsl.transpiler.core.interfaces import TargetLanguageType
-from py2glsl.transpiler.errors import TranspilerError
-from py2glsl.transpiler.models import CollectedInfo, StructDefinition, StructField
+from py2glsl.transpiler.core import TargetLanguageType
+from py2glsl.transpiler.models import (
+    CollectedInfo,
+    StructDefinition,
+    StructField,
+    TranspilerError,
+)
 from py2glsl.transpiler.target import create_target
 
 _RESERVED_KWARGS = {"main_func", "target_type", "shadertoy"}

@@ -2,8 +2,7 @@ import ast
 from abc import ABC, abstractmethod
 
 from py2glsl.transpiler.backends.models import BackendConfig
-from py2glsl.transpiler.errors import TranspilerError
-from py2glsl.transpiler.models import CollectedInfo, FunctionInfo
+from py2glsl.transpiler.models import CollectedInfo, FunctionInfo, TranspilerError
 
 
 class Backend(ABC):
@@ -50,8 +49,6 @@ class GLSLBackend(Backend):
         # Validate main function
         main_func_info = collected.functions[main_func]
         if not main_func_info.node.body:
-            from py2glsl.transpiler.errors import TranspilerError
-
             raise TranspilerError("Empty function body not supported in GLSL")
 
         # Generate each section of the shader

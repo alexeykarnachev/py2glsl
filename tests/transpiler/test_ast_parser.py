@@ -9,7 +9,7 @@ from py2glsl.transpiler.ast_parser import (
     get_annotation_type,
     parse_shader_code,
 )
-from py2glsl.transpiler.errors import TranspilerError
+from py2glsl.transpiler.models import TranspilerError
 
 
 class TestGetAnnotationType:

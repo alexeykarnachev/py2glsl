@@ -3,8 +3,7 @@
 import ast
 
 from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS, OPERATOR_PRECEDENCE
-from py2glsl.transpiler.errors import TranspilerError
-from py2glsl.transpiler.models import CollectedInfo
+from py2glsl.transpiler.models import CollectedInfo, TranspilerError
 
 Symbols = dict[str, str | None]
 

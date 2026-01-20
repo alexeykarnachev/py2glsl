@@ -5,12 +5,12 @@ import ast
 from loguru import logger
 
 from py2glsl.transpiler.ast_parser import generate_simple_expr, get_annotation_type
-from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
     CollectedInfo,
     FunctionInfo,
     StructDefinition,
     StructField,
+    TranspilerError,
 )
 
 

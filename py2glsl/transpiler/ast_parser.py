@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from py2glsl.transpiler.errors import TranspilerError
+from py2glsl.transpiler.models import TranspilerError
 
 
 def get_annotation_type(annotation: ast.AST | None) -> str | None:

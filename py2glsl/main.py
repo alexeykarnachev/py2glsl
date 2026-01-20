@@ -20,7 +20,7 @@ from py2glsl.builtins import vec4
 from py2glsl.render import animate, render_gif, render_image, render_video
 from py2glsl.transpiler import transpile
 from py2glsl.transpiler.backends.models import BackendType
-from py2glsl.transpiler.core.interfaces import TargetLanguageType
+from py2glsl.transpiler.core import TargetLanguageType
 
 # Define type variables for TypedCallable
 F = TypeVar("F", bound=Callable[..., Any])

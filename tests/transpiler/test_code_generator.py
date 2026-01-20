@@ -6,12 +6,12 @@ import pytest
 
 from py2glsl.transpiler.backends import create_backend
 from py2glsl.transpiler.backends.models import BackendType
-from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
     CollectedInfo,
     FunctionInfo,
     StructDefinition,
     StructField,
+    TranspilerError,
 )
 
 

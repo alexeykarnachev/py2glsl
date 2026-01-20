@@ -18,12 +18,12 @@ from py2glsl.transpiler.code_gen_expr import (
     generate_subscript_expr,
     generate_unary_op_expr,
 )
-from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
     CollectedInfo,
     FunctionInfo,
     StructDefinition,
     StructField,
+    TranspilerError,
 )
 
 

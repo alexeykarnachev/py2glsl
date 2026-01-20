@@ -3,7 +3,7 @@
 This module implements a Shadertoy-compatible GLSL dialect.
 """
 
-from py2glsl.transpiler.core.interfaces import LanguageConfig
+from py2glsl.transpiler.core import LanguageConfig
 from py2glsl.transpiler.models import FunctionInfo
 from py2glsl.transpiler.target.glsl import GLSLStandardDialect
 

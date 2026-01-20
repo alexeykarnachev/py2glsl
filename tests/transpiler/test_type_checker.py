@@ -4,12 +4,12 @@ import ast
 
 import pytest
 
-from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
     CollectedInfo,
     FunctionInfo,
     StructDefinition,
     StructField,
+    TranspilerError,
 )
 from py2glsl.transpiler.type_checker import get_expr_type
 

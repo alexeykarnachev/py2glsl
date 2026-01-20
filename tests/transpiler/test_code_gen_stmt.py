@@ -16,12 +16,12 @@ from py2glsl.transpiler.code_gen_stmt import (
     generate_return_statement,
     generate_while_loop,
 )
-from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import (
     CollectedInfo,
     FunctionInfo,
     StructDefinition,
     StructField,
+    TranspilerError,
 )
 
 

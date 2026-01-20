@@ -11,7 +11,7 @@ import numpy as np
 from loguru import logger
 from PIL import Image
 
-from py2glsl.transpiler.core.interfaces import RenderInterface
+from py2glsl.transpiler.core import RenderInterface
 from py2glsl.transpiler.render.opengl import (
     ShadertoyOpenGLRenderer,
     StandardOpenGLRenderer,
@@ -125,7 +125,7 @@ def _compile_program(
     try:
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
         # Store the renderer with the program for later reference
-        setattr(program, "_renderer", renderer)
+        program._renderer = renderer  # type: ignore[attr-defined]
 
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
@@ -166,7 +166,7 @@ def _setup_rendering_context(
         RenderContext object containing all rendering resources
     """
     from py2glsl.transpiler.backends.models import BackendType
-    from py2glsl.transpiler.core.interfaces import TargetLanguageType
+    from py2glsl.transpiler.core import TargetLanguageType
 
     # Create the appropriate renderer based on backend type
     renderer: RenderInterface

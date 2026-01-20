@@ -3,7 +3,7 @@
 This module provides factory functions for creating target language instances.
 """
 
-from py2glsl.transpiler.core.interfaces import (
+from py2glsl.transpiler.core import (
     LanguageAdapter,
     RenderInterface,
     TargetLanguage,

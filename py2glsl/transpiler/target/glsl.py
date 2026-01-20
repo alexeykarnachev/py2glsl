@@ -3,14 +3,15 @@
 This module implements the TargetLanguage interface for GLSL.
 """
 
-from py2glsl.transpiler.core.ast_processor import DependencyResolver, SymbolTable
-from py2glsl.transpiler.core.interfaces import (
+from py2glsl.transpiler.core import (
+    DependencyResolver,
     LanguageConfig,
     SymbolMapper,
+    SymbolTable,
     TargetLanguage,
     TypeMapping,
 )
-from py2glsl.transpiler.models import CollectedInfo, FunctionInfo
+from py2glsl.transpiler.models import CollectedInfo, FunctionInfo, TranspilerError
 
 
 class GLSLSymbolMapper(SymbolMapper):
@@ -139,8 +140,6 @@ class GLSLStandardDialect(TargetLanguage):
         # Validate main function
         main_func_info = collected.functions[main_func]
         if not main_func_info.node.body:
-            from py2glsl.transpiler.errors import TranspilerError
-
             raise TranspilerError("Empty function body not supported in GLSL")
 
         # Generate each section of the shader
@@ -267,8 +266,6 @@ class GLSLStandardDialect(TargetLanguage):
         """Generate a single function definition."""
         # Check if function has a return type annotation
         if not func_info.return_type and not is_main:
-            from py2glsl.transpiler.errors import TranspilerError
-
             raise TranspilerError(
                 f"Helper function '{func_name}' lacks return type annotation"
             )

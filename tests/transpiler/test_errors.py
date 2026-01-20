@@ -1,8 +1,8 @@
-"""Tests for the transpiler errors module."""
+"""Tests for TranspilerError."""
 
 import pytest
 
-from py2glsl.transpiler.errors import TranspilerError
+from py2glsl.transpiler.models import TranspilerError
 
 
 def test_transpiler_error():
