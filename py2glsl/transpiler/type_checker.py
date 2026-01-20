@@ -1,9 +1,4 @@
-"""
-Type checking utilities for the GLSL shader transpiler.
-
-This module provides functions for determining the GLSL types of expressions
-and validating type compatibility in operations.
-"""
+"""Type inference for GLSL expressions."""
 
 import ast
 
@@ -11,155 +6,48 @@ from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
 
-
-# Implementation of the Visitor pattern for type checking
-class ExpressionTypeChecker(ast.NodeVisitor):
-    """Visitor class for determining the type of AST expressions."""
-
-    def __init__(self, symbols: dict[str, str | None], collected: CollectedInfo):
-        """Initialize the type checker.
-
-        Args:
-            symbols: Dictionary of variable names to their types
-            collected: Information about functions, structs, and globals
-        """
-        self.symbols = symbols
-        self.collected = collected
-        self._result = ""  # Store the result type
-
-    @property
-    def result(self) -> str:
-        """Get the result type.
-
-        Returns:
-            The determined GLSL type
-        """
-        return self._result
-
-    def generic_visit(self, node: ast.AST) -> None:
-        """Handler for unsupported node types.
-
-        Args:
-            node: The AST node
-
-        Raises:
-            TranspilerError: Always raised for unsupported nodes
-        """
-        raise TranspilerError(f"Cannot determine type for: {type(node).__name__}")
-
-    def visit_Name(self, node: ast.Name) -> None:
-        """Get the type of a name expression."""
-        self._result = _get_name_type(node, self.symbols, self.collected)
-
-    def visit_Constant(self, node: ast.Constant) -> None:
-        """Get the type of a constant expression."""
-        self._result = _get_constant_type(node)
-
-    def visit_BinOp(self, node: ast.BinOp) -> None:
-        """Get the type of a binary operation expression."""
-        self._result = _get_binop_type(node, self.symbols, self.collected)
-
-    def visit_Compare(self, node: ast.Compare) -> None:  # noqa: ARG002
-        """Get the type of a comparison expression."""
-        self._result = _get_compare_boolop_type()
-
-    def visit_BoolOp(self, node: ast.BoolOp) -> None:  # noqa: ARG002
-        """Get the type of a boolean operation expression."""
-        self._result = _get_compare_boolop_type()
-
-    def visit_Call(self, node: ast.Call) -> None:
-        """Get the type of a function call expression."""
-        self._result = _get_call_type(node, self.symbols, self.collected)
-
-    def visit_Attribute(self, node: ast.Attribute) -> None:
-        """Get the type of an attribute access expression."""
-        self._result = _get_attribute_type(node, self.symbols, self.collected)
-
-    def visit_IfExp(self, node: ast.IfExp) -> None:
-        """Get the type of a conditional expression."""
-        self._result = _get_ifexp_type(node, self.symbols, self.collected)
-
-    def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
-        """Get the type of a unary operation expression."""
-        self._result = _get_unaryop_type(node, self.symbols, self.collected)
-
-    def visit_Subscript(self, node: ast.Subscript) -> None:
-        """Get the type of a subscript expression."""
-        self._result = _get_subscript_type(node, self.symbols, self.collected)
+Symbols = dict[str, str | None]
 
 
-def _get_name_type(
-    node: ast.Name, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    """Determine the type of a name expression.
-
-    Args:
-        node: AST name node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the name
-
-    Raises:
-        TranspilerError: If the variable is undefined or has no type
-    """
+def _get_name_type(node: ast.Name, symbols: Symbols, collected: CollectedInfo) -> str:
+    """Get type of a variable reference."""
     if node.id in symbols:
         symbol_type = symbols[node.id]
         if symbol_type is None:
             raise TranspilerError(f"Variable has no type: {node.id}")
         return symbol_type
-    # Check if it's a global constant
-    elif node.id in collected.globals:
-        return collected.globals[node.id][0]  # Return the type of the global constant
+    if node.id in collected.globals:
+        return collected.globals[node.id][0]
     raise TranspilerError(f"Undefined variable: {node.id}")
 
 
 def _get_constant_type(node: ast.Constant) -> str:
-    """Determine the type of a constant expression.
-
-    Args:
-        node: AST constant node
-
-    Returns:
-        The GLSL type of the constant
-    """
+    """Get type of a literal (bool, int, float)."""
     if isinstance(node.value, bool):
         return "bool"
-    elif isinstance(node.value, int):
+    if isinstance(node.value, int):
         return "int"
-    elif isinstance(node.value, float):
+    if isinstance(node.value, float):
         return "float"
     raise TranspilerError(f"Unsupported constant type: {type(node.value).__name__}")
 
 
-def _get_binop_type(
-    node: ast.BinOp, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    """Determine the type of a binary operation expression.
-
-    Args:
-        node: AST binary operation node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the binary operation
-    """
+def _get_binop_type(node: ast.BinOp, symbols: Symbols, collected: CollectedInfo) -> str:
+    """Get type of a binary operation."""
     left_type = get_expr_type(node.left, symbols, collected)
     right_type = get_expr_type(node.right, symbols, collected)
 
-    # Vector-vector operations: same type result
+    # Vector-vector: same type result
     if left_type == right_type and left_type.startswith("vec"):
         return left_type
 
-    # Vector-scalar operations: vector result
+    # Vector-scalar: vector result
     if left_type.startswith("vec") and right_type in ["float", "int"]:
         return left_type
     if right_type.startswith("vec") and left_type in ["float", "int"]:
         return right_type
 
-    # Numeric operations
+    # Numeric: float if either is float
     if "float" in (left_type, right_type):
         return "float"
     return "int"
@@ -170,27 +58,10 @@ def _find_matching_signature(
     signatures: list[tuple[str, list[str]]],
     arg_types: list[str],
 ) -> str:
-    """Find a matching function signature for the given argument types.
-
-    Args:
-        func_name: Name of the function
-        signatures: List of function signatures
-        arg_types: Types of the arguments passed to the function
-
-    Returns:
-        The return type of the matching signature
-
-    Raises:
-        TranspilerError: If no matching signature is found
-    """
-    for signature in signatures:
-        return_type, param_types = signature
-
-        # Skip if argument count doesn't match
+    """Find matching function signature and return its return type."""
+    for return_type, param_types in signatures:
         if len(arg_types) != len(param_types):
             continue
-
-        # Check if the arguments match the parameter types
         if all(
             arg_type == param_type
             or (arg_type in ["float", "int"] and param_type in ["float", "int"])
@@ -198,84 +69,47 @@ def _find_matching_signature(
         ):
             return return_type
 
-    # If we're here, no matching overload was found
     raise TranspilerError(
         f"No matching overload for function {func_name} with argument types {arg_types}"
     )
 
 
-def _get_call_type(
-    node: ast.Call, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    """Determine the type of a function call expression.
-
-    Args:
-        node: AST call node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the function call result
-
-    Raises:
-        TranspilerError: If the function is unknown or has no matching signature
-    """
+def _get_call_type(node: ast.Call, symbols: Symbols, collected: CollectedInfo) -> str:
+    """Get type of a function call."""
     if not isinstance(node.func, ast.Name):
-        # Handle method calls or other complex calls
         raise TranspilerError(
             f"Unsupported function call type: {type(node.func).__name__}"
         )
 
     func_name = node.func.id
 
-    # Check built-in functions
+    # Built-in functions
     if func_name in BUILTIN_FUNCTIONS:
-        # Get function signatures (single tuple or list of tuples)
         func_signatures = BUILTIN_FUNCTIONS[func_name]
-
-        # If it's a single signature tuple (not overloaded)
         if isinstance(func_signatures, tuple):
-            return_type: str = func_signatures[0]  # Return the single return type
-            return return_type
-
-        # For overloaded functions, find the matching signature
+            return func_signatures[0]
         arg_types = [get_expr_type(arg, symbols, collected) for arg in node.args]
         return _find_matching_signature(func_name, func_signatures, arg_types)
 
-    # Check user-defined functions
-    elif func_name in collected.functions:
+    # User-defined functions
+    if func_name in collected.functions:
         return collected.functions[func_name].return_type or "vec4"
 
-    # Check struct constructors
-    elif func_name in collected.structs:
+    # Struct constructors
+    if func_name in collected.structs:
         return func_name
 
     raise TranspilerError(f"Unknown function: {func_name}")
 
 
 def _get_attribute_type(
-    node: ast.Attribute, symbols: dict[str, str | None], collected: CollectedInfo
+    node: ast.Attribute, symbols: Symbols, collected: CollectedInfo
 ) -> str:
-    """Determine the type of an attribute access expression.
-
-    Args:
-        node: AST attribute node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the attribute
-
-    Raises:
-        TranspilerError: If the attribute is invalid or cannot be determined
-    """
+    """Get type of an attribute access (struct field or vector swizzle)."""
     value_type = get_expr_type(node.value, symbols, collected)
 
-    # Check struct field access
     if value_type in collected.structs:
         return _get_struct_field_type(node.attr, value_type, collected)
-
-    # Handle vector swizzling
     if value_type.startswith("vec"):
         return _get_vector_swizzle_type(node.attr, value_type)
 
@@ -285,44 +119,18 @@ def _get_attribute_type(
 def _get_struct_field_type(
     field_name: str, struct_name: str, collected: CollectedInfo
 ) -> str:
-    """Get the type of a struct field.
-
-    Args:
-        field_name: Name of the field
-        struct_name: Name of the struct
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the field
-
-    Raises:
-        TranspilerError: If the field is not found in the struct
-    """
-    struct_def = collected.structs[struct_name]
-    for field in struct_def.fields:
+    """Get type of a struct field."""
+    for field in collected.structs[struct_name].fields:
         if field.name == field_name:
             return field.type_name
     raise TranspilerError(f"Unknown field '{field_name}' in struct '{struct_name}'")
 
 
 def _get_vector_swizzle_type(swizzle: str, vector_type: str) -> str:
-    """Get the type of a vector swizzle.
-
-    Args:
-        swizzle: Swizzle components (e.g., "xyz", "xy", "r")
-        vector_type: Type of the vector (e.g., "vec3", "vec4")
-
-    Returns:
-        The GLSL type of the swizzle result
-
-    Raises:
-        TranspilerError: If the swizzle is invalid
-    """
+    """Get type of a vector swizzle (e.g., .xyz -> vec3)."""
     swizzle_len = len(swizzle)
     valid_lengths = {1: "float", 2: "vec2", 3: "vec3", 4: "vec4"}
     vec_dim = int(vector_type[-1])
-
-    # Check valid swizzle components based on vector dimension
     valid_components = "xyzw"[:vec_dim] + "rgba"[:vec_dim]
 
     if (
@@ -335,22 +143,8 @@ def _get_vector_swizzle_type(swizzle: str, vector_type: str) -> str:
     return valid_lengths[swizzle_len]
 
 
-def _get_ifexp_type(
-    node: ast.IfExp, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    """Determine the type of a conditional (ternary) expression.
-
-    Args:
-        node: AST conditional expression node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the conditional expression
-
-    Raises:
-        TranspilerError: If the types of the branches don't match
-    """
+def _get_ifexp_type(node: ast.IfExp, symbols: Symbols, collected: CollectedInfo) -> str:
+    """Get type of a ternary expression (must have matching branch types)."""
     true_type = get_expr_type(node.body, symbols, collected)
     false_type = get_expr_type(node.orelse, symbols, collected)
 
@@ -358,106 +152,70 @@ def _get_ifexp_type(
         raise TranspilerError(
             f"Ternary expression types mismatch: {true_type} vs {false_type}"
         )
-
     return true_type
 
 
 def _get_compare_boolop_type() -> str:
-    """Determine the type of a comparison or boolean operation.
-
-    Returns:
-        The GLSL type of the operation (always "bool")
-    """
+    """Get type of comparison/boolean op (always bool)."""
     return "bool"
 
 
 def _get_unaryop_type(
-    node: ast.UnaryOp, symbols: dict[str, str | None], collected: CollectedInfo
+    node: ast.UnaryOp, symbols: Symbols, collected: CollectedInfo
 ) -> str:
-    """Determine the type of a unary operation expression.
-
-    Args:
-        node: AST unary operation node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the unary operation
-    """
-    operand_type = get_expr_type(node.operand, symbols, collected)
-
-    # For logical not (not x), the result is always bool
+    """Get type of a unary operation (not -> bool, -/+ -> operand type)."""
     if isinstance(node.op, ast.Not):
         return "bool"
 
-    # For other operations (+x, -x, ~x), the result type is the same as the operand
-    # Numeric operations preserve their type
+    operand_type = get_expr_type(node.operand, symbols, collected)
     if operand_type in ["int", "float"] or operand_type.startswith("vec"):
         return operand_type
 
     raise TranspilerError(f"Unsupported unary operation on type: {operand_type}")
 
 
-# Simplified - removed unnecessary wrapper functions and type checkers dictionary
-
-
 def _get_subscript_type(
-    node: ast.Subscript, symbols: dict[str, str | None], collected: CollectedInfo
+    node: ast.Subscript, symbols: Symbols, collected: CollectedInfo
 ) -> str:
-    """Determine the type of a subscript expression (array/matrix indexing).
-
-    Args:
-        node: AST subscript node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the subscript expression
-
-    Raises:
-        TranspilerError: If the type cannot be determined
-    """
-    # Get the type of the value being indexed
+    """Get type of subscript (mat[i] -> vec, vec[i] -> float, arr[i] -> elem)."""
     value_type = get_expr_type(node.value, symbols, collected)
 
-    # For matrix types, subscripting returns a vector
-    # mat2[i] -> vec2, mat3[i] -> vec3, mat4[i] -> vec4
+    # Matrix -> vector
     matrix_to_vector = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
     if value_type in matrix_to_vector:
         return matrix_to_vector[value_type]
 
-    # For vector types, subscripting returns float
-    # vec2[i] -> float, vec3[i] -> float, vec4[i] -> float
+    # Vector -> float
     if value_type in ("vec2", "vec3", "vec4"):
         return "float"
 
-    # For array types like "float[3]", extract the element type
+    # Array type "float[3]" -> element type
     if "[" in value_type:
-        element_type = value_type.split("[")[0]
-        return element_type
+        return value_type.split("[")[0]
 
-    # Default: return the same type (for unknown cases)
     return value_type
 
 
-def get_expr_type(
-    node: ast.AST, symbols: dict[str, str | None], collected: CollectedInfo
-) -> str:
-    """Determine the GLSL type of an expression.
-
-    Args:
-        node: AST node representing an expression
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        The GLSL type of the expression
-
-    Raises:
-        TranspilerError: If the type cannot be determined
-    """
-    # This function directly uses the visitor pattern without wrapper indirection
-    # Create a type checker and visit the node
-    checker = ExpressionTypeChecker(symbols, collected)
-    checker.visit(node)
-    return checker.result
+def get_expr_type(node: ast.AST, symbols: Symbols, collected: CollectedInfo) -> str:
+    """Determine the GLSL type of an expression."""
+    match node:
+        case ast.Name():
+            return _get_name_type(node, symbols, collected)
+        case ast.Constant():
+            return _get_constant_type(node)
+        case ast.BinOp():
+            return _get_binop_type(node, symbols, collected)
+        case ast.Call():
+            return _get_call_type(node, symbols, collected)
+        case ast.Attribute():
+            return _get_attribute_type(node, symbols, collected)
+        case ast.IfExp():
+            return _get_ifexp_type(node, symbols, collected)
+        case ast.Compare() | ast.BoolOp():
+            return _get_compare_boolop_type()
+        case ast.UnaryOp():
+            return _get_unaryop_type(node, symbols, collected)
+        case ast.Subscript():
+            return _get_subscript_type(node, symbols, collected)
+        case _:
+            raise TranspilerError(f"Unsupported expression type: {type(node).__name__}")

@@ -246,6 +246,6 @@ class TestGetExprType:
 
         node = UnsupportedNode()
         with pytest.raises(
-            TranspilerError, match="Cannot determine type for: UnsupportedNode"
+            TranspilerError, match="Unsupported expression type: UnsupportedNode"
         ):
             get_expr_type(node, symbols, collected_info)
