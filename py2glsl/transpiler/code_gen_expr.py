@@ -1,9 +1,4 @@
-"""
-GLSL code generation for expressions.
-
-This module contains functions for generating GLSL code from Python AST expressions,
-including names, constants, binary operations, function calls, and more.
-"""
+"""GLSL code generation for expressions."""
 
 import ast
 
@@ -11,59 +6,31 @@ from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS, OPERATOR_PRECEDENCE
 from py2glsl.transpiler.errors import TranspilerError
 from py2glsl.transpiler.models import CollectedInfo
 
+Symbols = dict[str, str | None]
+
 
 def generate_name_expr(node: ast.Name) -> str:
-    """Generate GLSL code for a name expression (variable).
-
-    Args:
-        node: AST name node
-
-    Returns:
-        Generated GLSL code for the name expression
-    """
+    """Generate GLSL variable reference."""
     return node.id
 
 
 def generate_constant_expr(node: ast.Constant) -> str:
-    """Generate GLSL code for a constant expression (literal).
-
-    Args:
-        node: AST constant node
-
-    Returns:
-        Generated GLSL code for the constant expression
-
-    Raises:
-        TranspilerError: If the constant type is not supported
-    """
+    """Generate GLSL literal (bool, int, float)."""
     if isinstance(node.value, bool):
-        return "true" if node.value else "false"  # GLSL uses lowercase
-    elif isinstance(node.value, int | float):
+        return "true" if node.value else "false"
+    if isinstance(node.value, int | float):
         return str(node.value)
     raise TranspilerError(f"Unsupported constant type: {type(node.value).__name__}")
 
 
 def generate_binary_op_expr(
     node: ast.BinOp,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for a binary operation expression.
-
-    Args:
-        node: AST binary operation node
-        symbols: Dictionary of variable names to their types
-        parent_precedence: Precedence level of the parent operation
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the binary operation expression
-
-    Raises:
-        TranspilerError: If the operation is not supported
-    """
-    # Handle power operator specially - convert to pow() function call
+    """Generate GLSL binary operation (+, -, *, /, **)."""
+    # Power operator -> pow() function
     if isinstance(node.op, ast.Pow):
         left = generate_expr(node.left, symbols, 0, collected)
         right = generate_expr(node.right, symbols, 0, collected)
@@ -84,68 +51,43 @@ def generate_binary_op_expr(
 
 def generate_compare_expr(
     node: ast.Compare,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for a comparison expression.
+    """Generate GLSL comparison (<, >, <=, >=, ==, !=)."""
+    if len(node.ops) != 1 or len(node.comparators) != 1:
+        raise TranspilerError("Multiple comparisons not supported")
 
-    Args:
-        node: AST comparison node
-        symbols: Dictionary of variable names to their types
-        parent_precedence: Precedence level of the parent operation
-        collected: Information about functions, structs, and globals
+    op_map = {
+        ast.Lt: "<",
+        ast.Gt: ">",
+        ast.LtE: "<=",
+        ast.GtE: ">=",
+        ast.Eq: "==",
+        ast.NotEq: "!=",
+    }
+    op = op_map.get(type(node.ops[0]))
+    if not op:
+        raise TranspilerError(
+            f"Unsupported comparison op: {type(node.ops[0]).__name__}"
+        )
 
-    Returns:
-        Generated GLSL code for the comparison expression
+    precedence = OPERATOR_PRECEDENCE[op]
+    left = generate_expr(node.left, symbols, precedence, collected)
+    right = generate_expr(node.comparators[0], symbols, precedence, collected)
 
-    Raises:
-        TranspilerError: If the comparison operation is not supported
-    """
-    if len(node.ops) == 1 and len(node.comparators) == 1:
-        op_map = {
-            ast.Lt: "<",
-            ast.Gt: ">",
-            ast.LtE: "<=",
-            ast.GtE: ">=",
-            ast.Eq: "==",
-            ast.NotEq: "!=",
-        }
-        op = op_map.get(type(node.ops[0]))
-        if not op:
-            raise TranspilerError(
-                f"Unsupported comparison op: {type(node.ops[0]).__name__}"
-            )
-
-        precedence = OPERATOR_PRECEDENCE[op]
-        left = generate_expr(node.left, symbols, precedence, collected)
-        right = generate_expr(node.comparators[0], symbols, precedence, collected)
-
-        expr = f"{left} {op} {right}"
-        return f"({expr})" if precedence <= parent_precedence else expr
-    raise TranspilerError("Multiple comparisons not supported")
+    expr = f"{left} {op} {right}"
+    return f"({expr})" if precedence <= parent_precedence else expr
 
 
 def generate_bool_op_expr(
     node: ast.BoolOp,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for a boolean operation expression.
-
-    Args:
-        node: AST boolean operation node
-        symbols: Dictionary of variable names to their types
-        parent_precedence: Precedence level of the parent operation
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the boolean operation expression
-
-    Raises:
-        TranspilerError: If the boolean operation is not supported
-    """
+    """Generate GLSL boolean operation (&&, ||)."""
     op_map = {ast.And: "&&", ast.Or: "||"}
     op = op_map.get(type(node.op))
     if not op:
@@ -153,80 +95,46 @@ def generate_bool_op_expr(
 
     precedence = OPERATOR_PRECEDENCE[op]
     values = [generate_expr(val, symbols, precedence, collected) for val in node.values]
-
     expr = f" {op} ".join(values)
-
     return f"({expr})" if precedence < parent_precedence else expr
 
 
 def generate_attribute_expr(
     node: ast.Attribute,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for an attribute access expression.
-
-    Args:
-        node: AST attribute node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the attribute access expression
-    """
+    """Generate GLSL attribute access (struct field or vector swizzle)."""
     value = generate_expr(node.value, symbols, OPERATOR_PRECEDENCE["member"], collected)
     return f"{value}.{node.attr}"
 
 
 def generate_if_expr(
     node: ast.IfExp,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for a ternary/conditional expression.
-
-    Args:
-        node: AST conditional expression node
-        symbols: Dictionary of variable names to their types
-        parent_precedence: Precedence level of the parent operation
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the conditional expression
-    """
+    """Generate GLSL ternary expression (cond ? a : b)."""
     precedence = OPERATOR_PRECEDENCE["?"]
     condition = generate_expr(node.test, symbols, 0, collected)
-    true_expr = generate_expr(node.body, symbols, 0, collected)  # Changed to 0
-    false_expr = generate_expr(node.orelse, symbols, 0, collected)  # Changed to 0
+    true_expr = generate_expr(node.body, symbols, 0, collected)
+    false_expr = generate_expr(node.orelse, symbols, 0, collected)
     expr = f"{condition} ? {true_expr} : {false_expr}"
-
     return f"({expr})" if precedence < parent_precedence else expr
 
 
 def generate_struct_constructor(
     struct_name: str,
     node: ast.Call,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for a struct constructor.
-
-    Args:
-        struct_name: Name of the struct being constructed
-        node: AST call node representing the constructor
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the struct constructor
-
-    Raises:
-        TranspilerError: If the struct initialization is invalid
-    """
+    """Generate GLSL struct constructor call."""
     struct_def = collected.structs[struct_name]
     field_map = {f.name: i for i, f in enumerate(struct_def.fields)}
 
+    # Keyword arguments: MyStruct(x=1, y=2)
     if node.keywords:
         values: list[str] = [""] * len(struct_def.fields)
         provided_fields = set()
@@ -240,9 +148,9 @@ def generate_struct_constructor(
             provided_fields.add(kw.arg)
 
         missing_fields = [
-            field.name
-            for field in struct_def.fields
-            if field.default_value is None and field.name not in provided_fields
+            f.name
+            for f in struct_def.fields
+            if f.default_value is None and f.name not in provided_fields
         ]
         if missing_fields:
             raise TranspilerError(
@@ -251,14 +159,13 @@ def generate_struct_constructor(
             )
 
         for i, field in enumerate(struct_def.fields):
-            if not values[i] and field.default_value is not None:
-                values[i] = field.default_value
-            elif not values[i]:
-                values[i] = "0.0"
+            if not values[i]:
+                values[i] = field.default_value if field.default_value else "0.0"
 
         return f"{struct_name}({', '.join(values)})"
 
-    elif node.args:
+    # Positional arguments: MyStruct(1, 2)
+    if node.args:
         if len(node.args) != len(struct_def.fields):
             raise TranspilerError(
                 f"Wrong number of arguments for struct {struct_name}: "
@@ -271,67 +178,34 @@ def generate_struct_constructor(
 
 
 def generate_call_expr(
-    node: ast.Call, symbols: dict[str, str | None], collected: CollectedInfo
+    node: ast.Call, symbols: Symbols, collected: CollectedInfo
 ) -> str:
-    """Generate GLSL code for a function call expression.
-
-    Args:
-        node: AST call node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the function call expression
-
-    Raises:
-        TranspilerError: If the function is unknown or struct initialization is invalid
-    """
+    """Generate GLSL function or struct constructor call."""
     func_name = (
         node.func.id
         if isinstance(node.func, ast.Name)
         else generate_expr(node.func, symbols, 0, collected)
     )
 
-    # Handle struct constructors - both for direct struct name and imported classes
+    # Struct constructor
     if func_name in collected.structs:
         return generate_struct_constructor(func_name, node, symbols, collected)
 
-    # Check if it might be a struct constructor for a struct passed as a kwarg
-    # This is needed for handling dataclass instances passed as kwargs
-    for _, struct_def in collected.structs.items():
-        # If the function name matches any struct's name, it's a struct constructor
-        if func_name == struct_def.name:
-            return generate_struct_constructor(func_name, node, symbols, collected)
-
-    # Handle regular function calls
+    # Built-in or user-defined function
     if func_name in collected.functions or func_name in BUILTIN_FUNCTIONS:
         args = [generate_expr(arg, symbols, 0, collected) for arg in node.args]
         return f"{func_name}({', '.join(args)})"
 
-    # If we get here, it's an unknown function call
     raise TranspilerError(f"Unknown function call: {func_name}")
 
 
 def generate_unary_op_expr(
     node: ast.UnaryOp,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for a unary operation expression.
-
-    Args:
-        node: AST unary operation node
-        symbols: Dictionary of variable names to their types
-        parent_precedence: Precedence level of the parent operation
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the unary operation expression
-
-    Raises:
-        TranspilerError: If the unary operation is not supported
-    """
+    """Generate GLSL unary operation (-, !)."""
     op_map = {ast.USub: "-", ast.Not: "!"}
     op = op_map.get(type(node.op))
     if not op:
@@ -339,155 +213,52 @@ def generate_unary_op_expr(
 
     precedence = OPERATOR_PRECEDENCE["unary"]
     operand = generate_expr(node.operand, symbols, precedence, collected)
-
     expr = f"{op}{operand}"
     return f"({expr})" if precedence < parent_precedence else expr
 
 
 def generate_subscript_expr(
     node: ast.Subscript,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for a subscript expression (array/matrix indexing).
-
-    Args:
-        node: AST subscript node
-        symbols: Dictionary of variable names to their types
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the subscript expression
-
-    Raises:
-        TranspilerError: If the subscript operation is not supported
-    """
+    """Generate GLSL array/matrix indexing (arr[i])."""
     value = generate_expr(node.value, symbols, OPERATOR_PRECEDENCE["member"], collected)
-
-    # Handle simple index (e.g., arr[0])
-    if isinstance(node.slice, ast.Constant):
-        index = str(node.slice.value)
-        return f"{value}[{index}]"
-
-    # Handle expression index (e.g., arr[i], arr[i + 1])
-    index = generate_expr(node.slice, symbols, 0, collected)
+    index = (
+        str(node.slice.value)
+        if isinstance(node.slice, ast.Constant)
+        else generate_expr(node.slice, symbols, 0, collected)
+    )
     return f"{value}[{index}]"
-
-
-# Implementation of the Visitor pattern for expression generation
-class ExpressionCodeGenerator(ast.NodeVisitor):
-    """Visitor class for generating GLSL code from AST expressions."""
-
-    def __init__(
-        self,
-        symbols: dict[str, str | None],
-        parent_precedence: int,
-        collected: CollectedInfo,
-    ):
-        """Initialize the expression code generator.
-
-        Args:
-            symbols: Dictionary of variable names to their types
-            parent_precedence: Precedence level of the parent operation
-            collected: Information about functions, structs, and globals
-        """
-        self.symbols = symbols
-        self.parent_precedence = parent_precedence
-        self.collected = collected
-        self._result = ""  # Store the generated code
-
-    @property
-    def result(self) -> str:
-        """Get the generated GLSL code.
-
-        Returns:
-            The generated code
-        """
-        return self._result
-
-    def generic_visit(self, node: ast.AST) -> None:
-        """Handler for unsupported node types.
-
-        Args:
-            node: The AST node
-
-        Raises:
-            TranspilerError: Always raised for unsupported nodes
-        """
-        raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
-
-    def visit_Name(self, node: ast.Name) -> None:
-        """Handle Name nodes by delegating to generate_name_expr."""
-        self._result = generate_name_expr(node)
-
-    def visit_Constant(self, node: ast.Constant) -> None:
-        """Handle Constant nodes by delegating to generate_constant_expr."""
-        self._result = generate_constant_expr(node)
-
-    def visit_BinOp(self, node: ast.BinOp) -> None:
-        """Handle BinOp nodes by delegating to generate_binary_op_expr."""
-        self._result = generate_binary_op_expr(
-            node, self.symbols, self.parent_precedence, self.collected
-        )
-
-    def visit_Compare(self, node: ast.Compare) -> None:
-        """Handle Compare nodes by delegating to generate_compare_expr."""
-        self._result = generate_compare_expr(
-            node, self.symbols, self.parent_precedence, self.collected
-        )
-
-    def visit_BoolOp(self, node: ast.BoolOp) -> None:
-        """Handle BoolOp nodes by delegating to generate_bool_op_expr."""
-        self._result = generate_bool_op_expr(
-            node, self.symbols, self.parent_precedence, self.collected
-        )
-
-    def visit_Call(self, node: ast.Call) -> None:
-        """Handle Call nodes by delegating to generate_call_expr."""
-        self._result = generate_call_expr(node, self.symbols, self.collected)
-
-    def visit_Attribute(self, node: ast.Attribute) -> None:
-        """Handle Attribute nodes by delegating to generate_attribute_expr."""
-        self._result = generate_attribute_expr(node, self.symbols, self.collected)
-
-    def visit_IfExp(self, node: ast.IfExp) -> None:
-        """Handle IfExp nodes by delegating to generate_if_expr."""
-        self._result = generate_if_expr(
-            node, self.symbols, self.parent_precedence, self.collected
-        )
-
-    def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
-        """Handle UnaryOp nodes by delegating to generate_unary_op_expr."""
-        self._result = generate_unary_op_expr(
-            node, self.symbols, self.parent_precedence, self.collected
-        )
-
-    def visit_Subscript(self, node: ast.Subscript) -> None:
-        """Handle Subscript nodes by delegating to generate_subscript_expr."""
-        self._result = generate_subscript_expr(node, self.symbols, self.collected)
 
 
 def generate_expr(
     node: ast.AST,
-    symbols: dict[str, str | None],
+    symbols: Symbols,
     parent_precedence: int,
     collected: CollectedInfo,
 ) -> str:
-    """Generate GLSL code for an expression.
-
-    Args:
-        node: AST node representing an expression
-        symbols: Dictionary of variable names to their types
-        parent_precedence: Precedence level of the parent operation
-        collected: Information about functions, structs, and globals
-
-    Returns:
-        Generated GLSL code for the expression
-
-    Raises:
-        TranspilerError: If unsupported expressions are encountered
-    """
-    # Create a generator instance and visit the node
-    generator = ExpressionCodeGenerator(symbols, parent_precedence, collected)
-    generator.visit(node)
-    return generator.result
+    """Generate GLSL code for an expression."""
+    match node:
+        case ast.Name():
+            return generate_name_expr(node)
+        case ast.Constant():
+            return generate_constant_expr(node)
+        case ast.BinOp():
+            return generate_binary_op_expr(node, symbols, parent_precedence, collected)
+        case ast.Compare():
+            return generate_compare_expr(node, symbols, parent_precedence, collected)
+        case ast.BoolOp():
+            return generate_bool_op_expr(node, symbols, parent_precedence, collected)
+        case ast.Call():
+            return generate_call_expr(node, symbols, collected)
+        case ast.Attribute():
+            return generate_attribute_expr(node, symbols, collected)
+        case ast.IfExp():
+            return generate_if_expr(node, symbols, parent_precedence, collected)
+        case ast.UnaryOp():
+            return generate_unary_op_expr(node, symbols, parent_precedence, collected)
+        case ast.Subscript():
+            return generate_subscript_expr(node, symbols, collected)
+        case _:
+            raise TranspilerError(f"Unsupported expression: {type(node).__name__}")

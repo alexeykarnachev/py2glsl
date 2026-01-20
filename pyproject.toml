@@ -75,7 +75,7 @@ select = [
     "RUF",   # ruff-specific rules
     "ARG",   # flake8-unused-arguments - catches unused function parameters
 ]
-ignore = ["PLR0913", "PLR0912", "PLR2004"]
+ignore = ["PLR0913", "PLR0912", "PLR2004", "PLR0911"]
 per-file-ignores = { "tests/*" = ["ARG001", "E501"], "examples/*" = ["ARG001"], "py2glsl/builtins.py" = ["N801", "PLR0911"], "py2glsl/transpiler/code_gen_expr.py" = ["N802"], "py2glsl/transpiler/type_checker.py" = ["N802"] }
 
 [tool.ruff.format]

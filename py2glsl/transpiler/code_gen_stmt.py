@@ -74,7 +74,7 @@ def generate_list_declaration(
         # Empty list: assume type from context or default to vec3
         symbol_type = symbols.get(list_name)
         if symbol_type and symbol_type.startswith("list["):
-            list_type = symbol_type[5:-1]  # Extract type from "list[type]"
+            list_type = symbol_type.removeprefix("list[").removesuffix("]")
         else:
             list_type = "vec3"
         symbols[list_name] = f"list[{list_type}]"
@@ -159,7 +159,7 @@ def _generate_list_iteration_loop(
     ):
         raise TranspilerError(f"Unsupported iterable: {list_type}")
 
-    item_type = list_type[5:-1]  # Extract "vec3" from "list[vec3]"
+    item_type = list_type.removeprefix("list[").removesuffix("]")
     index_var = f"i_{list_name}"
     size_var = f"{list_name}_size"
     target_name = _get_loop_target_name(stmt)
