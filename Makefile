@@ -1,4 +1,4 @@
-.PHONY: all format typing test examples
+.PHONY: all format typing test gold-generate examples
 
 # Default: run everything
 all: format typing test
@@ -15,6 +15,10 @@ typing:
 # Run tests
 test:
 	pytest tests -v
+
+# Generate/update gold file expected outputs and validate GLSL compiles
+gold-generate:
+	pytest tests/test_gold.py --generate
 
 # Render all examples to images
 examples:

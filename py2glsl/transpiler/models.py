@@ -44,3 +44,5 @@ class CollectedInfo:
     functions: dict[str, FunctionInfo] = field(default_factory=dict)
     structs: dict[str, StructDefinition] = field(default_factory=dict)
     globals: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # Globals that are reassigned inside functions (not true constants)
+    mutable_globals: set[str] = field(default_factory=set)

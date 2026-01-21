@@ -1,0 +1,505 @@
+- name: const_float
+  python: |
+    PI = 3.14159
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(PI, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const float PI = 3.14159;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(PI, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_int
+  python: |
+    MAX_ITER = 100
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(float(MAX_ITER), 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const int MAX_ITER = 100;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(float(MAX_ITER), 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_bool
+  python: |
+    DEBUG = True
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(1.0, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const bool DEBUG = true;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_multiple
+  python: |
+    PI = 3.14159
+    TAU = 6.28318
+    MAX_DIST = 100.0
+    EPSILON = 0.001
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(PI, TAU, MAX_DIST, EPSILON)
+  expected: |
+    #version 460 core
+
+    const float PI = 3.14159;
+    const float TAU = 6.28318;
+    const float MAX_DIST = 100.0;
+    const float EPSILON = 0.001;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(PI, TAU, MAX_DIST, EPSILON);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_annotated
+  python: |
+    PI: float = 3.14159
+    COUNT: int = 42
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(PI, float(COUNT), 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const float PI = 3.14159;
+    const int COUNT = 42;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(PI, float(COUNT), 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: mutable_simple_assign
+  python: |
+    counter = 0.0
+
+    def shader(ctx: ShaderContext) -> vec4:
+        counter = 1.0
+        return vec4(counter, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    float counter = 0.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        counter = 1.0;
+        return vec4(counter, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: mutable_aug_assign
+  python: |
+    total = 0.0
+
+    def shader(ctx: ShaderContext) -> vec4:
+        total += 1.0
+        return vec4(total, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    float total = 0.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        total += 1.0;
+        return vec4(total, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: mutable_compound
+  python: |
+    value = 1.0
+
+    def shader(ctx: ShaderContext) -> vec4:
+        value = value * 2.0 + 1.0
+        return vec4(value, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    float value = 1.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        value = value * 2.0 + 1.0;
+        return vec4(value, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: shadow_with_annotation
+  python: |
+    PI = 3.14159
+
+    def shader(ctx: ShaderContext) -> vec4:
+        PI: float = 6.28318
+        return vec4(PI, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const float PI = 3.14159;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float PI = 6.28318;
+        return vec4(PI, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: mixed_const_mutable
+  python: |
+    PI = 3.14159
+    counter = 0.0
+    MAX_DIST = 100.0
+
+    def shader(ctx: ShaderContext) -> vec4:
+        counter = counter + 1.0
+        return vec4(PI, counter, MAX_DIST, 1.0)
+  expected: |
+    #version 460 core
+
+    const float PI = 3.14159;
+    float counter = 0.0;
+    const float MAX_DIST = 100.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        counter = counter + 1.0;
+        return vec4(PI, counter, MAX_DIST, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_in_helper
+  python: |
+    SCALE = 2.0
+
+    def helper(x: "float") -> "float":
+        return x * SCALE
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(helper(1.0), 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const float SCALE = 2.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    float helper(float x) {
+        return x * SCALE;
+    }
+
+    vec4 shader() {
+        return vec4(helper(1.0), 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: mutable_in_helper
+  python: |
+    state = 0.0
+
+    def helper() -> "float":
+        state = state + 1.0
+        return state
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(helper(), 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    float state = 0.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    float helper() {
+        state = state + 1.0;
+        return state;
+    }
+
+    vec4 shader() {
+        return vec4(helper(), 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: shadow_parameter
+  python: |
+    SCALE = 2.0
+
+    def helper(SCALE: "float") -> "float":
+        SCALE = SCALE * 2.0
+        return SCALE
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(helper(1.0), SCALE, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const float SCALE = 2.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    float helper(float SCALE) {
+        SCALE = SCALE * 2.0;
+        return SCALE;
+    }
+
+    vec4 shader() {
+        return vec4(helper(1.0), SCALE, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_in_conditional
+  python: |
+    THRESHOLD = 0.5
+
+    def shader(ctx: ShaderContext) -> vec4:
+        if ctx.vs_uv.x > THRESHOLD:
+            return vec4(1.0, 0.0, 0.0, 1.0)
+        return vec4(0.0, 0.0, 1.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const float THRESHOLD = 0.5;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        if (vs_uv.x > THRESHOLD) {
+            return vec4(1.0, 0.0, 0.0, 1.0);
+        }
+        return vec4(0.0, 0.0, 1.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: mutable_in_loop
+  python: |
+    accumulator = 0.0
+
+    def shader(ctx: ShaderContext) -> vec4:
+        for i in range(10):
+            accumulator += 0.1
+        return vec4(accumulator, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    float accumulator = 0.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        for (int i = 0; i < 10; i += 1) {
+            accumulator += 0.1;
+        }
+        return vec4(accumulator, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: multi_func_one_mutates
+  python: |
+    global_val = 1.0
+
+    def reader() -> "float":
+        return global_val * 2.0
+
+    def writer() -> "float":
+        global_val = 5.0
+        return global_val
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(reader(), writer(), 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    float global_val = 1.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    float reader() {
+        return global_val * 2.0;
+    }
+
+    float writer() {
+        global_val = 5.0;
+        return global_val;
+    }
+
+    vec4 shader() {
+        return vec4(reader(), writer(), 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_loop_bound
+  python: |
+    ITERATIONS = 5
+
+    def shader(ctx: ShaderContext) -> vec4:
+        total: float = 0.0
+        for i in range(ITERATIONS):
+            total += 1.0
+        return vec4(total, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const int ITERATIONS = 5;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float total = 0.0;
+        for (int i = 0; i < ITERATIONS; i += 1) {
+            total += 1.0;
+        }
+        return vec4(total, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

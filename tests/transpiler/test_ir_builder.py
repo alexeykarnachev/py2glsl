@@ -34,8 +34,8 @@ out vec4 fragColor;
 
 vec4 shader() {
     float total = 0.0;
-    for (int _i = 0; (_i < 5); _i += 1) {
-        total = (total + 1.0);
+    for (int _i = 0; _i < 5; _i += 1) {
+        total = total + 1.0;
     }
     return vec4(total, 0.0, 0.0, 1.0);
 }
@@ -68,8 +68,8 @@ out vec4 fragColor;
 
 vec4 shader() {
     float total = 0.0;
-    for (int _i = 2; (_i < 8); _i += 1) {
-        total = (total + 1.0);
+    for (int _i = 2; _i < 8; _i += 1) {
+        total = total + 1.0;
     }
     return vec4(total, 0.0, 0.0, 1.0);
 }
@@ -102,8 +102,8 @@ out vec4 fragColor;
 
 vec4 shader() {
     float total = 0.0;
-    for (int _i = 0; (_i < 10); _i += 2) {
-        total = (total + 1.0);
+    for (int _i = 0; _i < 10; _i += 2) {
+        total = total + 1.0;
     }
     return vec4(total, 0.0, 0.0, 1.0);
 }
@@ -140,8 +140,8 @@ out vec4 fragColor;
 
 vec4 shader() {
     float x = 0.0;
-    while ((x < 10.0)) {
-        x = (x + 1.0);
+    while (x < 10.0) {
+        x = x + 1.0;
     }
     return vec4(x, 0.0, 0.0, 1.0);
 }
@@ -178,7 +178,7 @@ out vec4 fragColor;
 
 vec4 shader() {
     float x = 0.0;
-    if ((u_time > 1.0)) {
+    if (u_time > 1.0) {
         x = 1.0;
     }
     return vec4(x, 0.0, 0.0, 1.0);
@@ -214,7 +214,7 @@ out vec4 fragColor;
 
 vec4 shader() {
     float x = 0.0;
-    if ((u_time > 1.0)) {
+    if (u_time > 1.0) {
         x = 1.0;
     } else {
         x = 0.5;
@@ -251,7 +251,7 @@ out vec4 fragColor;
 
 vec4 shader() {
     vec3 color;
-    if ((u_time > 1.0)) {
+    if (u_time > 1.0) {
         color = vec3(1.0, 0.0, 0.0);
     } else {
         color = vec3(0.0, 1.0, 0.0);
@@ -323,7 +323,7 @@ uniform vec2 u_mouse_uv;
 out vec4 fragColor;
 
 vec4 shader() {
-    float x = ((u_time > 0.5) ? 1.0 : 0.0);
+    float x = u_time > 0.5 ? 1.0 : 0.0;
     return vec4(x, 0.0, 0.0, 1.0);
 }
 
@@ -359,7 +359,7 @@ out vec4 fragColor;
 
 vec4 shader() {
     float x = 0.0;
-    if (((u_time > 0.0) && (u_time < 1.0))) {
+    if (u_time > 0.0 && u_time < 1.0) {
         x = 1.0;
     }
     return vec4(x, 0.0, 0.0, 1.0);
@@ -393,7 +393,7 @@ out vec4 fragColor;
 
 vec4 shader() {
     float x = 0.0;
-    if (((u_time < 0.0) || (u_time > 1.0))) {
+    if (u_time < 0.0 || u_time > 1.0) {
         x = 1.0;
     }
     return vec4(x, 0.0, 0.0, 1.0);
@@ -469,11 +469,11 @@ out vec4 fragColor;
 
 vec4 shader() {
     float x = 0.0;
-    for (int i = 0; (i < 10); i += 1) {
-        if ((i > 5)) {
+    for (int i = 0; i < 10; i += 1) {
+        if (i > 5) {
             break;
         }
-        x = (x + 1.0);
+        x = x + 1.0;
     }
     return vec4(x, 0.0, 0.0, 1.0);
 }
@@ -508,11 +508,11 @@ out vec4 fragColor;
 
 vec4 shader() {
     float x = 0.0;
-    for (int i = 0; (i < 10); i += 1) {
-        if ((i < 5)) {
+    for (int i = 0; i < 10; i += 1) {
+        if (i < 5) {
             continue;
         }
-        x = (x + 1.0);
+        x = x + 1.0;
     }
     return vec4(x, 0.0, 0.0, 1.0);
 }

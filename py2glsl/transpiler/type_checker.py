@@ -46,6 +46,23 @@ def _get_binop_type(node: ast.BinOp, symbols: Symbols, collected: CollectedInfo)
     if right_type.startswith("vec") and left_type in ["float", "int"]:
         return right_type
 
+    # Matrix-vector multiplication: mat * vec -> vec, vec * mat -> vec
+    mat_to_vec = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
+    if left_type in mat_to_vec and right_type == mat_to_vec[left_type]:
+        return right_type  # mat * vec -> vec
+    if right_type in mat_to_vec and left_type == mat_to_vec[right_type]:
+        return left_type  # vec * mat -> vec
+
+    # Matrix-matrix: same type result
+    if left_type == right_type and left_type.startswith("mat"):
+        return left_type
+
+    # Matrix-scalar: matrix result
+    if left_type.startswith("mat") and right_type in ["float", "int"]:
+        return left_type
+    if right_type.startswith("mat") and left_type in ["float", "int"]:
+        return right_type
+
     # Numeric: float if either is float
     if "float" in (left_type, right_type):
         return "float"

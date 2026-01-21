@@ -1,0 +1,61 @@
+- name: target_opengl33
+  target: opengl33
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(ctx.vs_uv.x, ctx.vs_uv.y, 0.0, 1.0)
+  expected: |
+    #version 330 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(vs_uv.x, vs_uv.y, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: target_shadertoy
+  target: shadertoy
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(ctx.vs_uv.x, ctx.vs_uv.y, 0.0, 1.0)
+  expected: |
+    vec4 shader() {
+        return vec4((fragCoord / iResolution.xy).x, (fragCoord / iResolution.xy).y, 0.0, 1.0);
+    }
+
+    void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+        fragColor = shader();
+    }
+- name: target_webgl2
+  target: webgl2
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(ctx.vs_uv.x, ctx.vs_uv.y, 0.0, 1.0)
+  expected: |
+    #version 300 es
+    precision highp float;
+    precision highp int;
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(vs_uv.x, vs_uv.y, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

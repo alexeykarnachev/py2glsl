@@ -1,0 +1,598 @@
+- name: expr_ternary_simple
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        c = 1.0 if ctx.vs_uv.x > 0.5 else 0.0
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float c = vs_uv.x > 0.5 ? 1.0 : 0.0;
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_ternary_nested
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        c = 1.0 if x > 0.66 else (0.5 if x > 0.33 else 0.0)
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        float c = x > 0.66 ? 1.0 : x > 0.33 ? 0.5 : 0.0;
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_ternary_vector
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        color = vec3(1.0, 0.0, 0.0) if ctx.vs_uv.x > 0.5 else vec3(0.0, 0.0, 1.0)
+        return vec4(color, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 color = vs_uv.x > 0.5 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0);
+        return vec4(color, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_compare_lt_gt
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        a = x < 0.5
+        b = x > 0.5
+        r = 1.0 if a else 0.0
+        g = 1.0 if b else 0.0
+        return vec4(r, g, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        bool a = x < 0.5;
+        bool b = x > 0.5;
+        float r = a ? 1.0 : 0.0;
+        float g = b ? 1.0 : 0.0;
+        return vec4(r, g, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_compare_le_ge
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        a = x <= 0.5
+        b = x >= 0.5
+        r = 1.0 if a else 0.0
+        g = 1.0 if b else 0.0
+        return vec4(r, g, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        bool a = x <= 0.5;
+        bool b = x >= 0.5;
+        float r = a ? 1.0 : 0.0;
+        float g = b ? 1.0 : 0.0;
+        return vec4(r, g, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_compare_eq_ne
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = 1.0 == 1.0
+        b = 1.0 != 2.0
+        r = 1.0 if a and b else 0.0
+        return vec4(r, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        bool a = 1.0 == 1.0;
+        bool b = 1.0 != 2.0;
+        float r = a && b ? 1.0 : 0.0;
+        return vec4(r, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_bool_and
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        in_range = x > 0.25 and x < 0.75
+        c = 1.0 if in_range else 0.0
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        bool in_range = x > 0.25 && x < 0.75;
+        float c = in_range ? 1.0 : 0.0;
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_bool_or
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        outside = x < 0.25 or x > 0.75
+        c = 1.0 if outside else 0.0
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        bool outside = x < 0.25 || x > 0.75;
+        float c = outside ? 1.0 : 0.0;
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_bool_not
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        flag = True
+        inverted = not flag
+        c = 1.0 if inverted else 0.0
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        bool flag = true;
+        bool inverted = !flag;
+        float c = inverted ? 1.0 : 0.0;
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_unary_minus
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = -1.0
+        v = -vec3(1.0, 2.0, 3.0)
+        return vec4(a, v.x, v.y, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = -1.0;
+        vec3 v = -vec3(1.0, 2.0, 3.0);
+        return vec4(a, v.x, v.y, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_unary_plus
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = +1.0
+        return vec4(a, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = +1.0;
+        return vec4(a, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_precedence_mul_add
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = 1.0 + 2.0 * 3.0
+        b = (1.0 + 2.0) * 3.0
+        return vec4(a, b, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = 1.0 + 2.0 * 3.0;
+        float b = (1.0 + 2.0) * 3.0;
+        return vec4(a, b, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_precedence_div_sub
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = 10.0 / 2.0 - 1.0
+        b = 10.0 / (2.0 - 1.0)
+        return vec4(a, b, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = 10.0 / 2.0 - 1.0;
+        float b = 10.0 / (2.0 - 1.0);
+        return vec4(a, b, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_vec_arithmetic
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = vec3(1.0, 2.0, 3.0)
+        b = vec3(4.0, 5.0, 6.0)
+        add = a + b
+        sub = a - b
+        mul = a * b
+        div = a / b
+        return vec4(add.x, sub.y, mul.z, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 a = vec3(1.0, 2.0, 3.0);
+        vec3 b = vec3(4.0, 5.0, 6.0);
+        vec3 add = a + b;
+        vec3 sub = a - b;
+        vec3 mul = a * b;
+        vec3 div = a / b;
+        return vec4(add.x, sub.y, mul.z, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_vec_scalar
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(1.0, 2.0, 3.0)
+        a = v * 2.0
+        b = v / 2.0
+        c = v + 1.0
+        d = 2.0 * v
+        return vec4(a.x, b.y, c.z, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = vec3(1.0, 2.0, 3.0);
+        vec3 a = v * 2.0;
+        vec3 b = v / 2.0;
+        vec3 c = v + 1.0;
+        vec3 d = 2.0 * v;
+        return vec4(a.x, b.y, c.z, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_power_operator
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = 2.0 ** 3.0
+        b = ctx.vs_uv.x ** 2.2
+        return vec4(a, b, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = pow(2.0, 3.0);
+        float b = pow(vs_uv.x, 2.2);
+        return vec4(a, b, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_complex_with_calls
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        result = sin(ctx.u_time) * cos(ctx.u_time * 2.0) + 0.5
+        return vec4(result, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float result = sin(u_time) * cos(u_time * 2.0) + 0.5;
+        return vec4(result, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_chained_access
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        uv = ctx.vs_uv
+        x = uv.x
+        y = uv.y
+        return vec4(x, y, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec2 uv = vs_uv;
+        float x = uv.x;
+        float y = uv.y;
+        return vec4(x, y, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_modulo_float
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = 5.0 % 3.0
+        return vec4(a, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = mod(5.0, 3.0);
+        return vec4(a, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_modulo_int
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = 10 % 3
+        return vec4(float(a), 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        int a = 10 % 3;
+        return vec4(float(a), 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_modulo_vec
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(5.0, 6.0, 7.0) % 3.0
+        return vec4(v, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = mod(vec3(5.0, 6.0, 7.0), 3.0);
+        return vec4(v, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_bool_combined
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        y = ctx.vs_uv.y
+        in_box = x > 0.25 and x < 0.75 and y > 0.25 and y < 0.75
+        c = 1.0 if in_box else 0.0
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        float y = vs_uv.y;
+        bool in_box = x > 0.25 && x < 0.75 && y > 0.25 && y < 0.75;
+        float c = in_box ? 1.0 : 0.0;
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

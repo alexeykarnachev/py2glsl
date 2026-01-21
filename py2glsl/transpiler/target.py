@@ -79,6 +79,10 @@ class Target(ABC):
         """Return the version directive (e.g., '#version 460 core')."""
         ...
 
+    def precision_qualifiers(self) -> list[str]:
+        """Return precision qualifiers (for ES targets). Default: empty."""
+        return []
+
     def type_name(self, ir_type: IRType | str) -> str:
         """Map IR type to target type name. Default: pass-through."""
         if isinstance(ir_type, IRType):
@@ -412,6 +416,9 @@ class WebGL2Target(Target):
     def version_directive(self) -> str | None:
         return "#version 300 es"
 
+    def precision_qualifiers(self) -> list[str]:
+        return ["precision highp float;", "precision highp int;"]
+
     def get_uniform_mapping(self) -> dict[str, str]:
         return {}
 
@@ -422,13 +429,8 @@ class WebGL2Target(Target):
         _inputs: list[IRVariable],
         outputs: list[IRVariable],
     ) -> list[str]:
-        """Generate WebGL main() wrapper with precision qualifiers."""
-        lines = [
-            "precision highp float;",
-            "precision highp int;",
-            "",
-            "void main() {",
-        ]
+        """Generate WebGL main() wrapper."""
+        lines = ["void main() {"]
 
         args = [param.name for param in entry_func.params]
         args_str = ", ".join(args)

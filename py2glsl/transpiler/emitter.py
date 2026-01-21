@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 
+from py2glsl.transpiler.constants import OPERATOR_PRECEDENCE
 from py2glsl.transpiler.ir import (
     IRAssign,
     IRAugmentedAssign,
@@ -159,6 +160,24 @@ def _visit_expr(expr: IRExpr, called: set[str], func_names: set[str]) -> None:
             _visit_expr(f, called, func_names)
 
 
+def _get_precedence(expr: IRExpr) -> int:
+    """Get the precedence of an expression for parenthesization."""
+    match expr:
+        case IRBinOp(_, op, _, _):
+            return OPERATOR_PRECEDENCE.get(op, 0)
+        case IRUnaryOp():
+            return OPERATOR_PRECEDENCE.get("unary", 8)
+        case IRTernary():
+            return OPERATOR_PRECEDENCE.get("?", 14)
+        case IRCall() | IRConstruct():
+            return OPERATOR_PRECEDENCE.get("call", 9)
+        case IRFieldAccess() | IRSwizzle() | IRSubscript():
+            return OPERATOR_PRECEDENCE.get("member", 10)
+        case _:
+            # Literals, names - highest precedence (no parens needed)
+            return 100
+
+
 class Emitter:
     """Generates target code from IR using a Target."""
 
@@ -173,6 +192,10 @@ class Emitter:
         version = self.target.version_directive()
         if version:
             lines.append(version)
+            # Precision qualifiers (for ES targets)
+            precision = self.target.precision_qualifiers()
+            if precision:
+                lines.extend(precision)
             lines.append("")
 
         # Predefined uniforms (for targets like Shadertoy)
@@ -349,7 +372,22 @@ class Emitter:
                 return self._emit_expr(expr)
         return ""
 
-    def _emit_expr(self, expr: IRExpr) -> str:
+    def _emit_expr(self, expr: IRExpr, parent_precedence: int = 0) -> str:
+        """Emit an expression, adding parentheses only when necessary.
+
+        Args:
+            expr: The IR expression to emit
+            parent_precedence: Precedence of parent operator (0 = top-level/statement)
+        """
+        result = self._emit_expr_inner(expr, parent_precedence)
+        # Add parens if this expression has lower precedence than parent
+        expr_prec = _get_precedence(expr)
+        if parent_precedence > 0 and expr_prec < parent_precedence:
+            return f"({result})"
+        return result
+
+    def _emit_expr_inner(self, expr: IRExpr, _parent_precedence: int) -> str:
+        """Emit expression without outer parentheses."""
         match expr:
             case IRLiteral(result_type, value):
                 return self.target.literal(value, result_type)
@@ -360,40 +398,52 @@ class Emitter:
 
             case IRBinOp(_, op, left, right):
                 op_str = self.target.operator(op)
-                left_str = self._emit_expr(left)
-                right_str = self._emit_expr(right)
+                my_prec = OPERATOR_PRECEDENCE.get(op, 0)
                 # Handle power operator specially
                 if op == "**":
+                    left_str = self._emit_expr(left, 0)
+                    right_str = self._emit_expr(right, 0)
                     return f"pow({left_str}, {right_str})"
-                return f"({left_str} {op_str} {right_str})"
+                # Emit children with current precedence to determine if they need parens
+                left_str = self._emit_expr(left, my_prec)
+                # Right side: use slightly higher precedence for left-associative ops
+                # to force parens on right child with same precedence
+                right_str = self._emit_expr(right, my_prec + 1)
+                return f"{left_str} {op_str} {right_str}"
 
             case IRUnaryOp(_, op, operand):
                 op_str = self.target.operator(op)
-                return f"{op_str}{self._emit_expr(operand)}"
+                unary_prec = OPERATOR_PRECEDENCE.get("unary", 8)
+                operand_str = self._emit_expr(operand, unary_prec)
+                return f"{op_str}{operand_str}"
 
             case IRCall(_, func, args):
                 func_name = self.target.builtin_function(func) or func
-                args_str = ", ".join(self._emit_expr(a) for a in args)
+                args_str = ", ".join(self._emit_expr(a, 0) for a in args)
                 return f"{func_name}({args_str})"
 
             case IRConstruct(result_type, args):
                 type_str = self.target.type_name(result_type)
-                args_str = ", ".join(self._emit_expr(a) for a in args)
+                args_str = ", ".join(self._emit_expr(a, 0) for a in args)
                 return f"{type_str}({args_str})"
 
             case IRSwizzle(_, base, components):
-                return f"{self._emit_expr(base)}.{components}"
+                base_str = self._emit_expr(base, OPERATOR_PRECEDENCE.get("member", 10))
+                return f"{base_str}.{components}"
 
             case IRFieldAccess(_, base, field):
-                return f"{self._emit_expr(base)}.{field}"
+                base_str = self._emit_expr(base, OPERATOR_PRECEDENCE.get("member", 10))
+                return f"{base_str}.{field}"
 
             case IRSubscript(_, base, index):
-                return f"{self._emit_expr(base)}[{self._emit_expr(index)}]"
+                base_str = self._emit_expr(base, OPERATOR_PRECEDENCE.get("member", 10))
+                index_str = self._emit_expr(index, 0)
+                return f"{base_str}[{index_str}]"
 
             case IRTernary(_, cond, true_e, false_e):
-                cond_str = self._emit_expr(cond)
-                true_str = self._emit_expr(true_e)
-                false_str = self._emit_expr(false_e)
-                return f"({cond_str} ? {true_str} : {false_str})"
+                cond_str = self._emit_expr(cond, 0)
+                true_str = self._emit_expr(true_e, 0)
+                false_str = self._emit_expr(false_e, 0)
+                return f"{cond_str} ? {true_str} : {false_str}"
 
         return ""

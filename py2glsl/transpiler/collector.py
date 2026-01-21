@@ -59,18 +59,49 @@ def _collect_struct(node: ast.ClassDef, collected: CollectedInfo) -> None:
     logger.debug(f"Collected struct: {node.name} with {len(fields)} fields")
 
 
-def _collect_global(node: ast.AnnAssign, collected: CollectedInfo) -> None:
-    """Collect global variable from an annotated assignment."""
-    if not isinstance(node.target, ast.Name) or not node.value:
-        return
+def _infer_literal_type(value: ast.Constant) -> tuple[str, str] | None:
+    """Infer GLSL type and value string from a Python literal."""
+    if isinstance(value.value, bool):
+        return ("bool", "true" if value.value else "false")
+    elif isinstance(value.value, float):
+        return ("float", str(value.value))
+    elif isinstance(value.value, int):
+        return ("int", str(value.value))
+    return None
 
-    expr_type = get_annotation_type(node.annotation)
-    try:
-        value = generate_simple_expr(node.value)
-        collected.globals[node.target.id] = (expr_type or "float", value)
-        logger.debug(f"Collected global: {node.target.id}: {expr_type}")
-    except TranspilerError:
-        pass  # Skip complex expressions
+
+def _collect_constant(
+    node: ast.Assign | ast.AnnAssign, collected: CollectedInfo
+) -> None:
+    """Collect module-level constant from assignment.
+
+    Handles both annotated assignments (PI: float = 3.14) and
+    simple assignments (PI = 3.14) with type inference.
+    """
+    if isinstance(node, ast.AnnAssign):
+        if not isinstance(node.target, ast.Name) or not node.value:
+            return
+        name = node.target.id
+        type_str = get_annotation_type(node.annotation)
+        try:
+            value_str = generate_simple_expr(node.value)
+            collected.globals[name] = (type_str or "float", value_str)
+            logger.debug(f"Collected constant: {name}: {type_str} = {value_str}")
+        except TranspilerError:
+            pass  # Skip complex expressions
+
+    elif isinstance(node, ast.Assign):
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            return
+        if not isinstance(node.value, ast.Constant):
+            return
+
+        name = node.targets[0].id
+        inferred = _infer_literal_type(node.value)
+        if inferred:
+            type_str, value_str = inferred
+            collected.globals[name] = (type_str, value_str)
+            logger.debug(f"Collected constant: {name} = {value_str} ({type_str})")
 
 
 class _Collector(ast.NodeVisitor):
@@ -89,8 +120,49 @@ class _Collector(ast.NodeVisitor):
         # Don't visit children
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        # Only collect at module level (not inside functions)
-        _collect_global(node, self.collected)
+        _collect_constant(node, self.collected)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        _collect_constant(node, self.collected)
+
+
+class _MutationDetector(ast.NodeVisitor):
+    """Detect assignments to global variables inside functions."""
+
+    def __init__(self, global_names: set[str], mutable_globals: set[str]) -> None:
+        self.global_names = global_names
+        self.mutable_globals = mutable_globals
+        self.local_names: set[str] = set()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        # Track function parameters as local
+        for arg in node.args.args:
+            self.local_names.add(arg.arg)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                name = target.id
+                if name in self.global_names and name not in self.local_names:
+                    self.mutable_globals.add(name)
+                # After first assignment, it's local (shadowing)
+                self.local_names.add(name)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        # Annotated assignment always declares a new local variable (shadowing)
+        # so it's NOT a mutation of the global
+        if isinstance(node.target, ast.Name):
+            self.local_names.add(node.target.id)
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if isinstance(node.target, ast.Name):
+            name = node.target.id
+            if name in self.global_names and name not in self.local_names:
+                self.mutable_globals.add(name)
+        self.generic_visit(node)
 
 
 def collect_info(tree: ast.AST) -> CollectedInfo:
@@ -103,4 +175,14 @@ def collect_info(tree: ast.AST) -> CollectedInfo:
             collector.visit(node)
     else:
         collector.visit(tree)
+
+    # Detect which globals are mutated inside functions
+    global_names = set(collected.globals.keys())
+    for func_info in collected.functions.values():
+        detector = _MutationDetector(global_names, collected.mutable_globals)
+        detector.visit(func_info.node)
+
+    if collected.mutable_globals:
+        logger.debug(f"Mutable globals detected: {collected.mutable_globals}")
+
     return collected

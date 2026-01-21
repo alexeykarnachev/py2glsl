@@ -1,0 +1,748 @@
+- name: builtin_sin
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        s = sin(ctx.u_time)
+        return vec4(s, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float s = sin(u_time);
+        return vec4(s, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_cos
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        c = cos(ctx.u_time)
+        return vec4(c, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float c = cos(u_time);
+        return vec4(c, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_tan
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        t = tan(ctx.u_time)
+        return vec4(t, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float t = tan(u_time);
+        return vec4(t, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_asin_acos_atan
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = asin(ctx.vs_uv.x)
+        b = acos(ctx.vs_uv.y)
+        c = atan(ctx.vs_uv.x)
+        return vec4(a, b, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = asin(vs_uv.x);
+        float b = acos(vs_uv.y);
+        float c = atan(vs_uv.x);
+        return vec4(a, b, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_abs
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = abs(-1.5)
+        return vec4(a, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = abs(-1.5);
+        return vec4(a, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_floor_ceil
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        f = floor(1.7)
+        c = ceil(1.2)
+        return vec4(f, c, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float f = floor(1.7);
+        float c = ceil(1.2);
+        return vec4(f, c, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_fract
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        f = fract(2.7)
+        return vec4(f, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float f = fract(2.7);
+        return vec4(f, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_sqrt
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        s = sqrt(4.0)
+        return vec4(s, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float s = sqrt(4.0);
+        return vec4(s, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_pow
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        p = pow(2.0, 3.0)
+        return vec4(p, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float p = pow(2.0, 3.0);
+        return vec4(p, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_exp_log
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        e = exp(1.0)
+        l = log(2.718)
+        return vec4(e, l, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float e = exp(1.0);
+        float l = log(2.718);
+        return vec4(e, l, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_mod
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        m = mod(5.0, 3.0)
+        return vec4(m, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float m = mod(5.0, 3.0);
+        return vec4(m, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_min_max
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        mi = min(1.0, 2.0)
+        ma = max(1.0, 2.0)
+        return vec4(mi, ma, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float mi = min(1.0, 2.0);
+        float ma = max(1.0, 2.0);
+        return vec4(mi, ma, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_abs_vec
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(-1.0, -2.0, 3.0)
+        a = abs(v)
+        return vec4(a, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = vec3(-1.0, -2.0, 3.0);
+        vec3 a = abs(v);
+        return vec4(a, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_floor_vec
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(1.5, 2.7, 3.2)
+        f = floor(v)
+        return vec4(f, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = vec3(1.5, 2.7, 3.2);
+        vec3 f = floor(v);
+        return vec4(f, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_sqrt_vec
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec4(1.0, 4.0, 9.0, 16.0)
+        s = sqrt(v)
+        return s
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec4 v = vec4(1.0, 4.0, 9.0, 16.0);
+        vec4 s = sqrt(v);
+        return s;
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_mix
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        m = mix(0.0, 1.0, ctx.vs_uv.x)
+        return vec4(m, m, m, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float m = mix(0.0, 1.0, vs_uv.x);
+        return vec4(m, m, m, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_mix_vec
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = vec3(1.0, 0.0, 0.0)
+        b = vec3(0.0, 0.0, 1.0)
+        m = mix(a, b, ctx.vs_uv.x)
+        return vec4(m, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 a = vec3(1.0, 0.0, 0.0);
+        vec3 b = vec3(0.0, 0.0, 1.0);
+        vec3 m = mix(a, b, vs_uv.x);
+        return vec4(m, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_smoothstep
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        s = smoothstep(0.0, 1.0, ctx.vs_uv.x)
+        return vec4(s, s, s, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float s = smoothstep(0.0, 1.0, vs_uv.x);
+        return vec4(s, s, s, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_clamp
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        c = clamp(ctx.vs_uv.x * 2.0, 0.0, 1.0)
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float c = clamp(vs_uv.x * 2.0, 0.0, 1.0);
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_step
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        s = step(0.5, ctx.vs_uv.x)
+        return vec4(s, s, s, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float s = step(0.5, vs_uv.x);
+        return vec4(s, s, s, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_length
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(3.0, 4.0, 0.0)
+        l = length(v)
+        return vec4(l, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = vec3(3.0, 4.0, 0.0);
+        float l = length(v);
+        return vec4(l, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_distance
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = vec2(0.0, 0.0)
+        b = vec2(3.0, 4.0)
+        d = distance(a, b)
+        return vec4(d, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec2 a = vec2(0.0, 0.0);
+        vec2 b = vec2(3.0, 4.0);
+        float d = distance(a, b);
+        return vec4(d, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_dot
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = vec3(1.0, 0.0, 0.0)
+        b = vec3(0.0, 1.0, 0.0)
+        d = dot(a, b)
+        return vec4(d, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 a = vec3(1.0, 0.0, 0.0);
+        vec3 b = vec3(0.0, 1.0, 0.0);
+        float d = dot(a, b);
+        return vec4(d, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_cross
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = vec3(1.0, 0.0, 0.0)
+        b = vec3(0.0, 1.0, 0.0)
+        c = cross(a, b)
+        return vec4(c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 a = vec3(1.0, 0.0, 0.0);
+        vec3 b = vec3(0.0, 1.0, 0.0);
+        vec3 c = cross(a, b);
+        return vec4(c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_normalize
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(1.0, 1.0, 1.0)
+        n = normalize(v)
+        return vec4(n, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = vec3(1.0, 1.0, 1.0);
+        vec3 n = normalize(v);
+        return vec4(n, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_reflect
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        incident = vec3(1.0, -1.0, 0.0)
+        normal = vec3(0.0, 1.0, 0.0)
+        r = reflect(incident, normal)
+        return vec4(r, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 incident = vec3(1.0, -1.0, 0.0);
+        vec3 normal = vec3(0.0, 1.0, 0.0);
+        vec3 r = reflect(incident, normal);
+        return vec4(r, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_refract
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        incident = normalize(vec3(1.0, -1.0, 0.0))
+        normal = vec3(0.0, 1.0, 0.0)
+        r = refract(incident, normal, 0.9)
+        return vec4(r, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 incident = normalize(vec3(1.0, -1.0, 0.0));
+        vec3 normal = vec3(0.0, 1.0, 0.0);
+        vec3 r = refract(incident, normal, 0.9);
+        return vec4(r, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_combined_trig
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        angle = ctx.u_time * radians(360.0)
+        x = cos(angle)
+        y = sin(angle)
+        return vec4(x, y, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float angle = u_time * radians(360.0);
+        float x = cos(angle);
+        float y = sin(angle);
+        return vec4(x, y, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_combined_sdf
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        p = ctx.vs_uv - vec2(0.5, 0.5)
+        d = length(p) - 0.3
+        c = smoothstep(0.01, 0.0, d)
+        return vec4(c, c, c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec2 p = vs_uv - vec2(0.5, 0.5);
+        float d = length(p) - 0.3;
+        float c = smoothstep(0.01, 0.0, d);
+        return vec4(c, c, c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

@@ -36,11 +36,11 @@ uniform vec2 u_mouse_uv;
 out vec4 fragColor;
 
 float helper_a(float x) {
-    return (x * 2.0);
+    return x * 2.0;
 }
 
 float helper_b(float x) {
-    return (helper_a(x) + 1.0);
+    return helper_a(x) + 1.0;
 }
 
 vec4 shader() {
@@ -214,6 +214,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         code, _ = transpile(shader, target=TargetType.WEBGL2)
         expected = """\
 #version 300 es
+precision highp float;
+precision highp int;
 
 in vec2 vs_uv;
 uniform float u_time;
@@ -226,9 +228,6 @@ out vec4 fragColor;
 vec4 shader() {
     return vec4(vs_uv.x, vs_uv.y, 0.0, 1.0);
 }
-
-precision highp float;
-precision highp int;
 
 void main() {
     fragColor = shader();

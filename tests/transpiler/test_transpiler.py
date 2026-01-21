@@ -39,7 +39,7 @@ class TestTranspile:
         glsl_code, uniforms = transpile(helper, main_shader, main_func="main_shader")
 
         assert "float helper(vec2 pos)" in glsl_code
-        assert "return (pos.x + pos.y);" in glsl_code
+        assert "return pos.x + pos.y;" in glsl_code
         assert "vec4 main_shader()" in glsl_code
         assert "float value = helper(vs_uv);" in glsl_code
         assert "return vec4(value, 0.0, 0.0, 1.0);" in glsl_code

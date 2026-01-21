@@ -94,13 +94,14 @@ class IRBuilder:
         """Build variable declarations from entry point parameters."""
         variables: list[IRVariable] = []
 
-        # Add globals as constants
+        # Add globals (as const if immutable, local if mutable)
         for name, (type_name, value) in self.collected.globals.items():
+            is_mutable = name in self.collected.mutable_globals
             variables.append(
                 IRVariable(
                     name=name,
                     type=IRType(type_name),
-                    storage=StorageClass.CONST,
+                    storage=StorageClass.LOCAL if is_mutable else StorageClass.CONST,
                     init_value=value,
                 )
             )
@@ -157,6 +158,7 @@ class IRBuilder:
         params: list[IRParameter] = []
         self.symbols = {}
         self._context_param_name = None
+        self._global_constants: set[str] = set()
 
         uses_context = self._uses_shader_context(func_info)
 
@@ -174,9 +176,13 @@ class IRBuilder:
             params.append(IRParameter(name=arg.arg, type=ir_type))
             self.symbols[arg.arg] = ir_type
 
-        # Add globals to symbols
+        # Add globals to symbols (only if not already defined as parameter)
+        # Only immutable ones are tracked as constants
         for name, (type_name, _) in self.collected.globals.items():
-            self.symbols[name] = IRType(type_name)
+            if name not in self.symbols:  # Don't overwrite parameters
+                self.symbols[name] = IRType(type_name)
+                if name not in self.collected.mutable_globals:
+                    self._global_constants.add(name)
 
         # Build return type
         return_type = None
@@ -204,6 +210,23 @@ class IRBuilder:
         if arg.annotation and isinstance(arg.annotation, ast.Name):
             return arg.annotation.id == "ShaderContext"
         return False
+
+    def _filter_context_args(
+        self, func_name: str, args: list[ast.expr]
+    ) -> list[ast.expr]:
+        """Filter out ShaderContext arguments when calling a user function."""
+        func_info = self.collected.functions.get(func_name)
+        if not func_info:
+            return args  # Builtin function, keep all args
+
+        # Check which parameter positions are ShaderContext
+        func_args = func_info.node.args.args
+        filtered = []
+        for i, arg in enumerate(args):
+            if i < len(func_args) and self._is_context_param(func_args[i]):
+                continue  # Skip ShaderContext argument
+            filtered.append(arg)
+        return filtered
 
     def _is_docstring(self, stmt: ast.stmt) -> bool:
         """Check if statement is a docstring."""
@@ -297,11 +320,17 @@ class IRBuilder:
                 result: list[IRStmt] = []
                 value_expr = self._build_expr(value)
                 for target in targets:
-                    if isinstance(target, ast.Name) and target.id not in self.symbols:
-                        # First assignment to a new variable - emit declaration
+                    is_new_var = isinstance(target, ast.Name) and (
+                        target.id not in self.symbols
+                        or target.id in self._global_constants
+                    )
+                    if is_new_var:
+                        # New variable or shadowing a global constant
+                        assert isinstance(target, ast.Name)
                         ir_type = value_expr.result_type
                         var = IRVariable(name=target.id, type=ir_type)
                         self.symbols[target.id] = ir_type
+                        self._global_constants.discard(target.id)  # Now local
                         result.append(IRDeclare(var=var, init=value_expr))
                     else:
                         target_expr = self._build_expr(target)
@@ -434,6 +463,15 @@ class IRBuilder:
                 left_expr = self._build_expr(left)
                 right_expr = self._build_expr(right)
                 op_str = self._binop_to_str(op)
+
+                # Convert % on floats/vectors to mod() function call
+                if op_str == "%" and left_expr.result_type.base not in ("int", "uint"):
+                    return IRCall(
+                        result_type=left_expr.result_type,
+                        func="mod",
+                        args=[left_expr, right_expr],
+                    )
+
                 result_type = self._infer_binop_type(left_expr, right_expr, op_str)
                 return IRBinOp(
                     result_type=result_type, op=op_str, left=left_expr, right=right_expr
@@ -504,23 +542,29 @@ class IRBuilder:
         self, func: ast.expr, args: list[ast.expr], keywords: list[ast.keyword]
     ) -> IRExpr:
         """Build IR for a function call."""
-        arg_exprs = [self._build_expr(a) for a in args]
-        # Add keyword arguments as positional (GLSL structs use positional)
-        for kw in keywords:
-            arg_exprs.append(self._build_expr(kw.value))
-
         if isinstance(func, ast.Name):
             func_name = func.id
 
             # Check if it's a struct constructor
             if func_name in self.collected.structs:
+                arg_exprs = [self._build_expr(a) for a in args]
+                for kw in keywords:
+                    arg_exprs.append(self._build_expr(kw.value))
                 return IRConstruct(result_type=IRType(func_name), args=arg_exprs)
 
             # Type constructors
             if func_name in TYPE_CONSTRUCTORS:
+                arg_exprs = [self._build_expr(a) for a in args]
+                for kw in keywords:
+                    arg_exprs.append(self._build_expr(kw.value))
                 return IRConstruct(result_type=IRType(func_name), args=arg_exprs)
 
-            # Regular function call
+            # Regular function call - filter out ShaderContext arguments
+            filtered_args = self._filter_context_args(func_name, args)
+            arg_exprs = [self._build_expr(a) for a in filtered_args]
+            for kw in keywords:
+                arg_exprs.append(self._build_expr(kw.value))
+
             result_type = self._infer_call_type(func_name, arg_exprs)
             return IRCall(result_type=result_type, func=func_name, args=arg_exprs)
 
@@ -657,10 +701,42 @@ class IRBuilder:
             return IRType("float")
         return IRType("float")
 
-    def _infer_binop_type(self, left: IRExpr, _right: IRExpr, op: str) -> IRType:
+    def _infer_binop_type(self, left: IRExpr, right: IRExpr, op: str) -> IRType:
         """Infer result type of binary operation."""
         if op in ("==", "!=", "<", "<=", ">", ">=", "and", "or"):
             return IRType("bool")
+
+        left_type = left.result_type.base
+        right_type = right.result_type.base
+
+        # Vector-vector: same type result
+        if left_type == right_type and left_type.startswith("vec"):
+            return left.result_type
+
+        # Vector-scalar: vector result
+        if left_type.startswith("vec") and right_type in ["float", "int"]:
+            return left.result_type
+        if right_type.startswith("vec") and left_type in ["float", "int"]:
+            return right.result_type
+
+        # Matrix-vector multiplication: mat * vec -> vec, vec * mat -> vec
+        mat_to_vec = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
+        if left_type in mat_to_vec and right_type == mat_to_vec[left_type]:
+            return right.result_type  # mat * vec -> vec
+        if right_type in mat_to_vec and left_type == mat_to_vec[right_type]:
+            return left.result_type  # vec * mat -> vec
+
+        # Matrix-matrix: same type result
+        if left_type == right_type and left_type.startswith("mat"):
+            return left.result_type
+
+        # Matrix-scalar: matrix result
+        if left_type.startswith("mat") and right_type in ["float", "int"]:
+            return left.result_type
+        if right_type.startswith("mat") and left_type in ["float", "int"]:
+            return right.result_type
+
+        # Default: return left type (handles int, float, etc.)
         return left.result_type
 
     def _infer_call_type(self, func_name: str, args: list[IRExpr]) -> IRType:
