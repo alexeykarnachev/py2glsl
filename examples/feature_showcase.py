@@ -38,6 +38,7 @@ Example Usage:
 
 from dataclasses import dataclass
 
+from py2glsl import ShaderContext
 from py2glsl.builtins import (
     abs,
     cos,
@@ -307,21 +308,21 @@ def apply_lighting(
     return color
 
 
-def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def shader(ctx: ShaderContext) -> vec4:
     """Main shader function showcasing all features."""
     # Screen-space coordinates
-    uv = vs_uv * 2.0 - vec2(1.0, 1.0)
-    uv.x *= u_aspect
+    uv = ctx.vs_uv * 2.0 - vec2(1.0, 1.0)
+    uv.x *= ctx.u_aspect
 
     # Camera setup with matrix operations
-    camera_angle = u_time * 0.3
+    camera_angle = ctx.u_time * 0.3
     camera_distance = 6.0
     camera_height = 2.0
 
     # Camera position using trigonometry
     cam_pos = vec3(
         cos(camera_angle) * camera_distance,
-        camera_height + sin(u_time * 0.5) * 0.5,
+        camera_height + sin(ctx.u_time * 0.5) * 0.5,
         sin(camera_angle) * camera_distance,
     )
 
@@ -374,7 +375,7 @@ def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     hit = trace_ray(cam_pos, ray_dir)
 
     # Animated light position
-    light_angle = u_time * 0.7
+    light_angle = ctx.u_time * 0.7
     light_pos = vec3(cos(light_angle) * 4.0, 3.0, sin(light_angle) * 4.0)
     light_color = vec3(1.0, 0.95, 0.9)
 

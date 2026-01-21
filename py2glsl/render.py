@@ -1,3 +1,13 @@
+"""Rendering module for py2glsl shaders.
+
+This module provides functions for rendering shaders to various outputs:
+- animate(): Real-time interactive preview in a window
+- render_array(): Render to a numpy array
+- render_image(): Render to a PIL Image
+- render_gif(): Render to an animated GIF
+- render_video(): Render to a video file
+"""
+
 import time as time_module
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
@@ -11,11 +21,8 @@ import numpy as np
 from loguru import logger
 from PIL import Image
 
-from py2glsl.transpiler.render import (
-    RenderInterface,
-    ShadertoyOpenGLRenderer,
-    StandardOpenGLRenderer,
-)
+from py2glsl.transpiler import TargetType, transpile_to_result
+from py2glsl.transpiler.target import Target
 
 
 @dataclass
@@ -26,7 +33,7 @@ class RenderContext:
     program: moderngl.Program
     vbo: moderngl.Buffer
     vao: moderngl.VertexArray
-    renderer: RenderInterface
+    target: Target
     fbo: moderngl.Framebuffer | None = None
     window: glfw._GLFWwindow | None = None
 
@@ -38,15 +45,15 @@ class FrameParams:
     ctx: moderngl.Context
     program: moderngl.Program
     vao: moderngl.VertexArray
-    target: moderngl.Framebuffer | moderngl.Context | None  # None for error handling
+    target_fbo: moderngl.Framebuffer | moderngl.Context | None
     size: tuple[int, int]
     time: float
+    target: Target
     uniforms: dict[str, float | tuple[float, ...]] | None = None
     mouse_pos: list[float] | None = None
     mouse_uv: list[float] | None = None
     resolution: tuple[int, int] | None = None
     frame_num: int = 0
-    renderer: RenderInterface | None = None
 
 
 def _init_glfw(
@@ -63,13 +70,12 @@ def _init_glfw(
         windowed: Whether to create a window or use offscreen rendering
         window_title: Title of the window
         gl_version: OpenGL version as (major, minor)
-        gl_profile: OpenGL profile ("core" or "compatibility")
+        gl_profile: OpenGL profile ("core" or "es")
 
     Returns:
         Tuple of (ModernGL context, GLFW window or None)
     """
     major_version, minor_version = gl_version
-    profile = gl_profile
     require_version = major_version * 100 + minor_version * 10  # e.g. 4.6 -> 460
 
     if windowed:
@@ -77,14 +83,14 @@ def _init_glfw(
             logger.error("Failed to initialize GLFW")
             raise RuntimeError("Failed to initialize GLFW")
 
-        # Set OpenGL version from backend
+        # Set OpenGL version
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, major_version)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, minor_version)
 
-        # Set profile from backend
-        if profile == "core":
+        # Set profile
+        if gl_profile == "core":
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        elif profile == "compatibility":
+        elif gl_profile == "compatibility":
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_COMPAT_PROFILE)
 
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
@@ -98,7 +104,6 @@ def _init_glfw(
         ctx = moderngl.create_context()
     else:
         window = None
-        # Create standalone context with required OpenGL version
         ctx = moderngl.create_context(standalone=True, require=require_version)
 
     return ctx, window
@@ -107,26 +112,22 @@ def _init_glfw(
 def _compile_program(
     ctx: moderngl.Context,
     glsl_code: str,
-    renderer: RenderInterface,
+    target: Target,
 ) -> moderngl.Program:
     """Compile shader program.
 
     Args:
         ctx: ModernGL context
         glsl_code: Fragment shader code
-        renderer: The render interface to use
+        target: The compilation target
 
     Returns:
         Compiled shader program
     """
-    # Get vertex shader from renderer
-    vertex_shader = renderer.get_vertex_code()
+    vertex_shader = target.get_vertex_shader()
 
     try:
         program = ctx.program(vertex_shader=vertex_shader, fragment_shader=glsl_code)
-        # Store the renderer with the program for later reference
-        program._renderer = renderer  # type: ignore[attr-defined]
-
         logger.info("Shader program compiled successfully")
         logger.info(f"Available uniforms: {list(program)}")
         return program
@@ -151,7 +152,7 @@ def _setup_rendering_context(
     size: tuple[int, int],
     windowed: bool = False,
     window_title: str = "GLSL Shader",
-    backend_type: Any = None,
+    target: TargetType = TargetType.OPENGL46,
 ) -> Generator[RenderContext, None, None]:
     """Sets up all rendering resources and cleans them up when done.
 
@@ -160,40 +161,37 @@ def _setup_rendering_context(
         size: Window/framebuffer size as (width, height)
         windowed: Whether to create a window or use offscreen rendering
         window_title: Title of the window (if windowed is True)
-        backend_type: Backend type enum
+        target: Target platform
 
     Yields:
         RenderContext object containing all rendering resources
     """
-    from py2glsl.transpiler.backends import BackendType
+    target_instance = target.create()
 
-    # Create the appropriate renderer based on backend type
-    renderer: RenderInterface
-    if backend_type == BackendType.SHADERTOY:
-        renderer = ShadertoyOpenGLRenderer()
-        effective_backend = BackendType.SHADERTOY
-    else:
-        renderer = StandardOpenGLRenderer()
-        effective_backend = BackendType.STANDARD
+    # Check if target supports rendering
+    if target_instance.is_export_only():
+        raise ValueError(
+            f"{target.name} target is for code export only and cannot be rendered. "
+            f"Use 'py2glsl export --target {target.name.lower()}' to export code. "
+            f"For development and preview, use OpenGL46 or OpenGL33 target."
+        )
 
     # Prepare shader code
     if callable(shader_input):
-        from py2glsl.transpiler import transpile
-
-        glsl_code, _ = transpile(shader_input, backend_type=effective_backend)
+        result = transpile_to_result(shader_input, target=target)
+        glsl_code = result.code
     else:
         glsl_code = shader_input
 
-    # Get OpenGL requirements from the renderer
-    reqs = renderer.get_render_requirements()
-    gl_version = (reqs["version_major"], reqs["version_minor"])
-    gl_profile = reqs["profile"]
+    # Get OpenGL requirements from target
+    gl_version = target_instance.get_gl_version()
+    gl_profile = target_instance.get_gl_profile()
 
     # Initialize context and window
     ctx, window = _init_glfw(size, windowed, window_title, gl_version, gl_profile)
 
     # Compile shader program
-    program = _compile_program(ctx, glsl_code, renderer)
+    program = _compile_program(ctx, glsl_code, target_instance)
 
     # Setup rendering primitives
     vbo, vao = _setup_primitives(ctx, program)
@@ -203,13 +201,12 @@ def _setup_rendering_context(
     if not windowed:
         fbo = ctx.simple_framebuffer(size)
 
-    # Create context object with the renderer
     render_ctx = RenderContext(
         ctx=ctx,
         program=program,
         vbo=vbo,
         vao=vao,
-        renderer=renderer,
+        target=target_instance,
         fbo=fbo,
         window=window,
     )
@@ -253,24 +250,16 @@ def _render_frame(params: FrameParams) -> Any | None:
     Returns:
         Numpy array with rendered image if rendering to a framebuffer, None otherwise
     """
-    if params.target is None:
+    if params.target_fbo is None:
         logger.error("No target specified for rendering")
         return None
 
-    if isinstance(params.target, moderngl.Framebuffer):
-        params.target.use()
-    # If it's a context, no need to call use()
+    if isinstance(params.target_fbo, moderngl.Framebuffer):
+        params.target_fbo.use()
     params.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
-    # Prepare standard uniforms dict - start with user-provided uniforms
-    standard_uniforms: dict[str, float | tuple[float, ...]] = {}
-    if params.uniforms:
-        # Copy from user-provided uniforms
-        for key, value in params.uniforms.items():
-            standard_uniforms[key] = value
-
-    # Always include these standard uniforms
-    base_uniforms: dict[str, float | tuple[float, ...]] = {
+    # Build canonical uniform values
+    canonical_uniforms: dict[str, Any] = {
         "u_resolution": params.size,
         "u_time": params.time,
         "u_aspect": params.size[0] / params.size[1],
@@ -278,64 +267,45 @@ def _render_frame(params: FrameParams) -> Any | None:
 
     # Add mouse uniforms if available
     if params.mouse_pos and params.mouse_uv:
-        base_uniforms["u_mouse_pos"] = tuple(params.mouse_pos)
-        base_uniforms["u_mouse_uv"] = tuple(params.mouse_uv)
+        canonical_uniforms["u_mouse_pos"] = tuple(params.mouse_pos)
+        canonical_uniforms["u_mouse_uv"] = tuple(params.mouse_uv)
 
-    # Combine base uniforms with any user-provided uniforms
-    for key, value in base_uniforms.items():
-        standard_uniforms[key] = value
+    # Add user-provided uniforms
+    if params.uniforms:
+        for key, value in params.uniforms.items():
+            canonical_uniforms[key] = value
 
-    # Get renderer from FrameParams or from program object
-    renderer = params.renderer
-    if renderer is None and hasattr(params.program, "_renderer"):
-        # This is a custom attribute added to the ModernGL program object
-        renderer = getattr(params.program, "_renderer", None)
-
-    # Apply renderer-specific uniform transformations
-    if renderer:
-        # Transform standard uniforms to renderer-specific uniforms
-        uniforms_to_set = renderer.setup_uniforms(standard_uniforms)
-    else:
-        # Fallback to just using standard uniforms
-        uniforms_to_set = standard_uniforms
+    # Transform uniforms using target's mapping
+    uniforms_to_set = params.target.transform_uniform_values(canonical_uniforms)
 
     # Set all uniforms on the program
     for name, value in uniforms_to_set.items():
         if name in params.program:
             uniform = params.program[name]
             try:
-                # Try the most common approach first - for moderngl.Uniform
                 if hasattr(uniform, "value"):
                     uniform.value = value
-                # Some uniform types use write method
                 elif hasattr(uniform, "write"):
                     uniform.write(value)
                 else:
-                    # For types we don't know how to handle, log a warning
                     logger.warning(f"Unknown uniform type for {name}, can't set value")
             except (AttributeError, TypeError) as e:
-                # Log but don't fail
                 logger.warning(f"Could not set uniform {name} to {value}: {e}")
 
     # Render the quad
     params.vao.render(moderngl.TRIANGLE_STRIP)
 
     # Return pixel data if rendering to framebuffer
-    if params.target is not None and isinstance(params.target, moderngl.Framebuffer):
-        data = params.target.read(components=4, dtype="f1")
-        # Reshape the data to image dimensions
+    if params.target_fbo is not None and isinstance(
+        params.target_fbo, moderngl.Framebuffer
+    ):
+        data = params.target_fbo.read(components=4, dtype="f1")
         img = np.frombuffer(data, dtype=np.uint8).reshape(
             params.size[1], params.size[0], 4
         )
+        # Flip vertically (OpenGL has Y=0 at bottom)
+        return np.flipud(img)
 
-        # CRITICAL FIX: Flip the image vertically
-        # OpenGL has Y=0 at the bottom, but image formats have Y=0 at the top
-        # Ensures consistent orientation across all output formats
-        flipped_img = np.flipud(img)
-
-        return flipped_img
-
-    # If rendering to screen or no target, no pixel data to return
     return None
 
 
@@ -363,8 +333,8 @@ def animate(
     size: tuple[int, int] = (1200, 800),
     window_title: str = "GLSL Shader",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
-    backend_type: Any = None,
-    fps: int = 0,  # 0 means unlimited
+    target: TargetType = TargetType.OPENGL46,
+    fps: int = 0,
 ) -> None:
     """Run a real-time shader animation in a window.
 
@@ -373,7 +343,7 @@ def animate(
         size: Window size as (width, height)
         window_title: Title of the window
         uniforms: Additional uniform values to pass to the shader
-        backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        target: Target platform
         fps: Target frame rate (0 = unlimited)
     """
     with _setup_rendering_context(
@@ -381,69 +351,49 @@ def animate(
         size,
         windowed=True,
         window_title=window_title,
-        backend_type=backend_type,
+        target=target,
     ) as render_ctx:
-        # Setup mouse tracking
         mouse_pos, mouse_uv = _setup_mouse_tracking(render_ctx.window, size)
 
-        # Animation loop and FPS tracking
         frame_count = 0
         fps_timer = time_module.time()
 
-        # For frame rate limiting using fixed time stepping
         if fps > 0:
-            # Try to use vertical sync if available
             try:
-                # Set swap interval (1 = vsync, 0 = no vsync)
                 glfw.swap_interval(1)
                 logger.info("Using vsync for frame timing")
             except Exception:
                 logger.info("Could not set vsync, using manual timing")
-
-            # Enable frame rate limiter
             frame_interval = 1.0 / fps
             logger.info(f"Target FPS: {fps}")
         else:
-            # Run at maximum speed
-            glfw.swap_interval(0)  # Disable vsync
+            glfw.swap_interval(0)
             frame_interval = 0
             logger.info("Target FPS: unlimited")
 
-        # Time tracking
         previous_time = time_module.time()
         lag = 0.0
 
         while not glfw.window_should_close(render_ctx.window):
-            # Calculate time delta with fixed time step approach
             current_time = time_module.time()
             elapsed = current_time - previous_time
             previous_time = current_time
-
-            # Add elapsed time to our lag accumulator
             lag += elapsed
 
-            # Process input
             glfw.poll_events()
 
-            # Check if we need to limit frame rate
             should_render = True
             if fps > 0:
-                # Only render if enough time has passed
                 if lag < frame_interval:
                     should_render = False
                 else:
-                    # Consume a frame worth of time
                     lag -= frame_interval
-
-                    # Prevent spiral of death (if rendering is too slow)
                     if lag > frame_interval * 5:
                         lag = 0.0
 
-            # Skip rendering if limiting frames
             if not should_render:
                 continue
 
-            # FPS measurement and logging
             frame_count += 1
             if current_time - fps_timer >= 1.0:
                 measured_fps = frame_count / (current_time - fps_timer)
@@ -451,27 +401,24 @@ def animate(
                 frame_count = 0
                 fps_timer = current_time
 
-            # Create frame parameters
             frame_params = FrameParams(
                 ctx=render_ctx.ctx,
                 program=render_ctx.program,
                 vao=render_ctx.vao,
-                target=render_ctx.ctx.screen,
+                target_fbo=render_ctx.ctx.screen,
                 size=size,
                 time=glfw.get_time(),
+                target=render_ctx.target,
                 uniforms=uniforms,
                 mouse_pos=mouse_pos,
                 mouse_uv=mouse_uv,
             )
 
-            # Render frame
             _render_frame(frame_params)
-
             glfw.swap_buffers(render_ctx.window)
 
-            # If we're not on vsync, add a small delay to prevent 100% CPU usage
             if fps <= 0:
-                time_module.sleep(0.001)  # Minimal sleep to prevent hogging CPU
+                time_module.sleep(0.001)
 
 
 def render_array(
@@ -479,8 +426,8 @@ def render_array(
     size: tuple[int, int] = (1200, 800),
     time: float = 0.0,
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
-    backend_type: Any = None,
-) -> Any:  # Use Any type to bypass mypy issues with numpy typings
+    target: TargetType = TargetType.OPENGL46,
+) -> Any:
     """Render shader to a numpy array.
 
     Args:
@@ -488,7 +435,7 @@ def render_array(
         size: Image size as (width, height)
         time: Shader time value
         uniforms: Additional uniform values to pass to the shader
-        backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        target: Target platform
 
     Returns:
         Numpy array containing the rendered image
@@ -499,20 +446,19 @@ def render_array(
         shader_input,
         size,
         windowed=False,
-        backend_type=backend_type,
+        target=target,
     ) as render_ctx:
-        # Create frame parameters
         frame_params = FrameParams(
             ctx=render_ctx.ctx,
             program=render_ctx.program,
             vao=render_ctx.vao,
-            target=render_ctx.fbo,
+            target_fbo=render_ctx.fbo,
             size=size,
             time=time,
+            target=render_ctx.target,
             uniforms=uniforms,
         )
 
-        # Render frame
         result = _render_frame(frame_params)
 
         if result is None:
@@ -527,7 +473,7 @@ def render_image(
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
     image_format: str = "PNG",
-    backend_type: Any = None,
+    target: TargetType = TargetType.OPENGL46,
 ) -> Image.Image:
     """Render shader to a PIL Image.
 
@@ -538,7 +484,7 @@ def render_image(
         uniforms: Additional uniform values to pass to the shader
         output_path: Path to save the image, if desired
         image_format: Format to save the image in (e.g., "PNG", "JPEG")
-        backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        target: Target platform
 
     Returns:
         PIL Image containing the rendered image
@@ -546,20 +492,19 @@ def render_image(
     logger.info("Rendering to image")
 
     with _setup_rendering_context(
-        shader_input, size, windowed=False, backend_type=backend_type
+        shader_input, size, windowed=False, target=target
     ) as render_ctx:
-        # Create frame parameters
         frame_params = FrameParams(
             ctx=render_ctx.ctx,
             program=render_ctx.program,
             vao=render_ctx.vao,
-            target=render_ctx.fbo,
+            target_fbo=render_ctx.fbo,
             size=size,
             time=time,
+            target=render_ctx.target,
             uniforms=uniforms,
         )
 
-        # Render frame
         array = _render_frame(frame_params)
 
         assert array is not None
@@ -578,7 +523,7 @@ def render_gif(
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     output_path: str | None = None,
     time_offset: float = 0.0,
-    backend_type: Any = None,
+    target: TargetType = TargetType.OPENGL46,
 ) -> tuple[Image.Image, list[Any]]:
     """Render shader to an animated GIF, returning first frame and raw frames.
 
@@ -590,7 +535,7 @@ def render_gif(
         uniforms: Additional uniform values to pass to the shader
         output_path: Path to save the GIF, if desired
         time_offset: Starting time for the animation (seconds)
-        backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        target: Target platform
 
     Returns:
         Tuple of (first frame as PIL Image, list of raw frames as numpy arrays)
@@ -598,28 +543,26 @@ def render_gif(
     logger.info("Rendering to GIF")
 
     with _setup_rendering_context(
-        shader_input, size, windowed=False, backend_type=backend_type
+        shader_input, size, windowed=False, target=target
     ) as render_ctx:
         num_frames = int(duration * fps)
         raw_frames: list[Any] = []
         pil_frames: list[Image.Image] = []
 
         for i in range(num_frames):
-            # Add offset to make animations consistent with interactive mode
             frame_time = time_offset + (i / fps)
 
-            # Create frame parameters
             frame_params = FrameParams(
                 ctx=render_ctx.ctx,
                 program=render_ctx.program,
                 vao=render_ctx.vao,
-                target=render_ctx.fbo,
+                target_fbo=render_ctx.fbo,
                 size=size,
                 time=frame_time,
+                target=render_ctx.target,
                 uniforms=uniforms,
             )
 
-            # Render frame
             array = _render_frame(frame_params)
 
             assert array is not None
@@ -649,7 +592,7 @@ def render_video(
     pixel_format: str = "yuv420p",
     uniforms: dict[str, float | tuple[float, ...]] | None = None,
     time_offset: float = 0.0,
-    backend_type: Any = None,
+    target: TargetType = TargetType.OPENGL46,
 ) -> tuple[str, list[Any]]:
     """Render shader to a video file, returning path and raw frames.
 
@@ -664,7 +607,7 @@ def render_video(
         pixel_format: Pixel format (e.g., "yuv420p")
         uniforms: Additional uniform values to pass to the shader
         time_offset: Starting time for the animation (seconds)
-        backend_type: Backend type (e.g., BackendType.SHADERTOY)
+        target: Target platform
 
     Returns:
         Tuple of (output path, list of raw frames as numpy arrays)
@@ -672,7 +615,7 @@ def render_video(
     logger.info(f"Rendering to video file {output_path} with {codec} codec")
 
     with _setup_rendering_context(
-        shader_input, size, windowed=False, backend_type=backend_type
+        shader_input, size, windowed=False, target=target
     ) as render_ctx:
         writer = imageio.get_writer(
             output_path,
@@ -686,21 +629,19 @@ def render_video(
         raw_frames: list[Any] = []
 
         for i in range(num_frames):
-            # Add offset to make animations consistent with interactive mode
             frame_time = time_offset + (i / fps)
 
-            # Create frame parameters
             frame_params = FrameParams(
                 ctx=render_ctx.ctx,
                 program=render_ctx.program,
                 vao=render_ctx.vao,
-                target=render_ctx.fbo,
+                target_fbo=render_ctx.fbo,
                 size=size,
                 time=frame_time,
+                target=render_ctx.target,
                 uniforms=uniforms,
             )
 
-            # Render frame
             array = _render_frame(frame_params)
 
             assert array is not None

@@ -177,7 +177,7 @@ class TestParseShaderCode:
         """Test parsing a dictionary of callables."""
 
         # Arrange
-        def test_func(vs_uv: "vec2") -> "vec4":  # type: ignore # noqa: F821
+        def test_func(vs_uv: "vec2") -> "vec4":  # type: ignore
             return vs_uv.x, vs_uv.y, 0.0, 1.0
 
         shader_input = {"test_func": test_func}

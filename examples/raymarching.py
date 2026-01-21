@@ -39,6 +39,7 @@ Example Usage:
 
 from dataclasses import dataclass
 
+from py2glsl import ShaderContext
 from py2glsl.builtins import (
     abs,
     cos,
@@ -141,11 +142,11 @@ def attenuate(d: float, coeffs: vec3) -> float:
     return 1.0 / (coeffs.x + coeffs.y * d + coeffs.z * d * d)
 
 
-def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def shader(ctx: ShaderContext) -> vec4:
     """Main shader function."""
     # Screen position
-    screen_pos = vs_uv * 2.0 - vec2(1.0, 1.0)
-    screen_pos.x *= u_aspect
+    screen_pos = ctx.vs_uv * 2.0 - vec2(1.0, 1.0)
+    screen_pos.x *= ctx.u_aspect
 
     # Camera setup
     fov = radians(70.0)
@@ -157,7 +158,7 @@ def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
     camera_distance = 5.0
 
     # Normalized time for animation cycle
-    angle = u_time * animation_speed
+    angle = ctx.u_time * animation_speed
 
     # Calculate camera position
     cam_pos = vec3(

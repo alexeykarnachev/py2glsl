@@ -35,23 +35,24 @@ To run this example:
         --shadertoy-compatible --main shader
 """
 
+from py2glsl import ShaderContext
 from py2glsl.builtins import length, sin, vec2, vec4
 
 # Global constant with type annotation
 PI: float = 3.14159
 
 
-def shader(vs_uv: vec2, u_time: float, u_aspect: float) -> vec4:
+def shader(ctx: ShaderContext) -> vec4:
     """A simple animated plasma shader."""
     # Center UV coordinates
-    uv = vs_uv * 2.0 - vec2(1.0, 1.0)
-    uv.x *= u_aspect
+    uv = ctx.vs_uv * 2.0 - vec2(1.0, 1.0)
+    uv.x *= ctx.u_aspect
 
     # Calculate distance from center
     d = length(uv)
 
     # Create animated color based on distance and time
-    color = sin(d * 10.0 - u_time * 2.0) * 0.5 + 0.5
+    color = sin(d * 10.0 - ctx.u_time * 2.0) * 0.5 + 0.5
 
     # Return RGBA color
     return vec4(color, color * 0.5, 1.0 - color, 1.0)

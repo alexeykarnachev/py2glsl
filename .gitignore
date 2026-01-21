@@ -46,3 +46,4 @@ coverage.xml
 # Project specific
 .cc/
 codecompanion-workspace.json
+examples/outputs/

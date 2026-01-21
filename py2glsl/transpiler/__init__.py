@@ -7,16 +7,34 @@ from typing import Any
 from loguru import logger
 
 from py2glsl.transpiler.ast_parser import parse_shader_code
-from py2glsl.transpiler.backends import BackendType, create_backend
 from py2glsl.transpiler.collector import collect_info
+from py2glsl.transpiler.emitter import Emitter
+from py2glsl.transpiler.ir import ShaderStage, StorageClass
+from py2glsl.transpiler.ir_builder import build_ir
 from py2glsl.transpiler.models import (
     CollectedInfo,
     StructDefinition,
     StructField,
     TranspilerError,
 )
+from py2glsl.transpiler.target import (
+    DEFAULT_TARGET,
+    Target,
+    TargetType,
+    TranspileResult,
+)
 
-_RESERVED_KWARGS = {"main_func", "backend_type", "shadertoy"}
+# Public API
+__all__ = [
+    "Target",
+    "TargetType",
+    "TranspileResult",
+    "TranspilerError",
+    "transpile",
+]
+
+
+_RESERVED_KWARGS = {"main_func", "target", "stage"}
 
 ShaderInput = str | dict[str, Callable[..., Any] | type[Any]]
 
@@ -133,11 +151,16 @@ def _determine_shader_input(
     return _process_multiple_args(args), main_func
 
 
+def _get_uniforms_from_ir(ir: Any) -> set[str]:
+    """Extract uniform names from ShaderIR."""
+    return {v.name for v in ir.variables if v.storage == StorageClass.UNIFORM}
+
+
 def transpile(
     *args: str | Callable[..., Any] | type[Any] | object,
     main_func: str | None = None,
-    backend_type: BackendType = BackendType.STANDARD,
-    shadertoy: bool = False,
+    target: TargetType = DEFAULT_TARGET,
+    stage: ShaderStage = ShaderStage.FRAGMENT,
     **kwargs: Any,
 ) -> tuple[str, set[str]]:
     """Transpile Python code to shader code.
@@ -145,17 +168,20 @@ def transpile(
     Args:
         *args: Python code string, function(s), or class(es) to transpile
         main_func: Entry point function name (auto-detected if not provided)
-        backend_type: Backend type (STANDARD or SHADERTOY)
-        shadertoy: Deprecated, use backend_type=BackendType.SHADERTOY
+        target: Target platform (OPENGL46, OPENGL33, SHADERTOY, WEBGL2)
+        stage: Shader stage (FRAGMENT, VERTEX, COMPUTE)
         **kwargs: Global constants (int/float/bool) or dataclass structs
 
     Returns:
         Tuple of (shader code, set of uniform names)
-    """
-    if shadertoy and backend_type == BackendType.STANDARD:
-        backend_type = BackendType.SHADERTOY
 
-    logger.debug(f"Transpiling: args={args}, main={main_func}, backend={backend_type}")
+    Example:
+        >>> from py2glsl import ShaderContext
+        >>> def shader(ctx: ShaderContext) -> vec4:
+        ...     return vec4(ctx.vs_uv.x, ctx.vs_uv.y, 0.0, 1.0)
+        >>> code, uniforms = transpile(shader)
+    """
+    logger.debug(f"Transpiling: args={args}, main={main_func}, target={target}")
 
     global_constants = _extract_global_constants(kwargs)
     shader_input, effective_main_func = _determine_shader_input(args, main_func)
@@ -176,5 +202,48 @@ def transpile(
                 f"Helper function '{func_name}' lacks return type annotation"
             )
 
-    backend = create_backend(backend_type)
-    return backend.generate_code(collected, effective_main_func)
+    # Build IR
+    ir = build_ir(collected, effective_main_func, stage)
+
+    # Emit code using Target
+    target_instance = target.create()
+    emitter = Emitter(target_instance)
+    code = emitter.emit(ir)
+    uniforms = _get_uniforms_from_ir(ir)
+
+    return code, uniforms
+
+
+def transpile_to_result(
+    *args: str | Callable[..., Any] | type[Any] | object,
+    main_func: str | None = None,
+    target: TargetType = DEFAULT_TARGET,
+    stage: ShaderStage = ShaderStage.FRAGMENT,
+    **kwargs: Any,
+) -> TranspileResult:
+    """Transpile Python code to shader code with full result.
+
+    Same as transpile() but returns a TranspileResult with additional info
+    including uniform mapping and runtime configuration.
+
+    Args:
+        *args: Python code string, function(s), or class(es) to transpile
+        main_func: Entry point function name (auto-detected if not provided)
+        target: Target platform (OPENGL46, OPENGL33, SHADERTOY, WEBGL2)
+        stage: Shader stage (FRAGMENT, VERTEX, COMPUTE)
+        **kwargs: Global constants (int/float/bool) or dataclass structs
+
+    Returns:
+        TranspileResult with code, uniforms, uniform_mapping, and runtime_config
+    """
+    code, uniforms = transpile(
+        *args, main_func=main_func, target=target, stage=stage, **kwargs
+    )
+
+    target_instance = target.create()
+    return TranspileResult(
+        code=code,
+        uniforms=uniforms,
+        uniform_mapping=target_instance.get_uniform_mapping(),
+        runtime_config=target_instance.get_runtime_config(),
+    )

@@ -18,6 +18,9 @@ def get_annotation_type(annotation: ast.AST | None) -> str | None:
         return annotation.id
     if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
         return annotation.value
+    # Handle subscript annotations like input_[vec2] or uniform[float]
+    if isinstance(annotation, ast.Subscript):
+        return get_annotation_type(annotation.slice)
     return None
 
 

@@ -1,4 +1,4 @@
-.PHONY: all format typing test
+.PHONY: all format typing test examples
 
 # Default: run everything
 all: format typing test
@@ -15,3 +15,13 @@ typing:
 # Run tests
 test:
 	pytest tests -v
+
+# Render all examples to images
+examples:
+	@mkdir -p examples/outputs
+	@for f in examples/*.py; do \
+		name=$$(basename "$$f" .py); \
+		echo "Rendering $$name..."; \
+		py2glsl image "$$f" "examples/outputs/$$name.png" --width 800 --height 600 || echo "  Failed: $$name"; \
+	done
+	@echo "Done. Outputs saved to examples/outputs/"

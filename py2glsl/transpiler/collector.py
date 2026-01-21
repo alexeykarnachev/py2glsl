@@ -74,26 +74,33 @@ def _collect_global(node: ast.AnnAssign, collected: CollectedInfo) -> None:
 
 
 class _Collector(ast.NodeVisitor):
-    """AST visitor that collects functions, structs, and globals."""
+    """AST visitor that collects functions, structs, and globals at module level."""
 
     def __init__(self, collected: CollectedInfo) -> None:
         self.collected = collected
+        self._in_function = False
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         _collect_function(node, self.collected)
-        self.generic_visit(node)
+        # Don't visit children - we don't want to collect locals as globals
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         _collect_struct(node, self.collected)
-        self.generic_visit(node)
+        # Don't visit children
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        # Only collect at module level (not inside functions)
         _collect_global(node, self.collected)
-        self.generic_visit(node)
 
 
 def collect_info(tree: ast.AST) -> CollectedInfo:
     """Collect functions, structs, and globals from an AST."""
     collected = CollectedInfo()
-    _Collector(collected).visit(tree)
+    collector = _Collector(collected)
+    # Only visit top-level nodes in the module
+    if isinstance(tree, ast.Module):
+        for node in tree.body:
+            collector.visit(node)
+    else:
+        collector.visit(tree)
     return collected
