@@ -289,11 +289,16 @@ class Emitter:
 
         match stmt:
             case IRDeclare(var, init):
-                type_str = self.target.type_name(var.type)
+                base_type = self.target.type_name(var.type)
+                # Handle array types: float arr[3] instead of float[3] arr
+                if var.type.array_size is not None:
+                    var_decl = f"{base_type} {var.name}[{var.type.array_size}]"
+                else:
+                    var_decl = f"{base_type} {var.name}"
                 if init:
                     expr_str = self._emit_expr(init)
-                    return [f"{prefix}{type_str} {var.name} = {expr_str};"]
-                return [f"{prefix}{type_str} {var.name};"]
+                    return [f"{prefix}{var_decl} = {expr_str};"]
+                return [f"{prefix}{var_decl};"]
 
             case IRAssign(target, value):
                 target_str = self._emit_expr(target)
@@ -423,7 +428,12 @@ class Emitter:
                 return f"{func_name}({args_str})"
 
             case IRConstruct(result_type, args):
-                type_str = self.target.type_name(result_type)
+                base_type = self.target.type_name(result_type)
+                # Handle array constructors: float[3](...) instead of float(...)
+                if result_type.array_size is not None:
+                    type_str = f"{base_type}[{result_type.array_size}]"
+                else:
+                    type_str = base_type
                 args_str = ", ".join(self._emit_expr(a, 0) for a in args)
                 return f"{type_str}({args_str})"
 

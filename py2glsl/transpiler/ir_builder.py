@@ -339,11 +339,13 @@ class IRBuilder:
 
             case ast.AnnAssign(target=target, annotation=ann, value=value):
                 type_name = self._get_type_from_annotation(ann)
-                ir_type = IRType(type_name)
+                ir_type = self._parse_type_string(type_name)
                 if isinstance(target, ast.Name):
                     var = IRVariable(name=target.id, type=ir_type)
                     self.symbols[target.id] = ir_type
-                    init = self._build_expr(value) if value else None
+                    init = None
+                    if value:
+                        init = self._build_expr_with_type_hint(value, ir_type)
                     return [IRDeclare(var=var, init=init)]
                 return []
 
@@ -448,6 +450,25 @@ class IRBuilder:
 
         return [IRFor(init=init, condition=condition, update=update, body=for_body)]
 
+    def _build_expr_with_type_hint(
+        self, node: ast.expr | None, type_hint: IRType
+    ) -> IRExpr | None:
+        """Build IR expression, using type hint for list/tuple literals."""
+        if node is None:
+            return None
+
+        # If it's a list/tuple and we have an array type hint, build as array
+        if isinstance(node, ast.List | ast.Tuple) and type_hint.array_size is not None:
+            ir_args = [self._build_expr(e) for e in node.elts]
+            if len(ir_args) != type_hint.array_size:
+                raise TranspilerError(
+                    f"Array size mismatch: expected {type_hint.array_size} elements, "
+                    f"got {len(ir_args)}"
+                )
+            return IRConstruct(result_type=type_hint, args=ir_args)
+
+        return self._build_expr(node)
+
     def _build_expr(self, node: ast.expr) -> IRExpr:
         """Build IR expression from AST expression."""
         match node:
@@ -532,6 +553,11 @@ class IRBuilder:
                 )
 
             case ast.Tuple(elts=elts) | ast.List(elts=elts):
+                if len(elts) < 2 or len(elts) > 4:
+                    raise TranspilerError(
+                        f"List/tuple must have 2-4 elements for vec conversion, "
+                        f"got {len(elts)}. Use array[T, N] for arrays."
+                    )
                 ir_args: list[IRExpr] = [self._build_expr(e) for e in elts]
                 result_type = IRType(f"vec{len(ir_args)}")
                 return IRConstruct(result_type=result_type, args=ir_args)
@@ -689,7 +715,31 @@ class IRBuilder:
             return ann.id
         if isinstance(ann, ast.Constant):
             return str(ann.value)
+        # Handle array[T, N] syntax
+        if (
+            isinstance(ann, ast.Subscript)
+            and isinstance(ann.value, ast.Name)
+            and ann.value.id == "array"
+            and isinstance(ann.slice, ast.Tuple)
+            and len(ann.slice.elts) == 2
+        ):
+            elem_type = self._get_type_from_annotation(ann.slice.elts[0])
+            size_node = ann.slice.elts[1]
+            if isinstance(size_node, ast.Constant):
+                size = size_node.value
+                return f"{elem_type}[{size}]"
         return "float"
+
+    def _parse_type_string(self, type_str: str) -> IRType:
+        """Parse type string like 'float[3]' into IRType."""
+        import re
+
+        match = re.match(r"(\w+)\[(\d+)\]", type_str)
+        if match:
+            base = match.group(1)
+            size = int(match.group(2))
+            return IRType(base=base, array_size=size)
+        return IRType(base=type_str)
 
     def _infer_literal_type(self, value: object) -> IRType:
         """Infer IR type from literal value."""
