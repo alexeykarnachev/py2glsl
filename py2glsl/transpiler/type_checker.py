@@ -2,10 +2,52 @@
 
 import ast
 
-from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS
+from py2glsl.transpiler.constants import BUILTIN_FUNCTIONS, MATRIX_TO_VECTOR
 from py2glsl.transpiler.models import CollectedInfo, TranspilerError
 
 Symbols = dict[str, str | None]
+
+
+def infer_binop_result_type(left_type: str, right_type: str) -> str:
+    """Infer result type of binary operation from operand types.
+
+    Args:
+        left_type: Base type string of left operand (e.g., "vec3", "float", "mat4")
+        right_type: Base type string of right operand
+
+    Returns:
+        Result type string
+    """
+    # Vector-vector: same type result
+    if left_type == right_type and left_type.startswith("vec"):
+        return left_type
+
+    # Vector-scalar: vector result
+    if left_type.startswith("vec") and right_type in ("float", "int"):
+        return left_type
+    if right_type.startswith("vec") and left_type in ("float", "int"):
+        return right_type
+
+    # Matrix-vector multiplication: mat * vec -> vec, vec * mat -> vec
+    if left_type in MATRIX_TO_VECTOR and right_type == MATRIX_TO_VECTOR[left_type]:
+        return right_type  # mat * vec -> vec
+    if right_type in MATRIX_TO_VECTOR and left_type == MATRIX_TO_VECTOR[right_type]:
+        return left_type  # vec * mat -> vec
+
+    # Matrix-matrix: same type result
+    if left_type == right_type and left_type.startswith("mat"):
+        return left_type
+
+    # Matrix-scalar: matrix result
+    if left_type.startswith("mat") and right_type in ("float", "int"):
+        return left_type
+    if right_type.startswith("mat") and left_type in ("float", "int"):
+        return right_type
+
+    # Numeric: float if either is float, otherwise left type
+    if "float" in (left_type, right_type):
+        return "float"
+    return left_type
 
 
 def _get_name_type(node: ast.Name, symbols: Symbols, collected: CollectedInfo) -> str:
@@ -35,38 +77,7 @@ def _get_binop_type(node: ast.BinOp, symbols: Symbols, collected: CollectedInfo)
     """Get type of a binary operation."""
     left_type = get_expr_type(node.left, symbols, collected)
     right_type = get_expr_type(node.right, symbols, collected)
-
-    # Vector-vector: same type result
-    if left_type == right_type and left_type.startswith("vec"):
-        return left_type
-
-    # Vector-scalar: vector result
-    if left_type.startswith("vec") and right_type in ["float", "int"]:
-        return left_type
-    if right_type.startswith("vec") and left_type in ["float", "int"]:
-        return right_type
-
-    # Matrix-vector multiplication: mat * vec -> vec, vec * mat -> vec
-    mat_to_vec = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
-    if left_type in mat_to_vec and right_type == mat_to_vec[left_type]:
-        return right_type  # mat * vec -> vec
-    if right_type in mat_to_vec and left_type == mat_to_vec[right_type]:
-        return left_type  # vec * mat -> vec
-
-    # Matrix-matrix: same type result
-    if left_type == right_type and left_type.startswith("mat"):
-        return left_type
-
-    # Matrix-scalar: matrix result
-    if left_type.startswith("mat") and right_type in ["float", "int"]:
-        return left_type
-    if right_type.startswith("mat") and left_type in ["float", "int"]:
-        return right_type
-
-    # Numeric: float if either is float
-    if "float" in (left_type, right_type):
-        return "float"
-    return "int"
+    return infer_binop_result_type(left_type, right_type)
 
 
 def _find_matching_signature(
@@ -197,9 +208,8 @@ def _get_subscript_type(
     value_type = get_expr_type(node.value, symbols, collected)
 
     # Matrix -> vector
-    matrix_to_vector = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
-    if value_type in matrix_to_vector:
-        return matrix_to_vector[value_type]
+    if value_type in MATRIX_TO_VECTOR:
+        return MATRIX_TO_VECTOR[value_type]
 
     # Vector -> float
     if value_type in ("vec2", "vec3", "vec4"):

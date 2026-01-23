@@ -347,6 +347,39 @@ def _render_frame(params: FrameParams) -> Any | None:
     return None
 
 
+def _render_frames(
+    render_ctx: RenderContext,
+    size: tuple[int, int],
+    duration: float,
+    fps: int,
+    time_offset: float,
+    uniforms: dict[str, float | tuple[float, ...]] | None,
+) -> Generator[Any, None, None]:
+    """Generate rendered frames for an animation.
+
+    Args:
+        render_ctx: The rendering context
+        size: Frame size as (width, height)
+        duration: Animation duration in seconds
+        fps: Frames per second
+        time_offset: Starting time for the animation
+        uniforms: Additional uniform values
+
+    Yields:
+        Numpy arrays containing rendered frame data
+    """
+    num_frames = int(duration * fps)
+    for i in range(num_frames):
+        frame_time = time_offset + (i / fps)
+        frame_params = FrameParams.from_render_context(
+            render_ctx, size=size, time=frame_time, uniforms=uniforms
+        )
+        array = _render_frame(frame_params)
+        if array is None:
+            raise RuntimeError("Failed to render frame")
+        yield array
+
+
 def _cleanup(
     ctx: moderngl.Context,
     program: moderngl.Program,
@@ -525,8 +558,8 @@ def render_image(
             render_ctx, size=size, time=time, uniforms=uniforms
         )
         array = _render_frame(frame_params)
-
-        assert array is not None
+        if array is None:
+            raise RuntimeError("Failed to render frame")
         image = Image.fromarray(array, mode="RGBA")
         if output_path:
             image.save(output_path, format=image_format)
@@ -564,18 +597,12 @@ def render_gif(
     with _setup_rendering_context(
         shader_input, size, windowed=False, target=target
     ) as render_ctx:
-        num_frames = int(duration * fps)
         raw_frames: list[Any] = []
         pil_frames: list[Image.Image] = []
 
-        for i in range(num_frames):
-            frame_time = time_offset + (i / fps)
-            frame_params = FrameParams.from_render_context(
-                render_ctx, size=size, time=frame_time, uniforms=uniforms
-            )
-            array = _render_frame(frame_params)
-
-            assert array is not None
+        for array in _render_frames(
+            render_ctx, size, duration, fps, time_offset, uniforms
+        ):
             raw_frames.append(array)
             pil_frames.append(Image.fromarray(array, mode="RGBA"))
 
@@ -635,17 +662,11 @@ def render_video(
             pixelformat=pixel_format,
         )
 
-        num_frames = int(duration * fps)
         raw_frames: list[Any] = []
 
-        for i in range(num_frames):
-            frame_time = time_offset + (i / fps)
-            frame_params = FrameParams.from_render_context(
-                render_ctx, size=size, time=frame_time, uniforms=uniforms
-            )
-            array = _render_frame(frame_params)
-
-            assert array is not None
+        for array in _render_frames(
+            render_ctx, size, duration, fps, time_offset, uniforms
+        ):
             raw_frames.append(array)
             writer.append_data(array)
 

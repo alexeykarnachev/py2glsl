@@ -22,6 +22,27 @@ app = typer.Typer(
 )
 
 
+def _assert_target_supports_rendering(target_type: TargetType) -> None:
+    """Raise error if target doesn't support rendering."""
+    if target_type == TargetType.SHADERTOY:
+        logger.error(
+            "Shadertoy target is for code export only and cannot be rendered.\n"
+            "Use 'py2glsl export --target shadertoy' to export code.\n"
+            "For rendering, use --target glsl (default) or --target opengl33."
+        )
+        raise typer.Exit(1)
+
+
+def _returns_vec4(func: Callable[..., Any]) -> bool:
+    """Check if a function returns vec4."""
+    sig = inspect.signature(func)
+    return_type = sig.return_annotation
+    if return_type is inspect.Signature.empty:
+        return False
+    type_name = getattr(return_type, "__name__", None)
+    return return_type in (vec4, "vec4") or type_name == "vec4"
+
+
 def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, Any]]:
     """Find the main shader function and global constants in a module.
 
@@ -58,11 +79,7 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
 
             # Store all functions with return annotations as potential helpers
             if sig.return_annotation is not inspect.Signature.empty:
-                # If it returns vec4, it's a potential main function
-                # Handle both actual vec4 type and string annotation "vec4"
-                return_type = sig.return_annotation
-                type_name = getattr(return_type, "__name__", None)
-                if return_type in (vec4, "vec4") or type_name == "vec4":
+                if _returns_vec4(obj):
                     vec4_functions[name] = obj
                 else:
                     helper_functions[name] = obj
@@ -247,21 +264,14 @@ def _get_transpiled_shader(
             # Try to find the specified function
             if hasattr(shader_module, main_function_name):
                 func = getattr(shader_module, main_function_name)
-                if inspect.isfunction(func):
-                    sig = inspect.signature(func)
-                    # Handle both actual vec4 type and string annotation "vec4"
-                    return_type = sig.return_annotation
-                    type_name = getattr(return_type, "__name__", None)
-                    if return_type in (vec4, "vec4") or type_name == "vec4":
-                        main_func = func
-                        _, globals_dict = _find_shader_function(shader_module)
-                        logger.info(f"Using specified function: {main_function_name}")
-                    else:
-                        msg = f"Function '{main_function_name}' must return vec4"
-                        raise ValueError(msg)
-                else:
-                    msg = f"'{main_function_name}' is not a function"
+                if not inspect.isfunction(func):
+                    raise ValueError(f"'{main_function_name}' is not a function")
+                if not _returns_vec4(func):
+                    msg = f"Function '{main_function_name}' must return vec4"
                     raise ValueError(msg)
+                main_func = func
+                _, globals_dict = _find_shader_function(shader_module)
+                logger.info(f"Using specified function: {main_function_name}")
             else:
                 raise ValueError(f"Function '{main_function_name}' not found in module")
         else:
@@ -316,14 +326,7 @@ def show(
 ) -> None:
     """Run interactive shader preview (press ESC to exit)."""
     target_type = _map_target(target)
-    if target_type == TargetType.SHADERTOY:
-        logger.error(
-            "Shadertoy target is for code export only and cannot be rendered.\n"
-            "Use 'py2glsl export --target shadertoy' to export code.\n"
-            "For preview, use --target glsl (default) or --target opengl33."
-        )
-        raise typer.Exit(1)
-
+    _assert_target_supports_rendering(target_type)
     glsl_code, _ = _get_transpiled_shader(shader_file, target, main)
     logger.info(f"Running interactive preview at {fps}fps...")
     animate(
@@ -348,14 +351,7 @@ def image(
 ) -> None:
     """Render shader to static image."""
     target_type = _map_target(target)
-    if target_type == TargetType.SHADERTOY:
-        logger.error(
-            "Shadertoy target is for code export only and cannot be rendered.\n"
-            "Use 'py2glsl export --target shadertoy' to export code.\n"
-            "For rendering, use --target glsl (default) or --target opengl33."
-        )
-        raise typer.Exit(1)
-
+    _assert_target_supports_rendering(target_type)
     glsl_code, _ = _get_transpiled_shader(shader_file, target, main)
     logger.info(f"Rendering image to {output}...")
     render_image(
@@ -386,14 +382,7 @@ def video(
 ) -> None:
     """Render shader to video file."""
     target_type = _map_target(target)
-    if target_type == TargetType.SHADERTOY:
-        logger.error(
-            "Shadertoy target is for code export only and cannot be rendered.\n"
-            "Use 'py2glsl export --target shadertoy' to export code.\n"
-            "For rendering, use --target glsl (default) or --target opengl33."
-        )
-        raise typer.Exit(1)
-
+    _assert_target_supports_rendering(target_type)
     glsl_code, _ = _get_transpiled_shader(shader_file, target, main)
     logger.info(f"Rendering {duration}s video at {fps}fps...")
     render_video(
@@ -426,14 +415,7 @@ def gif(
 ) -> None:
     """Render shader to animated GIF."""
     target_type = _map_target(target)
-    if target_type == TargetType.SHADERTOY:
-        logger.error(
-            "Shadertoy target is for code export only and cannot be rendered.\n"
-            "Use 'py2glsl export --target shadertoy' to export code.\n"
-            "For rendering, use --target glsl (default) or --target opengl33."
-        )
-        raise typer.Exit(1)
-
+    _assert_target_supports_rendering(target_type)
     glsl_code, _ = _get_transpiled_shader(shader_file, target, main)
     logger.info(f"Rendering {duration}s GIF at {fps}fps...")
     render_gif(

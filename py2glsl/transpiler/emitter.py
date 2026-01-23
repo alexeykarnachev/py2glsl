@@ -384,14 +384,14 @@ class Emitter:
             expr: The IR expression to emit
             parent_precedence: Precedence of parent operator (0 = top-level/statement)
         """
-        result = self._emit_expr_inner(expr, parent_precedence)
+        result = self._emit_expr_inner(expr)
         # Add parens if this expression has lower precedence than parent
         expr_prec = _get_precedence(expr)
         if parent_precedence > 0 and expr_prec < parent_precedence:
             return f"({result})"
         return result
 
-    def _emit_expr_inner(self, expr: IRExpr, _parent_precedence: int) -> str:
+    def _emit_expr_inner(self, expr: IRExpr) -> str:
         """Emit expression without outer parentheses."""
         match expr:
             case IRLiteral(result_type, value):

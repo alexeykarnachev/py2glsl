@@ -5,6 +5,9 @@ import re
 
 from py2glsl.context import CONTEXT_BUILTINS
 from py2glsl.transpiler.constants import (
+    AST_BINOP_MAP,
+    AST_CMPOP_MAP,
+    AST_UNARYOP_MAP,
     BOOL_RESULT_FUNCTIONS,
     MATRIX_TO_VECTOR,
     MAX_SWIZZLE_LENGTH,
@@ -12,6 +15,7 @@ from py2glsl.transpiler.constants import (
     SCALAR_RESULT_FUNCTIONS,
     SWIZZLE_CHARS,
     TYPE_CONSTRUCTORS,
+    VECTOR_ELEMENT_TYPE,
 )
 from py2glsl.transpiler.ir import (
     IRAssign,
@@ -46,6 +50,7 @@ from py2glsl.transpiler.ir import (
     StorageClass,
 )
 from py2glsl.transpiler.models import CollectedInfo, FunctionInfo, TranspilerError
+from py2glsl.transpiler.type_checker import infer_binop_result_type
 
 
 class IRBuilder:
@@ -313,9 +318,8 @@ class IRBuilder:
                         target.id not in self.symbols
                         or target.id in self._global_constants
                     )
-                    if is_new_var:
+                    if is_new_var and isinstance(target, ast.Name):
                         # New variable or shadowing a global constant
-                        assert isinstance(target, ast.Name)
                         ir_type = value_expr.result_type
                         var = IRVariable(name=target.id, type=ir_type)
                         self.symbols[target.id] = ir_type
@@ -641,60 +645,15 @@ class IRBuilder:
 
     def _binop_to_str(self, op: ast.operator) -> str:
         """Convert AST operator to string."""
-        match op:
-            case ast.Add():
-                return "+"
-            case ast.Sub():
-                return "-"
-            case ast.Mult():
-                return "*"
-            case ast.Div():
-                return "/"
-            case ast.Mod():
-                return "%"
-            case ast.Pow():
-                return "**"
-            case ast.BitAnd():
-                return "&"
-            case ast.BitOr():
-                return "|"
-            case ast.BitXor():
-                return "^"
-            case ast.LShift():
-                return "<<"
-            case ast.RShift():
-                return ">>"
-        return "+"
+        return AST_BINOP_MAP.get(type(op).__name__, "+")
 
     def _unaryop_to_str(self, op: ast.unaryop) -> str:
         """Convert AST unary operator to string."""
-        match op:
-            case ast.USub():
-                return "-"
-            case ast.UAdd():
-                return "+"
-            case ast.Not():
-                return "not"
-            case ast.Invert():
-                return "~"
-        return "-"
+        return AST_UNARYOP_MAP.get(type(op).__name__, "-")
 
     def _cmpop_to_str(self, op: ast.cmpop) -> str:
         """Convert AST comparison operator to string."""
-        match op:
-            case ast.Eq():
-                return "=="
-            case ast.NotEq():
-                return "!="
-            case ast.Lt():
-                return "<"
-            case ast.LtE():
-                return "<="
-            case ast.Gt():
-                return ">"
-            case ast.GtE():
-                return ">="
-        return "=="
+        return AST_CMPOP_MAP.get(type(op).__name__, "==")
 
     def _get_type_from_annotation(self, ann: ast.expr | None) -> str:
         """Extract type name from annotation."""
@@ -743,37 +702,10 @@ class IRBuilder:
         if op in ("==", "!=", "<", "<=", ">", ">=", "and", "or"):
             return IRType("bool")
 
-        left_type = left.result_type.base
-        right_type = right.result_type.base
-
-        # Vector-vector: same type result
-        if left_type == right_type and left_type.startswith("vec"):
-            return left.result_type
-
-        # Vector-scalar: vector result
-        if left_type.startswith("vec") and right_type in ("float", "int"):
-            return left.result_type
-        if right_type.startswith("vec") and left_type in ("float", "int"):
-            return right.result_type
-
-        # Matrix-vector multiplication: mat * vec -> vec, vec * mat -> vec
-        if left_type in MATRIX_TO_VECTOR and right_type == MATRIX_TO_VECTOR[left_type]:
-            return right.result_type  # mat * vec -> vec
-        if right_type in MATRIX_TO_VECTOR and left_type == MATRIX_TO_VECTOR[right_type]:
-            return left.result_type  # vec * mat -> vec
-
-        # Matrix-matrix: same type result
-        if left_type == right_type and left_type.startswith("mat"):
-            return left.result_type
-
-        # Matrix-scalar: matrix result
-        if left_type.startswith("mat") and right_type in ("float", "int"):
-            return left.result_type
-        if right_type.startswith("mat") and left_type in ("float", "int"):
-            return right.result_type
-
-        # Default: return left type (handles int, float, etc.)
-        return left.result_type
+        result_type_str = infer_binop_result_type(
+            left.result_type.base, right.result_type.base
+        )
+        return IRType(result_type_str)
 
     def _infer_call_type(self, func_name: str, args: list[IRExpr]) -> IRType:
         """Infer result type of function call."""
@@ -824,12 +756,11 @@ class IRBuilder:
     def _subscript_result_type(self, base_type: IRType) -> IRType:
         """Get result type of subscript operation."""
         base = base_type.base
-        if base.startswith("vec") or base.startswith("ivec") or base.startswith("uvec"):
-            if base.startswith("ivec"):
-                return IRType("int")
-            if base.startswith("uvec"):
-                return IRType("uint")
-            return IRType("float")
+        # Check vector types (vec, ivec, uvec, bvec)
+        for prefix, element_type in VECTOR_ELEMENT_TYPE.items():
+            if base.startswith(prefix):
+                return IRType(element_type)
+        # Matrix subscript returns corresponding vector
         if base in MATRIX_TO_VECTOR:
             return IRType(MATRIX_TO_VECTOR[base])
         return IRType("float")

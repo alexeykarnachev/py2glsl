@@ -69,6 +69,9 @@ PRESERVE_TYPE_FUNCTIONS = frozenset(
 # Matrix to vector type mapping
 MATRIX_TO_VECTOR = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
 
+# Vector prefix to scalar element type mapping
+VECTOR_ELEMENT_TYPE = {"vec": "float", "ivec": "int", "uvec": "uint", "bvec": "bool"}
+
 # Maximum swizzle length (xyzw or rgba)
 MAX_SWIZZLE_LENGTH = 4
 
@@ -207,6 +210,37 @@ BUILTIN_FUNCTIONS: dict[str, Any] = {
     "mat2": [("mat2", ["float"] * 4), ("mat2", ["float"])],
     "mat3": [("mat3", ["float"] * 9), ("mat3", ["float"])],
     "mat4": [("mat4", ["float"] * 16), ("mat4", ["float"])],
+}
+
+# AST operator type names to string operators
+AST_BINOP_MAP: dict[str, str] = {
+    "Add": "+",
+    "Sub": "-",
+    "Mult": "*",
+    "Div": "/",
+    "Mod": "%",
+    "Pow": "**",
+    "BitAnd": "&",
+    "BitOr": "|",
+    "BitXor": "^",
+    "LShift": "<<",
+    "RShift": ">>",
+}
+
+AST_UNARYOP_MAP: dict[str, str] = {
+    "USub": "-",
+    "UAdd": "+",
+    "Not": "not",
+    "Invert": "~",
+}
+
+AST_CMPOP_MAP: dict[str, str] = {
+    "Eq": "==",
+    "NotEq": "!=",
+    "Lt": "<",
+    "LtE": "<=",
+    "Gt": ">",
+    "GtE": ">=",
 }
 
 OPERATOR_PRECEDENCE: dict[str, int] = {
