@@ -35,6 +35,9 @@ class FunctionInfo:
     return_type: str | None
     param_types: list[str | None]
     node: ast.FunctionDef
+    # Default values for parameters (as GLSL expression strings)
+    # Indexed from the END of parameters (like Python's defaults)
+    param_defaults: list[str] = field(default_factory=list)
 
 
 @dataclass

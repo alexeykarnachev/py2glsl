@@ -61,6 +61,7 @@ class IRBuilder:
         self.entry_point_name = entry_point
         self.symbols: dict[str, IRType] = {}
         self._context_param_name: str | None = None
+        self._tmp_var_counter: int = 0
 
     def build(self, stage: ShaderStage = ShaderStage.FRAGMENT) -> ShaderIR:
         """Build complete ShaderIR."""
@@ -300,6 +301,9 @@ class IRBuilder:
                 if self._is_swizzle(attr):
                     return self._swizzle_result_type(base_type, attr)
                 return self._field_access_type(base_type, attr)
+            case ast.Subscript(value=value):
+                base_type = self._infer_expr_type(value)
+                return self._subscript_result_type(base_type)
         return IRType("float")
 
     def _build_stmt(self, node: ast.stmt) -> list[IRStmt]:
@@ -307,11 +311,25 @@ class IRBuilder:
         match node:
             case ast.Return(value=value):
                 if value:
+                    # Handle tuple return (e.g., return a, b)
+                    # Convert to vector construction
+                    if isinstance(value, ast.Tuple):
+                        elts = value.elts
+                        if 2 <= len(elts) <= 4:
+                            args = [self._build_expr(e) for e in elts]
+                            vec_type = IRType(f"vec{len(elts)}")
+                            vec_construct = IRConstruct(result_type=vec_type, args=args)
+                            return [IRReturn(value=vec_construct)]
                     return [IRReturn(value=self._build_expr(value))]
                 return [IRReturn()]
 
             case ast.Assign(targets=targets, value=value):
                 result: list[IRStmt] = []
+
+                # Handle tuple unpacking: a, b = func()
+                if len(targets) == 1 and isinstance(targets[0], ast.Tuple):
+                    return self._build_tuple_unpack(targets[0], value)
+
                 value_expr = self._build_expr(value)
                 for target in targets:
                     is_new_var = isinstance(target, ast.Name) and (
@@ -486,6 +504,30 @@ class IRBuilder:
                         args=[left_expr, right_expr],
                     )
 
+                # Convert // (floor division) to floor(x / y) for floats
+                # or int(x / y) for integers
+                if op_str == "//":
+                    div_result_type = self._infer_binop_type(left_expr, right_expr, "/")
+                    div_expr = IRBinOp(
+                        result_type=div_result_type,
+                        op="/",
+                        left=left_expr,
+                        right=right_expr,
+                    )
+                    if left_expr.result_type.base in ("int", "uint"):
+                        # Integer division - just use / which truncates in GLSL
+                        return div_expr
+                    # Float division - wrap in floor()
+                    return IRCall(
+                        result_type=div_result_type,
+                        func="floor",
+                        args=[div_expr],
+                    )
+
+                # Optimize power operator for common cases
+                if op_str == "**":
+                    return self._build_power_expr(left_expr, right_expr, right)
+
                 result_type = self._infer_binop_type(left_expr, right_expr, op_str)
                 return IRBinOp(
                     result_type=result_type, op=op_str, left=left_expr, right=right_expr
@@ -528,7 +570,7 @@ class IRBuilder:
 
             case ast.Subscript(value=value, slice=slice_):
                 base_expr = self._build_expr(value)
-                index_expr = self._build_expr(slice_)
+                index_expr = self._build_negative_index(slice_, base_expr.result_type)
                 result_type = self._subscript_result_type(base_expr.result_type)
                 return IRSubscript(
                     result_type=result_type, base=base_expr, index=index_expr
@@ -584,13 +626,23 @@ class IRBuilder:
             for kw in keywords:
                 arg_exprs.append(self._build_expr(kw.value))
 
+            # Fill in default parameter values for user-defined functions
+            arg_exprs = self._fill_default_args(func_name, arg_exprs)
+
+            # Handle min/max with more than 2 arguments by chaining calls
+            if func_name in ("min", "max") and len(arg_exprs) > 2:
+                return self._build_chained_minmax(func_name, arg_exprs)
+
             result_type = self._infer_call_type(func_name, arg_exprs)
             return IRCall(result_type=result_type, func=func_name, args=arg_exprs)
 
         if isinstance(func, ast.Attribute):
             base_expr = self._build_expr(func.value)
             method_name = func.attr
-            all_args = [base_expr, *arg_exprs]
+            method_arg_exprs = [self._build_expr(a) for a in args]
+            for kw in keywords:
+                method_arg_exprs.append(self._build_expr(kw.value))
+            all_args = [base_expr, *method_arg_exprs]
             result_type = self._infer_call_type(method_name, all_args)
             return IRCall(result_type=result_type, func=method_name, args=all_args)
 
@@ -755,6 +807,10 @@ class IRBuilder:
 
     def _subscript_result_type(self, base_type: IRType) -> IRType:
         """Get result type of subscript operation."""
+        # Array subscript returns the element type
+        if base_type.array_size is not None:
+            return IRType(base_type.base)
+
         base = base_type.base
         # Check vector types (vec, ivec, uvec, bvec)
         for prefix, element_type in VECTOR_ELEMENT_TYPE.items():
@@ -774,6 +830,280 @@ class IRBuilder:
         if value.id != self._context_param_name:
             return False
         return attr in CONTEXT_BUILTINS
+
+    def _build_negative_index(self, slice_: ast.expr, base_type: IRType) -> IRExpr:
+        """Build index expression, converting negative indices to positive.
+
+        For vec2/vec3/vec4 and arrays with known size, converts negative indices
+        at compile time (e.g., v[-1] on vec4 becomes v[3]).
+        """
+        # Check if it's a negative constant via UnaryOp (e.g., -1)
+        if (
+            isinstance(slice_, ast.UnaryOp)
+            and isinstance(slice_.op, ast.USub)
+            and isinstance(slice_.operand, ast.Constant)
+            and isinstance(slice_.operand.value, int)
+        ):
+            neg_index = -slice_.operand.value
+            size = self._get_indexable_size(base_type)
+            if size is not None and neg_index < 0:
+                # Convert negative index to positive
+                positive_index = size + neg_index
+                return IRLiteral(result_type=IRType("int"), value=positive_index)
+        # Also handle direct negative constant (e.g., ast.Constant with value=-1)
+        if (
+            isinstance(slice_, ast.Constant)
+            and isinstance(slice_.value, int)
+            and slice_.value < 0
+        ):
+            size = self._get_indexable_size(base_type)
+            if size is not None:
+                positive_index = size + slice_.value
+                return IRLiteral(result_type=IRType("int"), value=positive_index)
+        return self._build_expr(slice_)
+
+    def _get_indexable_size(self, ir_type: IRType) -> int | None:
+        """Get the size of an indexable type (vector or array)."""
+        # Check for array types
+        if ir_type.array_size is not None:
+            return ir_type.array_size
+        # Check for vector types (vec2, vec3, vec4, ivec2, etc.)
+        base = ir_type.base
+        for prefix in ("vec", "ivec", "uvec", "bvec"):
+            if base.startswith(prefix) and len(base) == len(prefix) + 1:
+                try:
+                    return int(base[-1])
+                except ValueError:
+                    pass
+        return None
+
+    def _build_power_expr(
+        self, base_expr: IRExpr, exp_expr: IRExpr, exp_node: ast.expr
+    ) -> IRExpr:
+        """Build optimized power expression.
+
+        Optimizes only when exponent is a constant integer:
+        - x**0.5 → sqrt(x)
+        - x**2 → x * x
+        - x**3 → x * x * x
+        - x**4 → x * x * x * x
+        - Others → pow(x, y)
+        """
+        result_type = base_expr.result_type
+
+        # Check for constant exponent
+        if isinstance(exp_node, ast.Constant):
+            exp_val = exp_node.value
+            # x**0.5 → sqrt(x)
+            if exp_val == 0.5:
+                return IRCall(result_type=result_type, func="sqrt", args=[base_expr])
+            # Only optimize integer exponents 2, 3, 4
+            # (float exponents like 3.0 should use pow())
+            if isinstance(exp_val, int):
+                # x**2 → x * x
+                if exp_val == 2:
+                    return IRBinOp(
+                        result_type=result_type, op="*", left=base_expr, right=base_expr
+                    )
+                # x**3 → x * x * x
+                if exp_val == 3:
+                    x_squared = IRBinOp(
+                        result_type=result_type, op="*", left=base_expr, right=base_expr
+                    )
+                    return IRBinOp(
+                        result_type=result_type, op="*", left=x_squared, right=base_expr
+                    )
+                # x**4 → x * x * x * x (as (x*x) * (x*x) for efficiency)
+                # But we emit it as x * x * x * x for consistency
+                if exp_val == 4:
+                    x2 = IRBinOp(
+                        result_type=result_type, op="*", left=base_expr, right=base_expr
+                    )
+                    x3 = IRBinOp(
+                        result_type=result_type, op="*", left=x2, right=base_expr
+                    )
+                    return IRBinOp(
+                        result_type=result_type, op="*", left=x3, right=base_expr
+                    )
+
+        # Default: use pow()
+        return IRCall(result_type=result_type, func="pow", args=[base_expr, exp_expr])
+
+    def _build_chained_minmax(self, func_name: str, arg_exprs: list[IRExpr]) -> IRExpr:
+        """Build chained min/max calls for more than 2 arguments.
+
+        min(a, b, c, d) -> min(min(min(a, b), c), d)
+        """
+        result_type = arg_exprs[0].result_type
+        result = IRCall(
+            result_type=result_type, func=func_name, args=[arg_exprs[0], arg_exprs[1]]
+        )
+        for arg in arg_exprs[2:]:
+            result = IRCall(result_type=result_type, func=func_name, args=[result, arg])
+        return result
+
+    def _build_tuple_unpack(self, target: ast.Tuple, value: ast.expr) -> list[IRStmt]:
+        """Build IR for tuple unpacking assignment.
+
+        For simple values (variables, swizzles), generates direct access:
+            x, y = vs_uv  ->  float x = vs_uv.x; float y = vs_uv.y;
+
+        For complex values (function calls), generates temp variable:
+            r, theta = get_polar(p)  ->  vec2 _tmp0 = get_polar(p);
+                                         float r = _tmp0.x; float theta = _tmp0.y;
+        """
+        elts = target.elts
+        num_vars = len(elts)
+        if num_vars < 2 or num_vars > 4:
+            raise TranspilerError(
+                f"Tuple unpacking supports 2-4 elements, got {num_vars}"
+            )
+
+        # Swizzle components for extraction
+        swizzle_map = ["x", "y", "z", "w"]
+        result: list[IRStmt] = []
+
+        # Check if value is "simple" (can access multiple times without side effects)
+        is_simple = self._is_simple_expr(value)
+
+        if is_simple:
+            # Direct access without temp variable
+            value_expr = self._build_expr(value)
+
+            for i, elt in enumerate(elts):
+                if not isinstance(elt, ast.Name):
+                    raise TranspilerError("Tuple unpacking target must be simple names")
+
+                component = swizzle_map[i]
+                var_name = elt.id
+                var_type = IRType("float")
+
+                # Create the swizzle access on the original expression
+                swizzle_expr = IRSwizzle(
+                    result_type=var_type, base=value_expr, components=component
+                )
+
+                var = IRVariable(name=var_name, type=var_type)
+                self.symbols[var_name] = var_type
+                result.append(IRDeclare(var=var, init=swizzle_expr))
+        else:
+            # Complex expression - use temp variable
+            value_expr = self._build_expr(value)
+            vec_type = IRType(f"vec{num_vars}")
+
+            tmp_name = f"_tmp{self._tmp_var_counter}"
+            self._tmp_var_counter += 1
+            tmp_var = IRVariable(name=tmp_name, type=vec_type)
+            self.symbols[tmp_name] = vec_type
+
+            result.append(IRDeclare(var=tmp_var, init=value_expr))
+
+            for i, elt in enumerate(elts):
+                if not isinstance(elt, ast.Name):
+                    raise TranspilerError("Tuple unpacking target must be simple names")
+
+                component = swizzle_map[i]
+                var_name = elt.id
+                var_type = IRType("float")
+
+                tmp_ref = IRName(result_type=vec_type, name=tmp_name)
+                swizzle_expr = IRSwizzle(
+                    result_type=var_type, base=tmp_ref, components=component
+                )
+
+                var = IRVariable(name=var_name, type=var_type)
+                self.symbols[var_name] = var_type
+                result.append(IRDeclare(var=var, init=swizzle_expr))
+
+        return result
+
+    def _is_simple_expr(self, node: ast.expr) -> bool:
+        """Check if an expression is simple (no side effects, can be duplicated)."""
+        if isinstance(node, ast.Name):
+            return True
+        if isinstance(node, ast.Attribute):
+            # Allow swizzle access on simple base
+            return self._is_simple_expr(node.value)
+        if isinstance(node, ast.Subscript):
+            # Allow indexing on simple base with constant index
+            return self._is_simple_expr(node.value) and isinstance(
+                node.slice, ast.Constant
+            )
+        return False
+
+    def _fill_default_args(
+        self, func_name: str, arg_exprs: list[IRExpr]
+    ) -> list[IRExpr]:
+        """Fill in default argument values for missing parameters.
+
+        For user-defined functions with default parameters, if fewer arguments
+        are provided than the function expects, fills in the defaults.
+        """
+        func_info = self.collected.functions.get(func_name)
+        if not func_info or not func_info.param_defaults:
+            return arg_exprs
+
+        # Count expected params (excluding ShaderContext)
+        expected_params = 0
+        for arg in func_info.node.args.args:
+            if not self._is_context_param(arg):
+                expected_params += 1
+
+        # If we already have all args, nothing to fill
+        if len(arg_exprs) >= expected_params:
+            return arg_exprs
+
+        # Fill in defaults from the end
+        # Python defaults are aligned to the end of params
+        num_defaults = len(func_info.param_defaults)
+        num_missing = expected_params - len(arg_exprs)
+
+        # Which default indices we need (from the end)
+        # e.g., if we have 3 params (a, b, c) with 2 defaults (b_def, c_def)
+        # and only 1 arg provided, we need both defaults
+        # defaults are stored for the LAST num_defaults params
+        start_default_idx = num_defaults - num_missing
+
+        result = list(arg_exprs)
+        for i in range(start_default_idx, num_defaults):
+            default_str = func_info.param_defaults[i]
+            if not default_str:
+                raise TranspilerError(
+                    f"Missing required argument for function {func_name}"
+                )
+            # Parse the default value string into an IR expression
+            result.append(self._parse_default_value(default_str, func_info, i))
+
+        return result
+
+    def _parse_default_value(
+        self, value_str: str, func_info: "FunctionInfo", default_idx: int
+    ) -> IRExpr:
+        """Parse a default value string into an IR expression."""
+        # Get the type of the parameter this default is for
+        # defaults align to the end of parameters
+        num_params = len(func_info.param_types)
+        num_defaults = len(func_info.param_defaults)
+        param_idx = num_params - num_defaults + default_idx
+        param_type = func_info.param_types[param_idx] or "float"
+
+        # Try to parse as a simple literal or constructor
+        try:
+            node = ast.parse(value_str, mode="eval").body
+            if isinstance(node, ast.Constant):
+                ir_type = self._infer_literal_type(node.value)
+                return IRLiteral(result_type=ir_type, value=node.value)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                # vec2/vec3/vec4 constructor
+                func_name = node.func.id
+                if func_name in TYPE_CONSTRUCTORS:
+                    args = [self._build_expr(a) for a in node.args]
+                    return IRConstruct(result_type=IRType(func_name), args=args)
+        except Exception:
+            pass
+
+        # Fallback: create a literal with the string value
+        return IRLiteral(result_type=IRType(param_type), value=float(value_str))
 
 
 def build_ir(

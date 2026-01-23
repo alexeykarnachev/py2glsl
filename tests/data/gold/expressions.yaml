@@ -596,3 +596,161 @@
     void main() {
         fragColor = shader();
     }
+# Integer division
+- name: expr_int_division
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        i = 7
+        j = i // 3
+        return vec4(float(j), 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        int i = 7;
+        int j = i / 3;
+        return vec4(float(j), 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_floor_division_float
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = 7.5
+        y = x // 2.0
+        return vec4(y, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = 7.5;
+        float y = floor(x / 2.0);
+        return vec4(y, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+# Power optimization
+- name: expr_power_squared
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        x2 = x ** 2
+        return vec4(x2, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        float x2 = x * x;
+        return vec4(x2, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_power_cubed
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        x3 = x ** 3
+        return vec4(x3, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        float x3 = x * x * x;
+        return vec4(x3, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_power_fourth
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        x4 = x ** 4
+        return vec4(x4, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        float x4 = x * x * x * x;
+        return vec4(x4, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: expr_power_sqrt
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = ctx.vs_uv.x
+        root = x ** 0.5
+        return vec4(root, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        float root = sqrt(x);
+        return vec4(root, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

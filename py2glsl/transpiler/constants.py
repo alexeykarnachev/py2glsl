@@ -218,6 +218,7 @@ AST_BINOP_MAP: dict[str, str] = {
     "Sub": "-",
     "Mult": "*",
     "Div": "/",
+    "FloorDiv": "//",  # Floor division - handled specially in IR builder
     "Mod": "%",
     "Pow": "**",
     "BitAnd": "&",

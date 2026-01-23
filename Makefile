@@ -8,9 +8,10 @@ format:
 	ruff check --fix py2glsl tests examples
 	ruff format py2glsl tests examples
 
-# Type check with mypy
+# Type check with mypy and pyright
 typing:
 	mypy py2glsl
+	pyright py2glsl tests examples
 
 # Run tests
 test:

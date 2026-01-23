@@ -48,7 +48,7 @@
     void main() {
         fragColor = shader();
     }
-- name: const_bool
+- name: const_bool_true
   python: |
     DEBUG = True
 
@@ -58,6 +58,31 @@
     #version 460 core
 
     const bool DEBUG = true;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_bool_false
+  python: |
+    DISABLED = False
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(1.0, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    const bool DISABLED = false;
     in vec2 vs_uv;
     uniform float u_time;
     uniform vec2 u_resolution;
@@ -498,6 +523,65 @@
             total += 1.0;
         }
         return vec4(total, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+# Constant expressions (computed at transpile time)
+- name: const_expr_arithmetic
+  python: |
+    PI = 3.14159
+    TAU = PI * 2.0
+    HALF_PI = PI / 2.0
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(TAU, HALF_PI, PI, 1.0)
+  expected: |
+    #version 460 core
+
+    const float PI = 3.14159;
+    const float TAU = 6.28318;
+    const float HALF_PI = 1.570795;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(TAU, HALF_PI, PI, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: const_expr_chain
+  python: |
+    BASE = 2.0
+    DOUBLED = BASE * 2.0
+    QUADRUPLED = DOUBLED * 2.0
+
+    def shader(ctx: ShaderContext) -> vec4:
+        return vec4(BASE, DOUBLED, QUADRUPLED, 1.0)
+  expected: |
+    #version 460 core
+
+    const float BASE = 2.0;
+    const float DOUBLED = 4.0;
+    const float QUADRUPLED = 8.0;
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        return vec4(BASE, DOUBLED, QUADRUPLED, 1.0);
     }
 
     void main() {

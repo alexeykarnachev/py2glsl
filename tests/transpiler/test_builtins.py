@@ -1,6 +1,18 @@
 """Tests for GLSL builtin function support and overloading."""
 
-from py2glsl.builtins import length, mat2, mat3, mat4, mix, smoothstep, vec2, vec3, vec4
+from py2glsl.builtins import (
+    length,
+    mat2,
+    mat3,
+    mat4,
+    max,
+    min,
+    mix,
+    smoothstep,
+    vec2,
+    vec3,
+    vec4,
+)
 from py2glsl.transpiler import transpile
 
 

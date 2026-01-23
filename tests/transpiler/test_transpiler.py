@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from py2glsl import ShaderContext
-from py2glsl.builtins import dot, max, normalize, vec3, vec4
+from py2glsl.builtins import dot, max, normalize, vec2, vec3, vec4
 from py2glsl.transpiler import transpile
 from py2glsl.transpiler.models import TranspilerError
 
@@ -25,6 +25,7 @@ class TestTranspile:
         assert "return vec4(vs_uv.x, vs_uv.y, 0.5, 1.0);" in glsl_code
         assert "in vec2 vs_uv;" in glsl_code
         assert "uniform float u_time;" in glsl_code
+        assert "u_time" in uniforms
 
     def test_transpile_helper_and_main(self):
         """Test transpiling with helper and main functions."""
@@ -44,6 +45,7 @@ class TestTranspile:
         assert "float value = helper(vs_uv);" in glsl_code
         assert "return vec4(value, 0.0, 0.0, 1.0);" in glsl_code
         assert "in vec2 vs_uv;" in glsl_code
+        assert "u_time" in uniforms
 
     def test_transpile_complex_setup(self):
         """Test transpiling a complex setup with structs, helpers, and globals."""

@@ -20,6 +20,15 @@ def get_annotation_type(annotation: ast.AST | None) -> str | None:
         return annotation.value
     # Handle subscript annotations like input_[vec2] or uniform[float]
     if isinstance(annotation, ast.Subscript):
+        # Handle tuple[T1, T2, ...] -> convert to vecN
+        if (
+            isinstance(annotation.value, ast.Name)
+            and annotation.value.id == "tuple"
+            and isinstance(annotation.slice, ast.Tuple)
+        ):
+            num_elements = len(annotation.slice.elts)
+            if 2 <= num_elements <= 4:
+                return f"vec{num_elements}"
         return get_annotation_type(annotation.slice)
     return None
 

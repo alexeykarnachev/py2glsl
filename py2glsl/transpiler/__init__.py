@@ -135,8 +135,17 @@ def _add_globals_to_collected(
 ) -> None:
     """Add global constants to collected info."""
     for name, value in global_constants.items():
-        value_str = str(value).lower() if isinstance(value, bool) else str(value)
-        type_str = "float" if isinstance(value, float) else "int"
+        # Determine type and value string
+        # Note: bool must be checked before int since bool is a subclass of int
+        if isinstance(value, bool):
+            type_str = "bool"
+            value_str = "true" if value else "false"
+        elif isinstance(value, float):
+            type_str = "float"
+            value_str = str(value)
+        else:
+            type_str = "int"
+            value_str = str(value)
         collected.globals[name] = (type_str, value_str)
 
 

@@ -309,3 +309,169 @@
     void main() {
         fragColor = shader();
     }
+# Default parameters
+- name: func_default_param_single
+  python: |
+    def blend(a: vec3, b: vec3, t: float = 0.5) -> vec3:
+        return mix(a, b, t)
+
+    def shader(ctx: ShaderContext) -> vec4:
+        c = blend(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0))
+        return vec4(c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec3 blend(vec3 a, vec3 b, float t) {
+        return mix(a, b, t);
+    }
+
+    vec4 shader() {
+        vec3 c = blend(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), 0.5);
+        return vec4(c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: func_default_param_override
+  python: |
+    def blend(a: vec3, b: vec3, t: float = 0.5) -> vec3:
+        return mix(a, b, t)
+
+    def shader(ctx: ShaderContext) -> vec4:
+        c = blend(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), 0.75)
+        return vec4(c, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec3 blend(vec3 a, vec3 b, float t) {
+        return mix(a, b, t);
+    }
+
+    vec4 shader() {
+        vec3 c = blend(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), 0.75);
+        return vec4(c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: func_default_param_multiple
+  python: |
+    def adjust(color: vec3, brightness: float = 1.0, contrast: float = 1.0) -> vec3:
+        return (color - 0.5) * contrast + 0.5 * brightness
+
+    def shader(ctx: ShaderContext) -> vec4:
+        c1 = adjust(vec3(0.5, 0.5, 0.5))
+        c2 = adjust(vec3(0.5, 0.5, 0.5), 1.5)
+        c3 = adjust(vec3(0.5, 0.5, 0.5), 1.0, 2.0)
+        return vec4(c1.r, c2.r, c3.r, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec3 adjust(vec3 color, float brightness, float contrast) {
+        return (color - 0.5) * contrast + 0.5 * brightness;
+    }
+
+    vec4 shader() {
+        vec3 c1 = adjust(vec3(0.5, 0.5, 0.5), 1.0, 1.0);
+        vec3 c2 = adjust(vec3(0.5, 0.5, 0.5), 1.5, 1.0);
+        vec3 c3 = adjust(vec3(0.5, 0.5, 0.5), 1.0, 2.0);
+        return vec4(c1.r, c2.r, c3.r, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+# Tuple returns (multiple return values)
+- name: func_tuple_return_basic
+  python: |
+    def get_polar(p: vec2) -> tuple[float, float]:
+        return length(p), atan(p.y, p.x)
+
+    def shader(ctx: ShaderContext) -> vec4:
+        r, theta = get_polar(ctx.vs_uv)
+        return vec4(r, theta, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec2 get_polar(vec2 p) {
+        return vec2(length(p), atan(p.y, p.x));
+    }
+
+    vec4 shader() {
+        vec2 _tmp0 = get_polar(vs_uv);
+        float r = _tmp0.x;
+        float theta = _tmp0.y;
+        return vec4(r, theta, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: func_tuple_return_three
+  python: |
+    def decompose(v: vec3) -> tuple[float, float, float]:
+        return v.x, v.y, v.z
+
+    def shader(ctx: ShaderContext) -> vec4:
+        x, y, z = decompose(vec3(1.0, 2.0, 3.0))
+        return vec4(x, y, z, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec3 decompose(vec3 v) {
+        return vec3(v.x, v.y, v.z);
+    }
+
+    vec4 shader() {
+        vec3 _tmp0 = decompose(vec3(1.0, 2.0, 3.0));
+        float x = _tmp0.x;
+        float y = _tmp0.y;
+        float z = _tmp0.z;
+        return vec4(x, y, z, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

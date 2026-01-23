@@ -746,3 +746,66 @@
     void main() {
         fragColor = shader();
     }
+# min/max with multiple arguments
+- name: builtin_min_multi_args
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        a = 1.0
+        b = 2.0
+        c = 0.5
+        d = 1.5
+        smallest = min(a, b, c, d)
+        return vec4(smallest, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float a = 1.0;
+        float b = 2.0;
+        float c = 0.5;
+        float d = 1.5;
+        float smallest = min(min(min(a, b), c), d);
+        return vec4(smallest, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: builtin_max_multi_args
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x = 1.0
+        y = 3.0
+        z = 2.0
+        biggest = max(x, y, z)
+        return vec4(biggest, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = 1.0;
+        float y = 3.0;
+        float z = 2.0;
+        float biggest = max(max(x, y), z);
+        return vec4(biggest, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

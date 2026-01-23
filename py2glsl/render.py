@@ -319,7 +319,7 @@ def _render_frame(params: FrameParams) -> Any | None:
     # Set all uniforms on the program
     for name, value in uniforms_to_set.items():
         if name in params.program:
-            uniform = params.program[name]
+            uniform: Any = params.program[name]
             try:
                 if hasattr(uniform, "value"):
                     uniform.value = value
@@ -424,6 +424,8 @@ def animate(
         window_title=window_title,
         target=target,
     ) as render_ctx:
+        if render_ctx.window is None:
+            raise RuntimeError("Window is required for animate mode")
         mouse_pos, mouse_uv = _setup_mouse_tracking(render_ctx.window, size)
 
         frame_count = 0

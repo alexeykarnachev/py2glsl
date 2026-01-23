@@ -85,6 +85,7 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
                     helper_functions[name] = obj
 
         # Check if it's a global constant with type annotation or a dataclass
+        # or a simple constant (int, float, bool) without annotation
         elif (
             (
                 not callable(obj)
@@ -93,6 +94,13 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
                 and name in module.__annotations__
             )
             or hasattr(obj, "__dataclass_fields__")  # Check for dataclasses
+            or (
+                # Simple constants without annotations (int, float, bool)
+                not callable(obj)
+                and not inspect.ismodule(obj)
+                and isinstance(obj, int | float | bool)
+                and not isinstance(obj, type)
+            )
         ):
             globals_dict[name] = obj
             logger.info(f"Found global constant: {name} = {obj}")

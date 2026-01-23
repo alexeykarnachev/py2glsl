@@ -75,8 +75,8 @@ select = [
     "RUF",   # ruff-specific rules
     "ARG",   # flake8-unused-arguments - catches unused function parameters
 ]
-ignore = ["PLR0913", "PLR0912", "PLR2004", "PLR0911"]
-per-file-ignores = { "tests/*" = ["ARG001", "E501", "F821"], "examples/*" = ["ARG001"], "py2glsl/builtins.py" = ["N801", "PLR0911"], "py2glsl/transpiler/code_gen_expr.py" = ["N802"], "py2glsl/transpiler/type_checker.py" = ["N802"], "py2glsl/transpiler/collector.py" = ["N802"], "py2glsl/main.py" = ["B008"] }
+ignore = ["PLR0913", "PLR0912", "PLR2004", "PLR0911", "PLR0915"]
+per-file-ignores = { "tests/*" = ["ARG001", "E501", "F821"], "examples/*" = ["ARG001", "F821", "F841", "ERA001"], "py2glsl/builtins.py" = ["N801", "N803", "E741", "PLR0911"], "py2glsl/transpiler/code_gen_expr.py" = ["N802"], "py2glsl/transpiler/type_checker.py" = ["N802"], "py2glsl/transpiler/collector.py" = ["N802"], "py2glsl/main.py" = ["B008"] }
 
 [tool.ruff.format]
 quote-style = "double"
@@ -111,10 +111,18 @@ warn_return_any = false
 warn_unused_ignores = false
 ignore_errors = true
 
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+include = ["py2glsl", "tests", "examples"]
+exclude = ["**/__pycache__"]
+reportUnusedVariable = "error"
+
 [dependency-groups]
 dev = [
     "mypy>=1.9.0",
     "pre-commit>=4.1.0",
+    "pyright>=1.1.408",
     "pytest>=8.1.1",
     "pytest-asyncio>=0.23.5.post1",
     "pytest-cov>=4.1.0",

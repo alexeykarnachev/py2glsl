@@ -244,12 +244,13 @@ class OpenGLTarget(Target):
 
     def entry_point_wrapper(
         self,
-        _stage: ShaderStage,
+        stage: ShaderStage,
         entry_func: IRFunction,
-        _inputs: list[IRVariable],
+        inputs: list[IRVariable],
         outputs: list[IRVariable],
     ) -> list[str]:
         """Generate standard OpenGL main() wrapper."""
+        del stage, inputs  # unused
         lines = ["void main() {"]
 
         args = [param.name for param in entry_func.params]
@@ -349,12 +350,13 @@ class ShadertoyTarget(Target):
 
     def entry_point_wrapper(
         self,
-        _stage: ShaderStage,
+        stage: ShaderStage,
         entry_func: IRFunction,
-        _inputs: list[IRVariable],
-        _outputs: list[IRVariable],
+        inputs: list[IRVariable],
+        outputs: list[IRVariable],
     ) -> list[str]:
         """Generate Shadertoy mainImage() wrapper only."""
+        del stage, inputs, outputs  # unused
         lines = []
 
         lines.append("void mainImage(out vec4 fragColor, in vec2 fragCoord) {")

@@ -733,3 +733,202 @@
     void main() {
         fragColor = shader();
     }
+# Component assignment (single component)
+- name: component_assign_xyz
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(0.0, 0.0, 0.0)
+        v.x = 1.0
+        v.y = 2.0
+        v.z = 3.0
+        return vec4(v, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = vec3(0.0, 0.0, 0.0);
+        v.x = 1.0;
+        v.y = 2.0;
+        v.z = 3.0;
+        return vec4(v, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: component_assign_rgba
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        c = vec4(0.0, 0.0, 0.0, 0.0)
+        c.r = 1.0
+        c.g = 0.5
+        c.b = 0.25
+        c.a = 1.0
+        return c
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec4 c = vec4(0.0, 0.0, 0.0, 0.0);
+        c.r = 1.0;
+        c.g = 0.5;
+        c.b = 0.25;
+        c.a = 1.0;
+        return c;
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: swizzle_assign_rgb
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        color = vec4(0.0, 0.0, 0.0, 1.0)
+        color.rgb = vec3(1.0, 0.5, 0.25)
+        return color
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
+        color.rgb = vec3(1.0, 0.5, 0.25);
+        return color;
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+# Tuple unpacking from vectors
+- name: tuple_unpack_vec2
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        x, y = ctx.vs_uv
+        return vec4(x, y, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float x = vs_uv.x;
+        float y = vs_uv.y;
+        return vec4(x, y, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: tuple_unpack_vec3
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec3(1.0, 2.0, 3.0)
+        x, y, z = v
+        return vec4(x, y, z, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 v = vec3(1.0, 2.0, 3.0);
+        float x = v.x;
+        float y = v.y;
+        float z = v.z;
+        return vec4(x, y, z, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: tuple_unpack_vec4
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec4(1.0, 2.0, 3.0, 4.0)
+        r, g, b, a = v
+        return vec4(r, g, b, a)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec4 v = vec4(1.0, 2.0, 3.0, 4.0);
+        float r = v.x;
+        float g = v.y;
+        float b = v.z;
+        float a = v.w;
+        return vec4(r, g, b, a);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: tuple_unpack_swizzle
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        v = vec4(1.0, 2.0, 3.0, 4.0)
+        x, y = v.zw
+        return vec4(x, y, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec4 v = vec4(1.0, 2.0, 3.0, 4.0);
+        float x = v.zw.x;
+        float y = v.zw.y;
+        return vec4(x, y, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
