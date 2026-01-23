@@ -5,6 +5,8 @@ This module provides Python implementations of GLSL types
 (sin, cos, mix, etc.) that match GLSL semantics.
 """
 
+import itertools
+from collections.abc import Callable
 from typing import TypeVar, overload
 
 import numpy as np
@@ -12,14 +14,93 @@ from numpy.typing import NDArray
 
 FloatArray = NDArray[np.float32]
 
-# Type variable for array element type
 E = TypeVar("E")
+
+# =============================================================================
+# Vector Types
+# =============================================================================
+
+# Component name mappings
+_XYZW = "xyzw"
+_RGBA = "rgba"
+
+
+def _make_component_property(index: int) -> property:
+    """Create a property for accessing vector component by index."""
+
+    def getter(self: "vec2 | vec3 | vec4") -> float:
+        return float(self.data[index])
+
+    def setter(self: "vec2 | vec3 | vec4", value: float) -> None:
+        self.data[index] = value
+
+    return property(getter, setter)
+
+
+def _make_swizzle_property(indices: tuple[int, ...], result_type: type) -> property:
+    """Create a swizzle property that returns a new vector."""
+
+    def getter(self: "vec2 | vec3 | vec4") -> "vec2 | vec3 | vec4":
+        return result_type(*(float(self.data[i]) for i in indices))
+
+    return property(getter)
 
 
 class vec2:
     """GLSL vec2 type - 2-component float vector."""
 
     __slots__ = ("data",)
+    _size = 2
+
+    # Component access (set dynamically below)
+    x: float
+    y: float
+    r: float
+    g: float
+
+    # Common swizzles (set dynamically below)
+    xy: "vec2"
+    yx: "vec2"
+    xx: "vec2"
+    yy: "vec2"
+    rg: "vec2"
+    gr: "vec2"
+    rr: "vec2"
+    gg: "vec2"
+    # 3-component swizzles
+    xxx: "vec3"
+    xxy: "vec3"
+    xyx: "vec3"
+    xyy: "vec3"
+    yxx: "vec3"
+    yxy: "vec3"
+    yyx: "vec3"
+    yyy: "vec3"
+    rrr: "vec3"
+    rrg: "vec3"
+    rgr: "vec3"
+    rgg: "vec3"
+    grr: "vec3"
+    grg: "vec3"
+    ggr: "vec3"
+    ggg: "vec3"
+    # 4-component swizzles
+    xxxx: "vec4"
+    xxxy: "vec4"
+    xxyx: "vec4"
+    xxyy: "vec4"
+    xyxx: "vec4"
+    xyxy: "vec4"
+    xyyx: "vec4"
+    xyyy: "vec4"
+    yxxx: "vec4"
+    yxxy: "vec4"
+    yxyx: "vec4"
+    yxyy: "vec4"
+    yyxx: "vec4"
+    yyxy: "vec4"
+    yyyx: "vec4"
+    yyyy: "vec4"
 
     @overload
     def __init__(self, x: float, y: float) -> None: ...
@@ -36,115 +117,43 @@ class vec2:
         else:
             self.data = np.array([x, y], dtype=np.float32)
 
-    # Component accessors
-    @property
-    def x(self) -> float:
-        return float(self.data[0])
-
-    @x.setter
-    def x(self, value: float) -> None:
-        self.data[0] = value
-
-    @property
-    def y(self) -> float:
-        return float(self.data[1])
-
-    @y.setter
-    def y(self, value: float) -> None:
-        self.data[1] = value
-
-    # Aliases r,g for x,y
-    @property
-    def r(self) -> float:
-        return self.x
-
-    @r.setter
-    def r(self, value: float) -> None:
-        self.x = value
-
-    @property
-    def g(self) -> float:
-        return self.y
-
-    @g.setter
-    def g(self, value: float) -> None:
-        self.y = value
-
-    # Swizzle properties - vec2 from vec2
-    @property
-    def xx(self) -> "vec2":
-        return vec2(self.x, self.x)
-
-    @property
-    def xy(self) -> "vec2":
-        return vec2(self.x, self.y)
-
-    @property
-    def yx(self) -> "vec2":
-        return vec2(self.y, self.x)
-
-    @property
-    def yy(self) -> "vec2":
-        return vec2(self.y, self.y)
-
-    # Arithmetic operators
-    @overload
-    def __add__(self, other: "vec2") -> "vec2": ...
-    @overload
-    def __add__(self, other: float) -> "vec2": ...
-
     def __add__(self, other: "vec2 | float") -> "vec2":
         if isinstance(other, vec2):
-            return vec2(self.x + other.x, self.y + other.y)
-        return vec2(self.x + other, self.y + other)
+            return vec2(self.data[0] + other.data[0], self.data[1] + other.data[1])
+        return vec2(self.data[0] + other, self.data[1] + other)
 
     def __radd__(self, other: float) -> "vec2":
-        return vec2(other + self.x, other + self.y)
-
-    @overload
-    def __sub__(self, other: "vec2") -> "vec2": ...
-    @overload
-    def __sub__(self, other: float) -> "vec2": ...
+        return vec2(other + self.data[0], other + self.data[1])
 
     def __sub__(self, other: "vec2 | float") -> "vec2":
         if isinstance(other, vec2):
-            return vec2(self.x - other.x, self.y - other.y)
-        return vec2(self.x - other, self.y - other)
+            return vec2(self.data[0] - other.data[0], self.data[1] - other.data[1])
+        return vec2(self.data[0] - other, self.data[1] - other)
 
     def __rsub__(self, other: float) -> "vec2":
-        return vec2(other - self.x, other - self.y)
-
-    @overload
-    def __mul__(self, other: "vec2") -> "vec2": ...
-    @overload
-    def __mul__(self, other: float) -> "vec2": ...
+        return vec2(other - self.data[0], other - self.data[1])
 
     def __mul__(self, other: "vec2 | float") -> "vec2":
         if isinstance(other, vec2):
-            return vec2(self.x * other.x, self.y * other.y)
-        return vec2(self.x * other, self.y * other)
+            return vec2(self.data[0] * other.data[0], self.data[1] * other.data[1])
+        return vec2(self.data[0] * other, self.data[1] * other)
 
     def __rmul__(self, other: float) -> "vec2":
-        return vec2(other * self.x, other * self.y)
-
-    @overload
-    def __truediv__(self, other: "vec2") -> "vec2": ...
-    @overload
-    def __truediv__(self, other: float) -> "vec2": ...
+        return vec2(other * self.data[0], other * self.data[1])
 
     def __truediv__(self, other: "vec2 | float") -> "vec2":
         if isinstance(other, vec2):
-            return vec2(self.x / other.x, self.y / other.y)
-        return vec2(self.x / other, self.y / other)
+            return vec2(self.data[0] / other.data[0], self.data[1] / other.data[1])
+        return vec2(self.data[0] / other, self.data[1] / other)
 
     def __rtruediv__(self, other: float) -> "vec2":
-        return vec2(other / self.x, other / self.y)
+        return vec2(other / self.data[0], other / self.data[1])
 
     def __neg__(self) -> "vec2":
-        return vec2(-self.x, -self.y)
+        return vec2(-self.data[0], -self.data[1])
 
     def __pos__(self) -> "vec2":
-        return vec2(self.x, self.y)
+        return vec2(self.data[0], self.data[1])
 
     def __getitem__(self, index: int) -> float:
         return float(self.data[index])
@@ -153,19 +162,98 @@ class vec2:
         self.data[index] = value
 
     def __iter__(self):  # type: ignore[no-untyped-def]
-        return iter([self.x, self.y])
+        return iter([float(self.data[0]), float(self.data[1])])
 
     def __repr__(self) -> str:
-        return f"vec2({self.x}, {self.y})"
+        return f"vec2({self.data[0]}, {self.data[1]})"
 
     def __str__(self) -> str:
-        return f"vec2({self.x}, {self.y})"
+        return f"vec2({self.data[0]}, {self.data[1]})"
+
+
+# Add component properties to vec2
+for i, (c, col) in enumerate(zip(_XYZW[:2], _RGBA[:2], strict=False)):
+    setattr(vec2, c, _make_component_property(i))
+    setattr(vec2, col, _make_component_property(i))
 
 
 class vec3:
     """GLSL vec3 type - 3-component float vector."""
 
     __slots__ = ("data",)
+    _size = 3
+
+    # Component access (set dynamically below)
+    x: float
+    y: float
+    z: float
+    r: float
+    g: float
+    b: float
+
+    # Common 2-component swizzles
+    xy: vec2
+    xz: vec2
+    yx: vec2
+    yz: vec2
+    zx: vec2
+    zy: vec2
+    xx: vec2
+    yy: vec2
+    zz: vec2
+    rg: vec2
+    rb: vec2
+    gr: vec2
+    gb: vec2
+    br: vec2
+    bg: vec2
+    rr: vec2
+    gg: vec2
+    bb: vec2
+    # Common 3-component swizzles
+    xyz: "vec3"
+    xzy: "vec3"
+    yxz: "vec3"
+    yzx: "vec3"
+    zxy: "vec3"
+    zyx: "vec3"
+    xxx: "vec3"
+    yyy: "vec3"
+    zzz: "vec3"
+    xxy: "vec3"
+    xxz: "vec3"
+    xyx: "vec3"
+    xyy: "vec3"
+    xzx: "vec3"
+    xzz: "vec3"
+    yxx: "vec3"
+    yxy: "vec3"
+    yyx: "vec3"
+    yyz: "vec3"
+    yzy: "vec3"
+    yzz: "vec3"
+    zxx: "vec3"
+    zxz: "vec3"
+    zyy: "vec3"
+    zyz: "vec3"
+    zzx: "vec3"
+    zzy: "vec3"
+    rgb: "vec3"
+    rbg: "vec3"
+    grb: "vec3"
+    gbr: "vec3"
+    brg: "vec3"
+    bgr: "vec3"
+    rrr: "vec3"
+    ggg: "vec3"
+    bbb: "vec3"
+    # Common 4-component swizzles
+    xxxx: "vec4"
+    yyyy: "vec4"
+    zzzz: "vec4"
+    xyzx: "vec4"
+    xyzy: "vec4"
+    xyzz: "vec4"
 
     @overload
     def __init__(self, x: float, y: float, z: float) -> None: ...
@@ -187,293 +275,67 @@ class vec3:
         if isinstance(x, vec3):
             self.data = x.data.copy()
         elif isinstance(x, vec2) and isinstance(y, int | float):
-            self.data = np.array([x.x, x.y, y], dtype=np.float32)
+            self.data = np.array([x.data[0], x.data[1], y], dtype=np.float32)
         elif isinstance(x, int | float) and isinstance(y, vec2):
-            self.data = np.array([x, y.x, y.y], dtype=np.float32)
+            self.data = np.array([x, y.data[0], y.data[1]], dtype=np.float32)
         elif y is None:
             self.data = np.array([x, x, x], dtype=np.float32)
         else:
             self.data = np.array([x, y, z], dtype=np.float32)
 
-    # Component accessors
-    @property
-    def x(self) -> float:
-        return float(self.data[0])
-
-    @x.setter
-    def x(self, value: float) -> None:
-        self.data[0] = value
-
-    @property
-    def y(self) -> float:
-        return float(self.data[1])
-
-    @y.setter
-    def y(self, value: float) -> None:
-        self.data[1] = value
-
-    @property
-    def z(self) -> float:
-        return float(self.data[2])
-
-    @z.setter
-    def z(self, value: float) -> None:
-        self.data[2] = value
-
-    # Aliases r,g,b for x,y,z
-    @property
-    def r(self) -> float:
-        return self.x
-
-    @r.setter
-    def r(self, value: float) -> None:
-        self.x = value
-
-    @property
-    def g(self) -> float:
-        return self.y
-
-    @g.setter
-    def g(self, value: float) -> None:
-        self.y = value
-
-    @property
-    def b(self) -> float:
-        return self.z
-
-    @b.setter
-    def b(self, value: float) -> None:
-        self.z = value
-
-    # Swizzle properties - vec2 from vec3
-    @property
-    def xx(self) -> vec2:
-        return vec2(self.x, self.x)
-
-    @property
-    def xy(self) -> vec2:
-        return vec2(self.x, self.y)
-
-    @property
-    def xz(self) -> vec2:
-        return vec2(self.x, self.z)
-
-    @property
-    def yx(self) -> vec2:
-        return vec2(self.y, self.x)
-
-    @property
-    def yy(self) -> vec2:
-        return vec2(self.y, self.y)
-
-    @property
-    def yz(self) -> vec2:
-        return vec2(self.y, self.z)
-
-    @property
-    def zx(self) -> vec2:
-        return vec2(self.z, self.x)
-
-    @property
-    def zy(self) -> vec2:
-        return vec2(self.z, self.y)
-
-    @property
-    def zz(self) -> vec2:
-        return vec2(self.z, self.z)
-
-    # Swizzle properties - vec3 from vec3
-    @property
-    def xxx(self) -> "vec3":
-        return vec3(self.x, self.x, self.x)
-
-    @property
-    def xxy(self) -> "vec3":
-        return vec3(self.x, self.x, self.y)
-
-    @property
-    def xxz(self) -> "vec3":
-        return vec3(self.x, self.x, self.z)
-
-    @property
-    def xyx(self) -> "vec3":
-        return vec3(self.x, self.y, self.x)
-
-    @property
-    def xyy(self) -> "vec3":
-        return vec3(self.x, self.y, self.y)
-
-    @property
-    def xyz(self) -> "vec3":
-        return vec3(self.x, self.y, self.z)
-
-    @property
-    def xzx(self) -> "vec3":
-        return vec3(self.x, self.z, self.x)
-
-    @property
-    def xzy(self) -> "vec3":
-        return vec3(self.x, self.z, self.y)
-
-    @property
-    def xzz(self) -> "vec3":
-        return vec3(self.x, self.z, self.z)
-
-    @property
-    def yxx(self) -> "vec3":
-        return vec3(self.y, self.x, self.x)
-
-    @property
-    def yxy(self) -> "vec3":
-        return vec3(self.y, self.x, self.y)
-
-    @property
-    def yxz(self) -> "vec3":
-        return vec3(self.y, self.x, self.z)
-
-    @property
-    def yyx(self) -> "vec3":
-        return vec3(self.y, self.y, self.x)
-
-    @property
-    def yyy(self) -> "vec3":
-        return vec3(self.y, self.y, self.y)
-
-    @property
-    def yyz(self) -> "vec3":
-        return vec3(self.y, self.y, self.z)
-
-    @property
-    def yzx(self) -> "vec3":
-        return vec3(self.y, self.z, self.x)
-
-    @property
-    def yzy(self) -> "vec3":
-        return vec3(self.y, self.z, self.y)
-
-    @property
-    def yzz(self) -> "vec3":
-        return vec3(self.y, self.z, self.z)
-
-    @property
-    def zxx(self) -> "vec3":
-        return vec3(self.z, self.x, self.x)
-
-    @property
-    def zxy(self) -> "vec3":
-        return vec3(self.z, self.x, self.y)
-
-    @property
-    def zxz(self) -> "vec3":
-        return vec3(self.z, self.x, self.z)
-
-    @property
-    def zyx(self) -> "vec3":
-        return vec3(self.z, self.y, self.x)
-
-    @property
-    def zyy(self) -> "vec3":
-        return vec3(self.z, self.y, self.y)
-
-    @property
-    def zyz(self) -> "vec3":
-        return vec3(self.z, self.y, self.z)
-
-    @property
-    def zzx(self) -> "vec3":
-        return vec3(self.z, self.z, self.x)
-
-    @property
-    def zzy(self) -> "vec3":
-        return vec3(self.z, self.z, self.y)
-
-    @property
-    def zzz(self) -> "vec3":
-        return vec3(self.z, self.z, self.z)
-
-    # RGB swizzles
-    @property
-    def rgb(self) -> "vec3":
-        return vec3(self.x, self.y, self.z)
-
-    @property
-    def rbg(self) -> "vec3":
-        return vec3(self.x, self.z, self.y)
-
-    @property
-    def grb(self) -> "vec3":
-        return vec3(self.y, self.x, self.z)
-
-    @property
-    def gbr(self) -> "vec3":
-        return vec3(self.y, self.z, self.x)
-
-    @property
-    def brg(self) -> "vec3":
-        return vec3(self.z, self.x, self.y)
-
-    @property
-    def bgr(self) -> "vec3":
-        return vec3(self.z, self.y, self.x)
-
-    # Arithmetic operators
-    @overload
-    def __add__(self, other: "vec3") -> "vec3": ...
-    @overload
-    def __add__(self, other: float) -> "vec3": ...
-
     def __add__(self, other: "vec3 | float") -> "vec3":
         if isinstance(other, vec3):
-            return vec3(self.x + other.x, self.y + other.y, self.z + other.z)
-        return vec3(self.x + other, self.y + other, self.z + other)
+            return vec3(
+                self.data[0] + other.data[0],
+                self.data[1] + other.data[1],
+                self.data[2] + other.data[2],
+            )
+        return vec3(self.data[0] + other, self.data[1] + other, self.data[2] + other)
 
     def __radd__(self, other: float) -> "vec3":
-        return vec3(other + self.x, other + self.y, other + self.z)
-
-    @overload
-    def __sub__(self, other: "vec3") -> "vec3": ...
-    @overload
-    def __sub__(self, other: float) -> "vec3": ...
+        return vec3(other + self.data[0], other + self.data[1], other + self.data[2])
 
     def __sub__(self, other: "vec3 | float") -> "vec3":
         if isinstance(other, vec3):
-            return vec3(self.x - other.x, self.y - other.y, self.z - other.z)
-        return vec3(self.x - other, self.y - other, self.z - other)
+            return vec3(
+                self.data[0] - other.data[0],
+                self.data[1] - other.data[1],
+                self.data[2] - other.data[2],
+            )
+        return vec3(self.data[0] - other, self.data[1] - other, self.data[2] - other)
 
     def __rsub__(self, other: float) -> "vec3":
-        return vec3(other - self.x, other - self.y, other - self.z)
-
-    @overload
-    def __mul__(self, other: "vec3") -> "vec3": ...
-    @overload
-    def __mul__(self, other: float) -> "vec3": ...
+        return vec3(other - self.data[0], other - self.data[1], other - self.data[2])
 
     def __mul__(self, other: "vec3 | float") -> "vec3":
         if isinstance(other, vec3):
-            return vec3(self.x * other.x, self.y * other.y, self.z * other.z)
-        return vec3(self.x * other, self.y * other, self.z * other)
+            return vec3(
+                self.data[0] * other.data[0],
+                self.data[1] * other.data[1],
+                self.data[2] * other.data[2],
+            )
+        return vec3(self.data[0] * other, self.data[1] * other, self.data[2] * other)
 
     def __rmul__(self, other: float) -> "vec3":
-        return vec3(other * self.x, other * self.y, other * self.z)
-
-    @overload
-    def __truediv__(self, other: "vec3") -> "vec3": ...
-    @overload
-    def __truediv__(self, other: float) -> "vec3": ...
+        return vec3(other * self.data[0], other * self.data[1], other * self.data[2])
 
     def __truediv__(self, other: "vec3 | float") -> "vec3":
         if isinstance(other, vec3):
-            return vec3(self.x / other.x, self.y / other.y, self.z / other.z)
-        return vec3(self.x / other, self.y / other, self.z / other)
+            return vec3(
+                self.data[0] / other.data[0],
+                self.data[1] / other.data[1],
+                self.data[2] / other.data[2],
+            )
+        return vec3(self.data[0] / other, self.data[1] / other, self.data[2] / other)
 
     def __rtruediv__(self, other: float) -> "vec3":
-        return vec3(other / self.x, other / self.y, other / self.z)
+        return vec3(other / self.data[0], other / self.data[1], other / self.data[2])
 
     def __neg__(self) -> "vec3":
-        return vec3(-self.x, -self.y, -self.z)
+        return vec3(-self.data[0], -self.data[1], -self.data[2])
 
     def __pos__(self) -> "vec3":
-        return vec3(self.x, self.y, self.z)
+        return vec3(self.data[0], self.data[1], self.data[2])
 
     def __getitem__(self, index: int) -> float:
         return float(self.data[index])
@@ -482,19 +344,184 @@ class vec3:
         self.data[index] = value
 
     def __iter__(self):  # type: ignore[no-untyped-def]
-        return iter([self.x, self.y, self.z])
+        return iter([float(self.data[0]), float(self.data[1]), float(self.data[2])])
 
     def __repr__(self) -> str:
-        return f"vec3({self.x}, {self.y}, {self.z})"
+        return f"vec3({self.data[0]}, {self.data[1]}, {self.data[2]})"
 
     def __str__(self) -> str:
-        return f"vec3({self.x}, {self.y}, {self.z})"
+        return f"vec3({self.data[0]}, {self.data[1]}, {self.data[2]})"
+
+
+# Add component properties to vec3
+for i, (c, col) in enumerate(zip(_XYZW[:3], _RGBA[:3], strict=False)):
+    setattr(vec3, c, _make_component_property(i))
+    setattr(vec3, col, _make_component_property(i))
 
 
 class vec4:
     """GLSL vec4 type - 4-component float vector."""
 
     __slots__ = ("data",)
+    _size = 4
+
+    # Component access (set dynamically below)
+    x: float
+    y: float
+    z: float
+    w: float
+    r: float
+    g: float
+    b: float
+    a: float
+
+    # Common 2-component swizzles
+    xy: vec2
+    xz: vec2
+    xw: vec2
+    yx: vec2
+    yz: vec2
+    yw: vec2
+    zx: vec2
+    zy: vec2
+    zw: vec2
+    wx: vec2
+    wy: vec2
+    wz: vec2
+    xx: vec2
+    yy: vec2
+    zz: vec2
+    ww: vec2
+    rg: vec2
+    rb: vec2
+    ra: vec2
+    gr: vec2
+    gb: vec2
+    ga: vec2
+    br: vec2
+    bg: vec2
+    ba: vec2
+    ar: vec2
+    ag: vec2
+    ab: vec2
+    rr: vec2
+    gg: vec2
+    bb: vec2
+    aa: vec2
+    # Common 3-component swizzles
+    xyz: vec3
+    xyw: vec3
+    xzy: vec3
+    xzw: vec3
+    xwy: vec3
+    xwz: vec3
+    yxz: vec3
+    yxw: vec3
+    yzx: vec3
+    yzw: vec3
+    ywx: vec3
+    ywz: vec3
+    zxy: vec3
+    zxw: vec3
+    zyx: vec3
+    zyw: vec3
+    zwx: vec3
+    zwy: vec3
+    wxy: vec3
+    wxz: vec3
+    wyx: vec3
+    wyz: vec3
+    wzx: vec3
+    wzy: vec3
+    xxx: vec3
+    yyy: vec3
+    zzz: vec3
+    www: vec3
+    rgb: vec3
+    rga: vec3
+    rbg: vec3
+    rba: vec3
+    rag: vec3
+    rab: vec3
+    grb: vec3
+    gra: vec3
+    gbr: vec3
+    gba: vec3
+    gar: vec3
+    gab: vec3
+    brg: vec3
+    bra: vec3
+    bgr: vec3
+    bga: vec3
+    bar: vec3
+    bag: vec3
+    arg: vec3
+    arb: vec3
+    agr: vec3
+    agb: vec3
+    abr: vec3
+    abg: vec3
+    rrr: vec3
+    ggg: vec3
+    bbb: vec3
+    aaa: vec3
+    # Common 4-component swizzles
+    xyzw: "vec4"
+    xywz: "vec4"
+    xzyw: "vec4"
+    xzwy: "vec4"
+    xwyz: "vec4"
+    xwzy: "vec4"
+    yxzw: "vec4"
+    yxwz: "vec4"
+    yzxw: "vec4"
+    yzwx: "vec4"
+    ywxz: "vec4"
+    ywzx: "vec4"
+    zxyw: "vec4"
+    zxwy: "vec4"
+    zyxw: "vec4"
+    zywx: "vec4"
+    zwxy: "vec4"
+    zwyx: "vec4"
+    wxyz: "vec4"
+    wxzy: "vec4"
+    wyxz: "vec4"
+    wyzx: "vec4"
+    wzxy: "vec4"
+    wzyx: "vec4"
+    xxxx: "vec4"
+    yyyy: "vec4"
+    zzzz: "vec4"
+    wwww: "vec4"
+    rgba: "vec4"
+    rgab: "vec4"
+    rbga: "vec4"
+    rbag: "vec4"
+    ragb: "vec4"
+    rabg: "vec4"
+    grba: "vec4"
+    grab: "vec4"
+    gbra: "vec4"
+    gbar: "vec4"
+    garb: "vec4"
+    gabr: "vec4"
+    brga: "vec4"
+    brag: "vec4"
+    bgra: "vec4"
+    bgar: "vec4"
+    barg: "vec4"
+    bagr: "vec4"
+    argb: "vec4"
+    arbg: "vec4"
+    agrb: "vec4"
+    agbr: "vec4"
+    abrg: "vec4"
+    abgr: "vec4"
+    rrrr: "vec4"
+    gggg: "vec4"
+    bbbb: "vec4"
+    aaaa: "vec4"
 
     @overload
     def __init__(self, x: float, y: float, z: float, w: float) -> None: ...
@@ -521,325 +548,121 @@ class vec4:
         if isinstance(x, vec4):
             self.data = x.data.copy()
         elif isinstance(x, vec3) and isinstance(y, int | float):
-            self.data = np.array([x.x, x.y, x.z, y], dtype=np.float32)
+            self.data = np.array([x.data[0], x.data[1], x.data[2], y], dtype=np.float32)
         elif isinstance(x, int | float) and isinstance(y, vec3):
-            self.data = np.array([x, y.x, y.y, y.z], dtype=np.float32)
+            self.data = np.array([x, y.data[0], y.data[1], y.data[2]], dtype=np.float32)
         elif isinstance(x, vec2) and isinstance(y, vec2):
-            self.data = np.array([x.x, x.y, y.x, y.y], dtype=np.float32)
+            self.data = np.array(
+                [x.data[0], x.data[1], y.data[0], y.data[1]], dtype=np.float32
+            )
         elif (
             isinstance(x, vec2)
             and isinstance(y, int | float)
             and isinstance(z, int | float)
         ):
-            self.data = np.array([x.x, x.y, y, z], dtype=np.float32)
+            self.data = np.array([x.data[0], x.data[1], y, z], dtype=np.float32)
         elif y is None:
             self.data = np.array([x, x, x, x], dtype=np.float32)
         else:
             self.data = np.array([x, y, z, w], dtype=np.float32)
 
-    # Component accessors
-    @property
-    def x(self) -> float:
-        return float(self.data[0])
-
-    @x.setter
-    def x(self, value: float) -> None:
-        self.data[0] = value
-
-    @property
-    def y(self) -> float:
-        return float(self.data[1])
-
-    @y.setter
-    def y(self, value: float) -> None:
-        self.data[1] = value
-
-    @property
-    def z(self) -> float:
-        return float(self.data[2])
-
-    @z.setter
-    def z(self, value: float) -> None:
-        self.data[2] = value
-
-    @property
-    def w(self) -> float:
-        return float(self.data[3])
-
-    @w.setter
-    def w(self, value: float) -> None:
-        self.data[3] = value
-
-    # Aliases r,g,b,a for x,y,z,w
-    @property
-    def r(self) -> float:
-        return self.x
-
-    @r.setter
-    def r(self, value: float) -> None:
-        self.x = value
-
-    @property
-    def g(self) -> float:
-        return self.y
-
-    @g.setter
-    def g(self, value: float) -> None:
-        self.y = value
-
-    @property
-    def b(self) -> float:
-        return self.z
-
-    @b.setter
-    def b(self, value: float) -> None:
-        self.z = value
-
-    @property
-    def a(self) -> float:
-        return self.w
-
-    @a.setter
-    def a(self, value: float) -> None:
-        self.w = value
-
-    # Swizzle properties - vec2 from vec4
-    @property
-    def xx(self) -> vec2:
-        return vec2(self.x, self.x)
-
-    @property
-    def xy(self) -> vec2:
-        return vec2(self.x, self.y)
-
-    @property
-    def xz(self) -> vec2:
-        return vec2(self.x, self.z)
-
-    @property
-    def xw(self) -> vec2:
-        return vec2(self.x, self.w)
-
-    @property
-    def yx(self) -> vec2:
-        return vec2(self.y, self.x)
-
-    @property
-    def yy(self) -> vec2:
-        return vec2(self.y, self.y)
-
-    @property
-    def yz(self) -> vec2:
-        return vec2(self.y, self.z)
-
-    @property
-    def yw(self) -> vec2:
-        return vec2(self.y, self.w)
-
-    @property
-    def zx(self) -> vec2:
-        return vec2(self.z, self.x)
-
-    @property
-    def zy(self) -> vec2:
-        return vec2(self.z, self.y)
-
-    @property
-    def zz(self) -> vec2:
-        return vec2(self.z, self.z)
-
-    @property
-    def zw(self) -> vec2:
-        return vec2(self.z, self.w)
-
-    @property
-    def wx(self) -> vec2:
-        return vec2(self.w, self.x)
-
-    @property
-    def wy(self) -> vec2:
-        return vec2(self.w, self.y)
-
-    @property
-    def wz(self) -> vec2:
-        return vec2(self.w, self.z)
-
-    @property
-    def ww(self) -> vec2:
-        return vec2(self.w, self.w)
-
-    # Swizzle properties - vec3 from vec4
-    @property
-    def xyz(self) -> vec3:
-        return vec3(self.x, self.y, self.z)
-
-    @property
-    def xyw(self) -> vec3:
-        return vec3(self.x, self.y, self.w)
-
-    @property
-    def xzy(self) -> vec3:
-        return vec3(self.x, self.z, self.y)
-
-    @property
-    def xzw(self) -> vec3:
-        return vec3(self.x, self.z, self.w)
-
-    @property
-    def xwy(self) -> vec3:
-        return vec3(self.x, self.w, self.y)
-
-    @property
-    def xwz(self) -> vec3:
-        return vec3(self.x, self.w, self.z)
-
-    @property
-    def yxz(self) -> vec3:
-        return vec3(self.y, self.x, self.z)
-
-    @property
-    def yxw(self) -> vec3:
-        return vec3(self.y, self.x, self.w)
-
-    @property
-    def yzx(self) -> vec3:
-        return vec3(self.y, self.z, self.x)
-
-    @property
-    def yzw(self) -> vec3:
-        return vec3(self.y, self.z, self.w)
-
-    @property
-    def ywx(self) -> vec3:
-        return vec3(self.y, self.w, self.x)
-
-    @property
-    def ywz(self) -> vec3:
-        return vec3(self.y, self.w, self.z)
-
-    @property
-    def zxy(self) -> vec3:
-        return vec3(self.z, self.x, self.y)
-
-    @property
-    def zxw(self) -> vec3:
-        return vec3(self.z, self.x, self.w)
-
-    @property
-    def zyx(self) -> vec3:
-        return vec3(self.z, self.y, self.x)
-
-    @property
-    def zyw(self) -> vec3:
-        return vec3(self.z, self.y, self.w)
-
-    @property
-    def zwx(self) -> vec3:
-        return vec3(self.z, self.w, self.x)
-
-    @property
-    def zwy(self) -> vec3:
-        return vec3(self.z, self.w, self.y)
-
-    @property
-    def wxy(self) -> vec3:
-        return vec3(self.w, self.x, self.y)
-
-    @property
-    def wxz(self) -> vec3:
-        return vec3(self.w, self.x, self.z)
-
-    @property
-    def wyx(self) -> vec3:
-        return vec3(self.w, self.y, self.x)
-
-    @property
-    def wyz(self) -> vec3:
-        return vec3(self.w, self.y, self.z)
-
-    @property
-    def wzx(self) -> vec3:
-        return vec3(self.w, self.z, self.x)
-
-    @property
-    def wzy(self) -> vec3:
-        return vec3(self.w, self.z, self.y)
-
-    # RGB(A) swizzles
-    @property
-    def rgb(self) -> vec3:
-        return vec3(self.x, self.y, self.z)
-
-    @property
-    def rgba(self) -> "vec4":
-        return vec4(self.x, self.y, self.z, self.w)
-
-    # Arithmetic operators
-    @overload
-    def __add__(self, other: "vec4") -> "vec4": ...
-    @overload
-    def __add__(self, other: float) -> "vec4": ...
-
     def __add__(self, other: "vec4 | float") -> "vec4":
         if isinstance(other, vec4):
             return vec4(
-                self.x + other.x, self.y + other.y, self.z + other.z, self.w + other.w
+                self.data[0] + other.data[0],
+                self.data[1] + other.data[1],
+                self.data[2] + other.data[2],
+                self.data[3] + other.data[3],
             )
-        return vec4(self.x + other, self.y + other, self.z + other, self.w + other)
+        return vec4(
+            self.data[0] + other,
+            self.data[1] + other,
+            self.data[2] + other,
+            self.data[3] + other,
+        )
 
     def __radd__(self, other: float) -> "vec4":
-        return vec4(other + self.x, other + self.y, other + self.z, other + self.w)
-
-    @overload
-    def __sub__(self, other: "vec4") -> "vec4": ...
-    @overload
-    def __sub__(self, other: float) -> "vec4": ...
+        return vec4(
+            other + self.data[0],
+            other + self.data[1],
+            other + self.data[2],
+            other + self.data[3],
+        )
 
     def __sub__(self, other: "vec4 | float") -> "vec4":
         if isinstance(other, vec4):
             return vec4(
-                self.x - other.x, self.y - other.y, self.z - other.z, self.w - other.w
+                self.data[0] - other.data[0],
+                self.data[1] - other.data[1],
+                self.data[2] - other.data[2],
+                self.data[3] - other.data[3],
             )
-        return vec4(self.x - other, self.y - other, self.z - other, self.w - other)
+        return vec4(
+            self.data[0] - other,
+            self.data[1] - other,
+            self.data[2] - other,
+            self.data[3] - other,
+        )
 
     def __rsub__(self, other: float) -> "vec4":
-        return vec4(other - self.x, other - self.y, other - self.z, other - self.w)
-
-    @overload
-    def __mul__(self, other: "vec4") -> "vec4": ...
-    @overload
-    def __mul__(self, other: float) -> "vec4": ...
+        return vec4(
+            other - self.data[0],
+            other - self.data[1],
+            other - self.data[2],
+            other - self.data[3],
+        )
 
     def __mul__(self, other: "vec4 | float") -> "vec4":
         if isinstance(other, vec4):
             return vec4(
-                self.x * other.x, self.y * other.y, self.z * other.z, self.w * other.w
+                self.data[0] * other.data[0],
+                self.data[1] * other.data[1],
+                self.data[2] * other.data[2],
+                self.data[3] * other.data[3],
             )
-        return vec4(self.x * other, self.y * other, self.z * other, self.w * other)
+        return vec4(
+            self.data[0] * other,
+            self.data[1] * other,
+            self.data[2] * other,
+            self.data[3] * other,
+        )
 
     def __rmul__(self, other: float) -> "vec4":
-        return vec4(other * self.x, other * self.y, other * self.z, other * self.w)
-
-    @overload
-    def __truediv__(self, other: "vec4") -> "vec4": ...
-    @overload
-    def __truediv__(self, other: float) -> "vec4": ...
+        return vec4(
+            other * self.data[0],
+            other * self.data[1],
+            other * self.data[2],
+            other * self.data[3],
+        )
 
     def __truediv__(self, other: "vec4 | float") -> "vec4":
         if isinstance(other, vec4):
             return vec4(
-                self.x / other.x, self.y / other.y, self.z / other.z, self.w / other.w
+                self.data[0] / other.data[0],
+                self.data[1] / other.data[1],
+                self.data[2] / other.data[2],
+                self.data[3] / other.data[3],
             )
-        return vec4(self.x / other, self.y / other, self.z / other, self.w / other)
+        return vec4(
+            self.data[0] / other,
+            self.data[1] / other,
+            self.data[2] / other,
+            self.data[3] / other,
+        )
 
     def __rtruediv__(self, other: float) -> "vec4":
-        return vec4(other / self.x, other / self.y, other / self.z, other / self.w)
+        return vec4(
+            other / self.data[0],
+            other / self.data[1],
+            other / self.data[2],
+            other / self.data[3],
+        )
 
     def __neg__(self) -> "vec4":
-        return vec4(-self.x, -self.y, -self.z, -self.w)
+        return vec4(-self.data[0], -self.data[1], -self.data[2], -self.data[3])
 
     def __pos__(self) -> "vec4":
-        return vec4(self.x, self.y, self.z, self.w)
+        return vec4(self.data[0], self.data[1], self.data[2], self.data[3])
 
     def __getitem__(self, index: int) -> float:
         return float(self.data[index])
@@ -848,24 +671,75 @@ class vec4:
         self.data[index] = value
 
     def __iter__(self):  # type: ignore[no-untyped-def]
-        return iter([self.x, self.y, self.z, self.w])
+        return iter(
+            [
+                float(self.data[0]),
+                float(self.data[1]),
+                float(self.data[2]),
+                float(self.data[3]),
+            ]
+        )
 
     def __repr__(self) -> str:
-        return f"vec4({self.x}, {self.y}, {self.z}, {self.w})"
+        return f"vec4({self.data[0]}, {self.data[1]}, {self.data[2]}, {self.data[3]})"
 
     def __str__(self) -> str:
-        return f"vec4({self.x}, {self.y}, {self.z}, {self.w})"
+        return f"vec4({self.data[0]}, {self.data[1]}, {self.data[2]}, {self.data[3]})"
 
 
-# Matrix classes
+# Add component properties to vec4
+for i, (c, col) in enumerate(zip(_XYZW[:4], _RGBA[:4], strict=False)):
+    setattr(vec4, c, _make_component_property(i))
+    setattr(vec4, col, _make_component_property(i))
+
+
+# =============================================================================
+# Generate Swizzle Properties
+# =============================================================================
+
+
+def _generate_swizzles() -> None:
+    """Generate all swizzle properties for vec2, vec3, vec4."""
+    vec_types = {2: vec2, 3: vec3, 4: vec4}
+
+    # Generate swizzles for each source vector size
+    for src_size, src_type in vec_types.items():
+        components = _XYZW[:src_size]
+        color_components = _RGBA[:src_size]
+
+        # Generate 2, 3, 4 component swizzles
+        for dst_size in [2, 3, 4]:
+            dst_type = vec_types[dst_size]
+
+            # Generate all combinations using xyzw
+            for combo in itertools.product(range(src_size), repeat=dst_size):
+                name = "".join(components[i] for i in combo)
+                if not hasattr(src_type, name):
+                    setattr(src_type, name, _make_swizzle_property(combo, dst_type))
+
+                # Also generate rgba version
+                color_name = "".join(color_components[i] for i in combo)
+                if color_name != name and not hasattr(src_type, color_name):
+                    setattr(
+                        src_type, color_name, _make_swizzle_property(combo, dst_type)
+                    )
+
+
+_generate_swizzles()
+
+
+# =============================================================================
+# Matrix Types
+# =============================================================================
+
+
 class mat2:
     """GLSL mat2 type - 2x2 float matrix."""
 
     __slots__ = ("data",)
 
     def __init__(self, *args: float) -> None:
-        mat2_size = 4
-        if len(args) == mat2_size:
+        if len(args) == 4:
             self.data = np.array(
                 [[args[0], args[1]], [args[2], args[3]]], dtype=np.float32
             )
@@ -883,8 +757,7 @@ class mat3:
     __slots__ = ("data",)
 
     def __init__(self, *args: float) -> None:
-        mat3_size = 9
-        if len(args) == mat3_size:
+        if len(args) == 9:
             self.data = np.array(
                 [
                     [args[0], args[1], args[2]],
@@ -907,8 +780,7 @@ class mat4:
     __slots__ = ("data",)
 
     def __init__(self, *args: float) -> None:
-        mat4_size = 16
-        if len(args) == mat4_size:
+        if len(args) == 16:
             self.data = np.array(
                 [
                     [args[0], args[1], args[2], args[3]],
@@ -927,10 +799,68 @@ class mat4:
 
 
 # =============================================================================
-# GLSL built-in functions
+# GLSL Built-in Functions
 # =============================================================================
 
+# Type aliases for function signatures
+Vec = vec2 | vec3 | vec4
+VecOrFloat = Vec | float
 
+
+def _apply_elementwise(x: VecOrFloat, func: Callable[[float], float]) -> VecOrFloat:
+    """Apply a function elementwise to a scalar or vector."""
+    if isinstance(x, vec2):
+        return vec2(func(x.data[0]), func(x.data[1]))
+    if isinstance(x, vec3):
+        return vec3(func(x.data[0]), func(x.data[1]), func(x.data[2]))
+    if isinstance(x, vec4):
+        return vec4(func(x.data[0]), func(x.data[1]), func(x.data[2]), func(x.data[3]))
+    return func(float(x))
+
+
+def _apply_binary_elementwise(
+    a: VecOrFloat, b: VecOrFloat, func: Callable[[float, float], float]
+) -> VecOrFloat:
+    """Apply a binary function elementwise."""
+    if isinstance(a, vec2):
+        if isinstance(b, vec2):
+            return vec2(func(a.data[0], b.data[0]), func(a.data[1], b.data[1]))
+        if isinstance(b, int | float):
+            bf = float(b)
+            return vec2(func(a.data[0], bf), func(a.data[1], bf))
+    if isinstance(a, vec3):
+        if isinstance(b, vec3):
+            return vec3(
+                func(a.data[0], b.data[0]),
+                func(a.data[1], b.data[1]),
+                func(a.data[2], b.data[2]),
+            )
+        if isinstance(b, int | float):
+            bf = float(b)
+            return vec3(func(a.data[0], bf), func(a.data[1], bf), func(a.data[2], bf))
+    if isinstance(a, vec4):
+        if isinstance(b, vec4):
+            return vec4(
+                func(a.data[0], b.data[0]),
+                func(a.data[1], b.data[1]),
+                func(a.data[2], b.data[2]),
+                func(a.data[3], b.data[3]),
+            )
+        if isinstance(b, int | float):
+            bf = float(b)
+            return vec4(
+                func(a.data[0], bf),
+                func(a.data[1], bf),
+                func(a.data[2], bf),
+                func(a.data[3], bf),
+            )
+    if isinstance(a, int | float) and isinstance(b, int | float):
+        return func(float(a), float(b))
+    msg = f"Incompatible types: {type(a)} and {type(b)}"
+    raise TypeError(msg)
+
+
+# Trigonometric functions
 def sin(x: float) -> float:
     return float(np.sin(x))
 
@@ -964,7 +894,7 @@ def atan(y: float, x: float | None = None) -> float:
     return float(np.arctan2(y, x))
 
 
-# abs - redefined builtin
+# Math functions
 @overload
 def abs(x: float) -> float: ...
 @overload
@@ -975,424 +905,10 @@ def abs(x: vec3) -> vec3: ...
 def abs(x: vec4) -> vec4: ...
 
 
-def abs(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:
-    if isinstance(x, vec2):
-        return vec2(float(np.abs(x.x)), float(np.abs(x.y)))
-    if isinstance(x, vec3):
-        return vec3(float(np.abs(x.x)), float(np.abs(x.y)), float(np.abs(x.z)))
-    if isinstance(x, vec4):
-        return vec4(
-            float(np.abs(x.x)),
-            float(np.abs(x.y)),
-            float(np.abs(x.z)),
-            float(np.abs(x.w)),
-        )
-    return float(np.abs(x))
+def abs(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.abs(v)))
 
 
-# length
-@overload
-def length(v: vec2) -> float: ...
-@overload
-def length(v: vec3) -> float: ...
-@overload
-def length(v: vec4) -> float: ...
-
-
-def length(v: vec2 | vec3 | vec4) -> float:
-    return float(np.linalg.norm(v.data))
-
-
-# distance
-@overload
-def distance(p0: vec2, p1: vec2) -> float: ...
-@overload
-def distance(p0: vec3, p1: vec3) -> float: ...
-@overload
-def distance(p0: vec4, p1: vec4) -> float: ...
-
-
-def distance(p0: vec2 | vec3 | vec4, p1: vec2 | vec3 | vec4) -> float:
-    return float(np.linalg.norm(p0.data - p1.data))
-
-
-# min - supports 2 or 3 arguments
-@overload
-def min(a: float, b: float) -> float: ...
-@overload
-def min(a: float, b: float, c: float) -> float: ...
-@overload
-def min(a: vec2, b: vec2) -> vec2: ...
-@overload
-def min(a: vec2, b: float) -> vec2: ...
-@overload
-def min(a: vec3, b: vec3) -> vec3: ...
-@overload
-def min(a: vec3, b: float) -> vec3: ...
-@overload
-def min(a: vec4, b: vec4) -> vec4: ...
-@overload
-def min(a: vec4, b: float) -> vec4: ...
-
-
-def min(
-    a: float | vec2 | vec3 | vec4,
-    b: float | vec2 | vec3 | vec4,
-    c: float | None = None,
-) -> float | vec2 | vec3 | vec4:
-    # Handle 3-argument case (floats only)
-    if c is not None:
-        if isinstance(a, int | float) and isinstance(b, int | float):
-            return float(np.minimum(np.minimum(a, b), c))
-        raise TypeError("min() with 3 args only supports floats")
-
-    # vec2
-    if isinstance(a, vec2):
-        if isinstance(b, vec2):
-            return vec2(
-                a.x if a.x < b.x else b.x,
-                a.y if a.y < b.y else b.y,
-            )
-        if isinstance(b, int | float):
-            bf = float(b)
-            return vec2(a.x if a.x < bf else bf, a.y if a.y < bf else bf)
-
-    # vec3
-    if isinstance(a, vec3):
-        if isinstance(b, vec3):
-            return vec3(
-                a.x if a.x < b.x else b.x,
-                a.y if a.y < b.y else b.y,
-                a.z if a.z < b.z else b.z,
-            )
-        if isinstance(b, int | float):
-            bf = float(b)
-            return vec3(
-                a.x if a.x < bf else bf,
-                a.y if a.y < bf else bf,
-                a.z if a.z < bf else bf,
-            )
-
-    # vec4
-    if isinstance(a, vec4):
-        if isinstance(b, vec4):
-            return vec4(
-                a.x if a.x < b.x else b.x,
-                a.y if a.y < b.y else b.y,
-                a.z if a.z < b.z else b.z,
-                a.w if a.w < b.w else b.w,
-            )
-        if isinstance(b, int | float):
-            bf = float(b)
-            return vec4(
-                a.x if a.x < bf else bf,
-                a.y if a.y < bf else bf,
-                a.z if a.z < bf else bf,
-                a.w if a.w < bf else bf,
-            )
-
-    # float
-    if isinstance(a, int | float) and isinstance(b, int | float):
-        return float(a) if a < b else float(b)
-
-    raise TypeError(f"min() received incompatible types: {type(a)} and {type(b)}")
-
-
-# max - supports 2 or 3 arguments
-@overload
-def max(a: float, b: float) -> float: ...
-@overload
-def max(a: float, b: float, c: float) -> float: ...
-@overload
-def max(a: vec2, b: vec2) -> vec2: ...
-@overload
-def max(a: vec2, b: float) -> vec2: ...
-@overload
-def max(a: vec3, b: vec3) -> vec3: ...
-@overload
-def max(a: vec3, b: float) -> vec3: ...
-@overload
-def max(a: vec4, b: vec4) -> vec4: ...
-@overload
-def max(a: vec4, b: float) -> vec4: ...
-
-
-def max(
-    a: float | vec2 | vec3 | vec4,
-    b: float | vec2 | vec3 | vec4,
-    c: float | None = None,
-) -> float | vec2 | vec3 | vec4:
-    # Handle 3-argument case (floats only)
-    if c is not None:
-        if isinstance(a, int | float) and isinstance(b, int | float):
-            return float(np.maximum(np.maximum(a, b), c))
-        raise TypeError("max() with 3 args only supports floats")
-
-    # vec2
-    if isinstance(a, vec2):
-        if isinstance(b, vec2):
-            return vec2(
-                a.x if a.x > b.x else b.x,
-                a.y if a.y > b.y else b.y,
-            )
-        if isinstance(b, int | float):
-            bf = float(b)
-            return vec2(a.x if a.x > bf else bf, a.y if a.y > bf else bf)
-
-    # vec3
-    if isinstance(a, vec3):
-        if isinstance(b, vec3):
-            return vec3(
-                a.x if a.x > b.x else b.x,
-                a.y if a.y > b.y else b.y,
-                a.z if a.z > b.z else b.z,
-            )
-        if isinstance(b, int | float):
-            bf = float(b)
-            return vec3(
-                a.x if a.x > bf else bf,
-                a.y if a.y > bf else bf,
-                a.z if a.z > bf else bf,
-            )
-
-    # vec4
-    if isinstance(a, vec4):
-        if isinstance(b, vec4):
-            return vec4(
-                a.x if a.x > b.x else b.x,
-                a.y if a.y > b.y else b.y,
-                a.z if a.z > b.z else b.z,
-                a.w if a.w > b.w else b.w,
-            )
-        if isinstance(b, int | float):
-            bf = float(b)
-            return vec4(
-                a.x if a.x > bf else bf,
-                a.y if a.y > bf else bf,
-                a.z if a.z > bf else bf,
-                a.w if a.w > bf else bf,
-            )
-
-    # float
-    if isinstance(a, int | float) and isinstance(b, int | float):
-        return float(a) if a > b else float(b)
-
-    raise TypeError(f"max() received incompatible types: {type(a)} and {type(b)}")
-
-
-# normalize
-@overload
-def normalize(v: vec2) -> vec2: ...
-@overload
-def normalize(v: vec3) -> vec3: ...
-@overload
-def normalize(v: vec4) -> vec4: ...
-
-
-def normalize(v: vec2 | vec3 | vec4) -> vec2 | vec3 | vec4:
-    norm = float(np.linalg.norm(v.data))
-    if norm == 0:
-        return v
-
-    if isinstance(v, vec2):
-        return vec2(v.x / norm, v.y / norm)
-    if isinstance(v, vec3):
-        return vec3(v.x / norm, v.y / norm, v.z / norm)
-    return vec4(v.x / norm, v.y / norm, v.z / norm, v.w / norm)
-
-
-# cross
-def cross(a: vec3, b: vec3) -> vec3:
-    result = np.cross(a.data, b.data)
-    return vec3(float(result[0]), float(result[1]), float(result[2]))
-
-
-# dot
-@overload
-def dot(a: vec2, b: vec2) -> float: ...
-@overload
-def dot(a: vec3, b: vec3) -> float: ...
-@overload
-def dot(a: vec4, b: vec4) -> float: ...
-
-
-def dot(a: vec2 | vec3 | vec4, b: vec2 | vec3 | vec4) -> float:
-    return float(np.dot(a.data, b.data))
-
-
-# mix
-@overload
-def mix(x: float, y: float, a: float) -> float: ...
-@overload
-def mix(x: vec2, y: vec2, a: float) -> vec2: ...
-@overload
-def mix(x: vec2, y: vec2, a: vec2) -> vec2: ...
-@overload
-def mix(x: vec3, y: vec3, a: float) -> vec3: ...
-@overload
-def mix(x: vec3, y: vec3, a: vec3) -> vec3: ...
-@overload
-def mix(x: vec4, y: vec4, a: float) -> vec4: ...
-@overload
-def mix(x: vec4, y: vec4, a: vec4) -> vec4: ...
-
-
-def mix(
-    x: float | vec2 | vec3 | vec4,
-    y: float | vec2 | vec3 | vec4,
-    a: float | vec2 | vec3 | vec4,
-) -> float | vec2 | vec3 | vec4:
-    # float, float, float
-    if (
-        isinstance(x, int | float)
-        and isinstance(y, int | float)
-        and isinstance(a, int | float)
-    ):
-        return float(x * (1 - a) + y * a)
-
-    # vec2
-    if isinstance(x, vec2) and isinstance(y, vec2):
-        if isinstance(a, vec2):
-            return vec2(
-                x.x * (1 - a.x) + y.x * a.x,
-                x.y * (1 - a.y) + y.y * a.y,
-            )
-        if isinstance(a, int | float):
-            af = float(a)
-            return vec2(
-                x.x * (1 - af) + y.x * af,
-                x.y * (1 - af) + y.y * af,
-            )
-
-    # vec3
-    if isinstance(x, vec3) and isinstance(y, vec3):
-        if isinstance(a, vec3):
-            return vec3(
-                x.x * (1 - a.x) + y.x * a.x,
-                x.y * (1 - a.y) + y.y * a.y,
-                x.z * (1 - a.z) + y.z * a.z,
-            )
-        if isinstance(a, int | float):
-            af = float(a)
-            return vec3(
-                x.x * (1 - af) + y.x * af,
-                x.y * (1 - af) + y.y * af,
-                x.z * (1 - af) + y.z * af,
-            )
-
-    # vec4
-    if isinstance(x, vec4) and isinstance(y, vec4):
-        if isinstance(a, vec4):
-            return vec4(
-                x.x * (1 - a.x) + y.x * a.x,
-                x.y * (1 - a.y) + y.y * a.y,
-                x.z * (1 - a.z) + y.z * a.z,
-                x.w * (1 - a.w) + y.w * a.w,
-            )
-        if isinstance(a, int | float):
-            af = float(a)
-            return vec4(
-                x.x * (1 - af) + y.x * af,
-                x.y * (1 - af) + y.y * af,
-                x.z * (1 - af) + y.z * af,
-                x.w * (1 - af) + y.w * af,
-            )
-
-    raise TypeError(
-        f"mix() received incompatible types: {type(x)}, {type(y)}, {type(a)}"
-    )
-
-
-# smoothstep
-@overload
-def smoothstep(edge0: float, edge1: float, x: float) -> float: ...
-@overload
-def smoothstep(edge0: vec2, edge1: vec2, x: vec2) -> vec2: ...
-@overload
-def smoothstep(edge0: vec3, edge1: vec3, x: vec3) -> vec3: ...
-@overload
-def smoothstep(edge0: vec4, edge1: vec4, x: vec4) -> vec4: ...
-@overload
-def smoothstep(edge0: float, edge1: float, x: vec2) -> vec2: ...
-@overload
-def smoothstep(edge0: float, edge1: float, x: vec3) -> vec3: ...
-@overload
-def smoothstep(edge0: float, edge1: float, x: vec4) -> vec4: ...
-
-
-def smoothstep(
-    edge0: float | vec2 | vec3 | vec4,
-    edge1: float | vec2 | vec3 | vec4,
-    x: float | vec2 | vec3 | vec4,
-) -> float | vec2 | vec3 | vec4:
-    def _ss(e0: float, e1: float, v: float) -> float:
-        t = float(np.clip((v - e0) / (e1 - e0), 0.0, 1.0))
-        return t * t * (3.0 - 2.0 * t)
-
-    # float, float, float
-    if (
-        isinstance(edge0, int | float)
-        and isinstance(edge1, int | float)
-        and isinstance(x, int | float)
-    ):
-        return _ss(edge0, edge1, x)
-
-    # float edges with vector x
-    if isinstance(edge0, int | float) and isinstance(edge1, int | float):
-        if isinstance(x, vec2):
-            return vec2(_ss(edge0, edge1, x.x), _ss(edge0, edge1, x.y))
-        if isinstance(x, vec3):
-            return vec3(
-                _ss(edge0, edge1, x.x), _ss(edge0, edge1, x.y), _ss(edge0, edge1, x.z)
-            )
-        if isinstance(x, vec4):
-            return vec4(
-                _ss(edge0, edge1, x.x),
-                _ss(edge0, edge1, x.y),
-                _ss(edge0, edge1, x.z),
-                _ss(edge0, edge1, x.w),
-            )
-
-    # vec2
-    if isinstance(edge0, vec2) and isinstance(edge1, vec2) and isinstance(x, vec2):
-        return vec2(
-            _ss(edge0.x, edge1.x, x.x),
-            _ss(edge0.y, edge1.y, x.y),
-        )
-
-    # vec3
-    if isinstance(edge0, vec3) and isinstance(edge1, vec3) and isinstance(x, vec3):
-        return vec3(
-            _ss(edge0.x, edge1.x, x.x),
-            _ss(edge0.y, edge1.y, x.y),
-            _ss(edge0.z, edge1.z, x.z),
-        )
-
-    # vec4
-    if isinstance(edge0, vec4) and isinstance(edge1, vec4) and isinstance(x, vec4):
-        return vec4(
-            _ss(edge0.x, edge1.x, x.x),
-            _ss(edge0.y, edge1.y, x.y),
-            _ss(edge0.z, edge1.z, x.z),
-            _ss(edge0.w, edge1.w, x.w),
-        )
-
-    raise TypeError(f"smoothstep() types: {type(edge0)}, {type(edge1)}, {type(x)}")
-
-
-def radians(degrees: float) -> float:
-    return float(np.radians(degrees))
-
-
-def sqrt(x: float) -> float:
-    return float(np.sqrt(x))
-
-
-def pow(x: float, y: float) -> float:
-    return float(np.power(x, y))
-
-
-# fract
 @overload
 def fract(x: float) -> float: ...
 @overload
@@ -1403,22 +919,10 @@ def fract(x: vec3) -> vec3: ...
 def fract(x: vec4) -> vec4: ...
 
 
-def fract(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:
-    if isinstance(x, vec2):
-        return vec2(x.x - np.floor(x.x), x.y - np.floor(x.y))
-    if isinstance(x, vec3):
-        return vec3(x.x - np.floor(x.x), x.y - np.floor(x.y), x.z - np.floor(x.z))
-    if isinstance(x, vec4):
-        return vec4(
-            x.x - np.floor(x.x),
-            x.y - np.floor(x.y),
-            x.z - np.floor(x.z),
-            x.w - np.floor(x.w),
-        )
-    return float(x - np.floor(x))
+def fract(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(v - np.floor(v)))
 
 
-# floor
 @overload
 def floor(x: float) -> float: ...
 @overload
@@ -1429,22 +933,10 @@ def floor(x: vec3) -> vec3: ...
 def floor(x: vec4) -> vec4: ...
 
 
-def floor(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:
-    if isinstance(x, vec2):
-        return vec2(float(np.floor(x.x)), float(np.floor(x.y)))
-    if isinstance(x, vec3):
-        return vec3(float(np.floor(x.x)), float(np.floor(x.y)), float(np.floor(x.z)))
-    if isinstance(x, vec4):
-        return vec4(
-            float(np.floor(x.x)),
-            float(np.floor(x.y)),
-            float(np.floor(x.z)),
-            float(np.floor(x.w)),
-        )
-    return float(np.floor(x))
+def floor(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.floor(v)))
 
 
-# ceil
 @overload
 def ceil(x: float) -> float: ...
 @overload
@@ -1455,22 +947,10 @@ def ceil(x: vec3) -> vec3: ...
 def ceil(x: vec4) -> vec4: ...
 
 
-def ceil(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:
-    if isinstance(x, vec2):
-        return vec2(float(np.ceil(x.x)), float(np.ceil(x.y)))
-    if isinstance(x, vec3):
-        return vec3(float(np.ceil(x.x)), float(np.ceil(x.y)), float(np.ceil(x.z)))
-    if isinstance(x, vec4):
-        return vec4(
-            float(np.ceil(x.x)),
-            float(np.ceil(x.y)),
-            float(np.ceil(x.z)),
-            float(np.ceil(x.w)),
-        )
-    return float(np.ceil(x))
+def ceil(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.ceil(v)))
 
 
-# sign
 @overload
 def sign(x: float) -> float: ...
 @overload
@@ -1481,19 +961,16 @@ def sign(x: vec3) -> vec3: ...
 def sign(x: vec4) -> vec4: ...
 
 
-def sign(x: float | vec2 | vec3 | vec4) -> float | vec2 | vec3 | vec4:
-    if isinstance(x, vec2):
-        return vec2(float(np.sign(x.x)), float(np.sign(x.y)))
-    if isinstance(x, vec3):
-        return vec3(float(np.sign(x.x)), float(np.sign(x.y)), float(np.sign(x.z)))
-    if isinstance(x, vec4):
-        return vec4(
-            float(np.sign(x.x)),
-            float(np.sign(x.y)),
-            float(np.sign(x.z)),
-            float(np.sign(x.w)),
-        )
-    return float(np.sign(x))
+def sign(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.sign(v)))
+
+
+def sqrt(x: float) -> float:
+    return float(np.sqrt(x))
+
+
+def pow(x: float, y: float) -> float:
+    return float(np.power(x, y))
 
 
 def exp(x: float) -> float:
@@ -1512,77 +989,266 @@ def log2(x: float) -> float:
     return float(np.log2(x))
 
 
-# mod
-@overload
-def mod(x: float, y: float) -> float: ...
-@overload
-def mod(x: vec2, y: float) -> vec2: ...
-@overload
-def mod(x: vec2, y: vec2) -> vec2: ...
-@overload
-def mod(x: vec3, y: float) -> vec3: ...
-@overload
-def mod(x: vec3, y: vec3) -> vec3: ...
-@overload
-def mod(x: vec4, y: float) -> vec4: ...
-@overload
-def mod(x: vec4, y: vec4) -> vec4: ...
+def radians(degrees: float) -> float:
+    return float(np.radians(degrees))
 
 
-def mod(
-    x: float | vec2 | vec3 | vec4, y: float | vec2 | vec3 | vec4
-) -> float | vec2 | vec3 | vec4:
-    """GLSL mod: x - y * floor(x/y)"""
-    if isinstance(x, vec2):
-        if isinstance(y, vec2):
+# Vector functions
+@overload
+def length(v: vec2) -> float: ...
+@overload
+def length(v: vec3) -> float: ...
+@overload
+def length(v: vec4) -> float: ...
+
+
+def length(v: Vec) -> float:
+    return float(np.linalg.norm(v.data))
+
+
+@overload
+def distance(p0: vec2, p1: vec2) -> float: ...
+@overload
+def distance(p0: vec3, p1: vec3) -> float: ...
+@overload
+def distance(p0: vec4, p1: vec4) -> float: ...
+
+
+def distance(p0: Vec, p1: Vec) -> float:
+    return float(np.linalg.norm(p0.data - p1.data))
+
+
+@overload
+def dot(a: vec2, b: vec2) -> float: ...
+@overload
+def dot(a: vec3, b: vec3) -> float: ...
+@overload
+def dot(a: vec4, b: vec4) -> float: ...
+
+
+def dot(a: Vec, b: Vec) -> float:
+    return float(np.dot(a.data, b.data))
+
+
+def cross(a: vec3, b: vec3) -> vec3:
+    result = np.cross(a.data, b.data)
+    return vec3(float(result[0]), float(result[1]), float(result[2]))
+
+
+@overload
+def normalize(v: vec2) -> vec2: ...
+@overload
+def normalize(v: vec3) -> vec3: ...
+@overload
+def normalize(v: vec4) -> vec4: ...
+
+
+def normalize(v: Vec) -> Vec:
+    norm = float(np.linalg.norm(v.data))
+    if norm == 0:
+        return v
+    if isinstance(v, vec2):
+        return vec2(v.data[0] / norm, v.data[1] / norm)
+    if isinstance(v, vec3):
+        return vec3(v.data[0] / norm, v.data[1] / norm, v.data[2] / norm)
+    return vec4(v.data[0] / norm, v.data[1] / norm, v.data[2] / norm, v.data[3] / norm)
+
+
+# Min/max functions
+@overload
+def min(a: float, b: float) -> float: ...
+@overload
+def min(a: float, b: float, c: float) -> float: ...
+@overload
+def min(a: vec2, b: vec2) -> vec2: ...
+@overload
+def min(a: vec2, b: float) -> vec2: ...
+@overload
+def min(a: vec3, b: vec3) -> vec3: ...
+@overload
+def min(a: vec3, b: float) -> vec3: ...
+@overload
+def min(a: vec4, b: vec4) -> vec4: ...
+@overload
+def min(a: vec4, b: float) -> vec4: ...
+
+
+def min(a: VecOrFloat, b: VecOrFloat, c: float | None = None) -> VecOrFloat:
+    if c is not None:
+        if isinstance(a, int | float) and isinstance(b, int | float):
+            return float(np.minimum(np.minimum(a, b), c))
+        raise TypeError("min() with 3 args only supports floats")
+    return _apply_binary_elementwise(a, b, lambda x, y: x if x < y else y)
+
+
+@overload
+def max(a: float, b: float) -> float: ...
+@overload
+def max(a: float, b: float, c: float) -> float: ...
+@overload
+def max(a: vec2, b: vec2) -> vec2: ...
+@overload
+def max(a: vec2, b: float) -> vec2: ...
+@overload
+def max(a: vec3, b: vec3) -> vec3: ...
+@overload
+def max(a: vec3, b: float) -> vec3: ...
+@overload
+def max(a: vec4, b: vec4) -> vec4: ...
+@overload
+def max(a: vec4, b: float) -> vec4: ...
+
+
+def max(a: VecOrFloat, b: VecOrFloat, c: float | None = None) -> VecOrFloat:
+    if c is not None:
+        if isinstance(a, int | float) and isinstance(b, int | float):
+            return float(np.maximum(np.maximum(a, b), c))
+        raise TypeError("max() with 3 args only supports floats")
+    return _apply_binary_elementwise(a, b, lambda x, y: x if x > y else y)
+
+
+# Interpolation functions
+@overload
+def mix(x: float, y: float, a: float) -> float: ...
+@overload
+def mix(x: vec2, y: vec2, a: float) -> vec2: ...
+@overload
+def mix(x: vec2, y: vec2, a: vec2) -> vec2: ...
+@overload
+def mix(x: vec3, y: vec3, a: float) -> vec3: ...
+@overload
+def mix(x: vec3, y: vec3, a: vec3) -> vec3: ...
+@overload
+def mix(x: vec4, y: vec4, a: float) -> vec4: ...
+@overload
+def mix(x: vec4, y: vec4, a: vec4) -> vec4: ...
+
+
+def mix(x: VecOrFloat, y: VecOrFloat, a: VecOrFloat) -> VecOrFloat:
+    def _mix(xv: float, yv: float, av: float) -> float:
+        return xv * (1 - av) + yv * av
+
+    if (
+        isinstance(x, int | float)
+        and isinstance(y, int | float)
+        and isinstance(a, int | float)
+    ):
+        return _mix(float(x), float(y), float(a))
+
+    if isinstance(x, vec2) and isinstance(y, vec2):
+        if isinstance(a, vec2):
             return vec2(
-                x.x - y.x * float(np.floor(x.x / y.x)),
-                x.y - y.y * float(np.floor(x.y / y.y)),
+                _mix(x.data[0], y.data[0], a.data[0]),
+                _mix(x.data[1], y.data[1], a.data[1]),
             )
-        if isinstance(y, int | float):
-            yf = float(y)
+        if isinstance(a, int | float):
+            af = float(a)
             return vec2(
-                x.x - yf * float(np.floor(x.x / yf)),
-                x.y - yf * float(np.floor(x.y / yf)),
+                _mix(x.data[0], y.data[0], af),
+                _mix(x.data[1], y.data[1], af),
             )
-    if isinstance(x, vec3):
-        if isinstance(y, vec3):
+
+    if isinstance(x, vec3) and isinstance(y, vec3):
+        if isinstance(a, vec3):
             return vec3(
-                x.x - y.x * float(np.floor(x.x / y.x)),
-                x.y - y.y * float(np.floor(x.y / y.y)),
-                x.z - y.z * float(np.floor(x.z / y.z)),
+                _mix(x.data[0], y.data[0], a.data[0]),
+                _mix(x.data[1], y.data[1], a.data[1]),
+                _mix(x.data[2], y.data[2], a.data[2]),
             )
-        if isinstance(y, int | float):
-            yf = float(y)
+        if isinstance(a, int | float):
+            af = float(a)
             return vec3(
-                x.x - yf * float(np.floor(x.x / yf)),
-                x.y - yf * float(np.floor(x.y / yf)),
-                x.z - yf * float(np.floor(x.z / yf)),
+                _mix(x.data[0], y.data[0], af),
+                _mix(x.data[1], y.data[1], af),
+                _mix(x.data[2], y.data[2], af),
             )
-    if isinstance(x, vec4):
-        if isinstance(y, vec4):
+
+    if isinstance(x, vec4) and isinstance(y, vec4):
+        if isinstance(a, vec4):
             return vec4(
-                x.x - y.x * float(np.floor(x.x / y.x)),
-                x.y - y.y * float(np.floor(x.y / y.y)),
-                x.z - y.z * float(np.floor(x.z / y.z)),
-                x.w - y.w * float(np.floor(x.w / y.w)),
+                _mix(x.data[0], y.data[0], a.data[0]),
+                _mix(x.data[1], y.data[1], a.data[1]),
+                _mix(x.data[2], y.data[2], a.data[2]),
+                _mix(x.data[3], y.data[3], a.data[3]),
             )
-        if isinstance(y, int | float):
-            yf = float(y)
+        if isinstance(a, int | float):
+            af = float(a)
             return vec4(
-                x.x - yf * float(np.floor(x.x / yf)),
-                x.y - yf * float(np.floor(x.y / yf)),
-                x.z - yf * float(np.floor(x.z / yf)),
-                x.w - yf * float(np.floor(x.w / yf)),
+                _mix(x.data[0], y.data[0], af),
+                _mix(x.data[1], y.data[1], af),
+                _mix(x.data[2], y.data[2], af),
+                _mix(x.data[3], y.data[3], af),
             )
-    if isinstance(x, int | float) and isinstance(y, int | float):
-        xf = float(x)
-        yf = float(y)
-        return xf - yf * float(np.floor(xf / yf))
-    raise TypeError(f"mod() received incompatible types: {type(x)} and {type(y)}")
+
+    msg = f"mix() received incompatible types: {type(x)}, {type(y)}, {type(a)}"
+    raise TypeError(msg)
 
 
-# step
+@overload
+def smoothstep(edge0: float, edge1: float, x: float) -> float: ...
+@overload
+def smoothstep(edge0: vec2, edge1: vec2, x: vec2) -> vec2: ...
+@overload
+def smoothstep(edge0: vec3, edge1: vec3, x: vec3) -> vec3: ...
+@overload
+def smoothstep(edge0: vec4, edge1: vec4, x: vec4) -> vec4: ...
+@overload
+def smoothstep(edge0: float, edge1: float, x: vec2) -> vec2: ...
+@overload
+def smoothstep(edge0: float, edge1: float, x: vec3) -> vec3: ...
+@overload
+def smoothstep(edge0: float, edge1: float, x: vec4) -> vec4: ...
+
+
+def smoothstep(edge0: VecOrFloat, edge1: VecOrFloat, x: VecOrFloat) -> VecOrFloat:
+    def _ss(e0: float, e1: float, v: float) -> float:
+        t = float(np.clip((v - e0) / (e1 - e0), 0.0, 1.0))
+        return t * t * (3.0 - 2.0 * t)
+
+    # All floats
+    if isinstance(edge0, int | float) and isinstance(edge1, int | float):
+        if isinstance(x, int | float):
+            return _ss(float(edge0), float(edge1), float(x))
+        e0, e1 = float(edge0), float(edge1)
+        if isinstance(x, vec2):
+            return vec2(_ss(e0, e1, x.data[0]), _ss(e0, e1, x.data[1]))
+        if isinstance(x, vec3):
+            return vec3(
+                _ss(e0, e1, x.data[0]),
+                _ss(e0, e1, x.data[1]),
+                _ss(e0, e1, x.data[2]),
+            )
+        if isinstance(x, vec4):
+            return vec4(
+                _ss(e0, e1, x.data[0]),
+                _ss(e0, e1, x.data[1]),
+                _ss(e0, e1, x.data[2]),
+                _ss(e0, e1, x.data[3]),
+            )
+
+    # Vector edges
+    if isinstance(edge0, vec2) and isinstance(edge1, vec2) and isinstance(x, vec2):
+        return vec2(
+            _ss(edge0.data[0], edge1.data[0], x.data[0]),
+            _ss(edge0.data[1], edge1.data[1], x.data[1]),
+        )
+    if isinstance(edge0, vec3) and isinstance(edge1, vec3) and isinstance(x, vec3):
+        return vec3(
+            _ss(edge0.data[0], edge1.data[0], x.data[0]),
+            _ss(edge0.data[1], edge1.data[1], x.data[1]),
+            _ss(edge0.data[2], edge1.data[2], x.data[2]),
+        )
+    if isinstance(edge0, vec4) and isinstance(edge1, vec4) and isinstance(x, vec4):
+        return vec4(
+            _ss(edge0.data[0], edge1.data[0], x.data[0]),
+            _ss(edge0.data[1], edge1.data[1], x.data[1]),
+            _ss(edge0.data[2], edge1.data[2], x.data[2]),
+            _ss(edge0.data[3], edge1.data[3], x.data[3]),
+        )
+
+    raise TypeError(f"smoothstep() types: {type(edge0)}, {type(edge1)}, {type(x)}")
+
+
 @overload
 def step(edge: float, x: float) -> float: ...
 @overload
@@ -1599,43 +1265,77 @@ def step(edge: vec3, x: vec3) -> vec3: ...
 def step(edge: vec4, x: vec4) -> vec4: ...
 
 
-def step(
-    edge: float | vec2 | vec3 | vec4, x: float | vec2 | vec3 | vec4
-) -> float | vec2 | vec3 | vec4:
-    """Returns 0.0 if x < edge, else 1.0"""
-
+def step(edge: VecOrFloat, x: VecOrFloat) -> VecOrFloat:
     def _step(e: float, v: float) -> float:
         return 0.0 if v < e else 1.0
 
-    if isinstance(x, vec2):
-        if isinstance(edge, vec2):
-            return vec2(_step(edge.x, x.x), _step(edge.y, x.y))
-        if isinstance(edge, int | float):
-            ef = float(edge)
-            return vec2(_step(ef, x.x), _step(ef, x.y))
-    if isinstance(x, vec3):
-        if isinstance(edge, vec3):
-            return vec3(_step(edge.x, x.x), _step(edge.y, x.y), _step(edge.z, x.z))
-        if isinstance(edge, int | float):
-            ef = float(edge)
-            return vec3(_step(ef, x.x), _step(ef, x.y), _step(ef, x.z))
-    if isinstance(x, vec4):
-        if isinstance(edge, vec4):
-            return vec4(
-                _step(edge.x, x.x),
-                _step(edge.y, x.y),
-                _step(edge.z, x.z),
-                _step(edge.w, x.w),
+    if isinstance(edge, int | float):
+        ef = float(edge)
+        if isinstance(x, int | float):
+            return _step(ef, float(x))
+        if isinstance(x, vec2):
+            return vec2(_step(ef, x.data[0]), _step(ef, x.data[1]))
+        if isinstance(x, vec3):
+            return vec3(
+                _step(ef, x.data[0]),
+                _step(ef, x.data[1]),
+                _step(ef, x.data[2]),
             )
-        if isinstance(edge, int | float):
-            ef = float(edge)
-            return vec4(_step(ef, x.x), _step(ef, x.y), _step(ef, x.z), _step(ef, x.w))
-    if isinstance(edge, int | float) and isinstance(x, int | float):
-        return _step(float(edge), float(x))
+        if isinstance(x, vec4):
+            return vec4(
+                _step(ef, x.data[0]),
+                _step(ef, x.data[1]),
+                _step(ef, x.data[2]),
+                _step(ef, x.data[3]),
+            )
+
+    if isinstance(edge, vec2) and isinstance(x, vec2):
+        return vec2(
+            _step(edge.data[0], x.data[0]),
+            _step(edge.data[1], x.data[1]),
+        )
+    if isinstance(edge, vec3) and isinstance(x, vec3):
+        return vec3(
+            _step(edge.data[0], x.data[0]),
+            _step(edge.data[1], x.data[1]),
+            _step(edge.data[2], x.data[2]),
+        )
+    if isinstance(edge, vec4) and isinstance(x, vec4):
+        return vec4(
+            _step(edge.data[0], x.data[0]),
+            _step(edge.data[1], x.data[1]),
+            _step(edge.data[2], x.data[2]),
+            _step(edge.data[3], x.data[3]),
+        )
+
     raise TypeError(f"step() received incompatible types: {type(edge)} and {type(x)}")
 
 
-# clamp
+@overload
+def mod(x: float, y: float) -> float: ...
+@overload
+def mod(x: vec2, y: float) -> vec2: ...
+@overload
+def mod(x: vec2, y: vec2) -> vec2: ...
+@overload
+def mod(x: vec3, y: float) -> vec3: ...
+@overload
+def mod(x: vec3, y: vec3) -> vec3: ...
+@overload
+def mod(x: vec4, y: float) -> vec4: ...
+@overload
+def mod(x: vec4, y: vec4) -> vec4: ...
+
+
+def mod(x: VecOrFloat, y: VecOrFloat) -> VecOrFloat:
+    """GLSL mod: x - y * floor(x/y)"""
+
+    def _mod(xv: float, yv: float) -> float:
+        return xv - yv * float(np.floor(xv / yv))
+
+    return _apply_binary_elementwise(x, y, _mod)
+
+
 @overload
 def clamp(x: float, min_val: float, max_val: float) -> float: ...
 @overload
@@ -1652,60 +1352,63 @@ def clamp(x: vec4, min_val: vec4, max_val: vec4) -> vec4: ...
 def clamp(x: vec4, min_val: float, max_val: float) -> vec4: ...
 
 
-def clamp(
-    x: float | vec2 | vec3 | vec4,
-    min_val: float | vec2 | vec3 | vec4,
-    max_val: float | vec2 | vec3 | vec4,
-) -> float | vec2 | vec3 | vec4:
+def clamp(x: VecOrFloat, min_val: VecOrFloat, max_val: VecOrFloat) -> VecOrFloat:
     def _clamp(v: float, lo: float, hi: float) -> float:
         return float(np.clip(v, lo, hi))
 
-    if isinstance(x, vec2):
-        if isinstance(min_val, vec2) and isinstance(max_val, vec2):
-            return vec2(
-                _clamp(x.x, min_val.x, max_val.x), _clamp(x.y, min_val.y, max_val.y)
-            )
-        if isinstance(min_val, int | float) and isinstance(max_val, int | float):
-            return vec2(_clamp(x.x, min_val, max_val), _clamp(x.y, min_val, max_val))
-    if isinstance(x, vec3):
-        if isinstance(min_val, vec3) and isinstance(max_val, vec3):
-            return vec3(
-                _clamp(x.x, min_val.x, max_val.x),
-                _clamp(x.y, min_val.y, max_val.y),
-                _clamp(x.z, min_val.z, max_val.z),
-            )
-        if isinstance(min_val, int | float) and isinstance(max_val, int | float):
-            return vec3(
-                _clamp(x.x, min_val, max_val),
-                _clamp(x.y, min_val, max_val),
-                _clamp(x.z, min_val, max_val),
-            )
-    if isinstance(x, vec4):
-        if isinstance(min_val, vec4) and isinstance(max_val, vec4):
-            return vec4(
-                _clamp(x.x, min_val.x, max_val.x),
-                _clamp(x.y, min_val.y, max_val.y),
-                _clamp(x.z, min_val.z, max_val.z),
-                _clamp(x.w, min_val.w, max_val.w),
-            )
-        if isinstance(min_val, int | float) and isinstance(max_val, int | float):
-            return vec4(
-                _clamp(x.x, min_val, max_val),
-                _clamp(x.y, min_val, max_val),
-                _clamp(x.z, min_val, max_val),
-                _clamp(x.w, min_val, max_val),
-            )
     if (
         isinstance(x, int | float)
         and isinstance(min_val, int | float)
         and isinstance(max_val, int | float)
     ):
-        return _clamp(x, min_val, max_val)
+        return _clamp(float(x), float(min_val), float(max_val))
+
+    if isinstance(x, vec2):
+        if isinstance(min_val, vec2) and isinstance(max_val, vec2):
+            return vec2(
+                _clamp(x.data[0], min_val.data[0], max_val.data[0]),
+                _clamp(x.data[1], min_val.data[1], max_val.data[1]),
+            )
+        if isinstance(min_val, int | float) and isinstance(max_val, int | float):
+            lo, hi = float(min_val), float(max_val)
+            return vec2(_clamp(x.data[0], lo, hi), _clamp(x.data[1], lo, hi))
+
+    if isinstance(x, vec3):
+        if isinstance(min_val, vec3) and isinstance(max_val, vec3):
+            return vec3(
+                _clamp(x.data[0], min_val.data[0], max_val.data[0]),
+                _clamp(x.data[1], min_val.data[1], max_val.data[1]),
+                _clamp(x.data[2], min_val.data[2], max_val.data[2]),
+            )
+        if isinstance(min_val, int | float) and isinstance(max_val, int | float):
+            lo, hi = float(min_val), float(max_val)
+            return vec3(
+                _clamp(x.data[0], lo, hi),
+                _clamp(x.data[1], lo, hi),
+                _clamp(x.data[2], lo, hi),
+            )
+
+    if isinstance(x, vec4):
+        if isinstance(min_val, vec4) and isinstance(max_val, vec4):
+            return vec4(
+                _clamp(x.data[0], min_val.data[0], max_val.data[0]),
+                _clamp(x.data[1], min_val.data[1], max_val.data[1]),
+                _clamp(x.data[2], min_val.data[2], max_val.data[2]),
+                _clamp(x.data[3], min_val.data[3], max_val.data[3]),
+            )
+        if isinstance(min_val, int | float) and isinstance(max_val, int | float):
+            lo, hi = float(min_val), float(max_val)
+            return vec4(
+                _clamp(x.data[0], lo, hi),
+                _clamp(x.data[1], lo, hi),
+                _clamp(x.data[2], lo, hi),
+                _clamp(x.data[3], lo, hi),
+            )
 
     raise TypeError(f"clamp() types: {type(x)}, {type(min_val)}, {type(max_val)}")
 
 
-# reflect
+# Reflection/refraction
 @overload
 def reflect(I: vec2, N: vec2) -> vec2: ...
 @overload
@@ -1714,7 +1417,7 @@ def reflect(I: vec3, N: vec3) -> vec3: ...
 def reflect(I: vec4, N: vec4) -> vec4: ...
 
 
-def reflect(I: vec2 | vec3 | vec4, N: vec2 | vec3 | vec4) -> vec2 | vec3 | vec4:
+def reflect(I: Vec, N: Vec) -> Vec:
     """Reflect incident vector I around normal N."""
     if isinstance(I, vec2) and isinstance(N, vec2):
         d = dot(N, I)
@@ -1725,12 +1428,9 @@ def reflect(I: vec2 | vec3 | vec4, N: vec2 | vec3 | vec4) -> vec2 | vec3 | vec4:
     if isinstance(I, vec4) and isinstance(N, vec4):
         d = dot(N, I)
         return I - 2.0 * d * N
-    raise TypeError(
-        f"reflect() requires matching vector types, got {type(I)} and {type(N)}"
-    )
+    raise TypeError(f"reflect() types: {type(I)}, {type(N)}")
 
 
-# refract
 def refract(I: vec3, N: vec3, eta: float) -> vec3:
     """Refract incident vector I through surface with normal N and ratio eta."""
     d = dot(N, I)

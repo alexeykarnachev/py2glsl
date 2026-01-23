@@ -11,26 +11,49 @@ from py2glsl.transpiler.models import TranspilerError
 
 
 def get_annotation_type(annotation: ast.AST | None) -> str | None:
-    """Extract type name from an AST annotation node."""
+    """Extract type name from an AST annotation node.
+
+    Handles:
+    - Simple names: float, vec3, MyStruct
+    - String annotations: "float"
+    - tuple[T, T, ...] -> vecN
+    - list[T] -> T[] (for array types)
+    - Other subscripts: extracts the slice type
+    """
     if annotation is None:
         return None
     if isinstance(annotation, ast.Name):
         return annotation.id
     if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
         return annotation.value
-    # Handle subscript annotations like input_[vec2] or uniform[float]
+    # Handle subscript annotations
     if isinstance(annotation, ast.Subscript):
-        # Handle tuple[T1, T2, ...] -> convert to vecN
-        if (
-            isinstance(annotation.value, ast.Name)
-            and annotation.value.id == "tuple"
-            and isinstance(annotation.slice, ast.Tuple)
-        ):
-            num_elements = len(annotation.slice.elts)
-            if 2 <= num_elements <= 4:
-                return f"vec{num_elements}"
+        if isinstance(annotation.value, ast.Name):
+            type_name = annotation.value.id
+            # Handle tuple[T1, T2, ...] -> convert to vecN
+            if type_name == "tuple" and isinstance(annotation.slice, ast.Tuple):
+                num_elements = len(annotation.slice.elts)
+                if 2 <= num_elements <= 4:
+                    return f"vec{num_elements}"
+            # Handle list[T] -> T[] (for array types)
+            if type_name == "list":
+                elem_type = get_annotation_type(annotation.slice)
+                if elem_type:
+                    return f"{elem_type}[]"
         return get_annotation_type(annotation.slice)
     return None
+
+
+def get_annotation_type_with_default(
+    annotation: ast.AST | None, default: str = "float"
+) -> str:
+    """Extract type name from annotation, returning default if None.
+
+    Convenience wrapper around get_annotation_type for cases where
+    a default type is needed.
+    """
+    result = get_annotation_type(annotation)
+    return result if result is not None else default
 
 
 def generate_simple_expr(node: ast.AST) -> str:

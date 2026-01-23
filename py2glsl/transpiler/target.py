@@ -20,23 +20,6 @@ from py2glsl.transpiler.ir import (
 )
 
 # =============================================================================
-# Canonical Builtin Names (the py2glsl shader language)
-# =============================================================================
-
-BUILTIN_UNIFORMS: dict[str, str] = {
-    "u_time": "float",
-    "u_resolution": "vec2",
-    "u_aspect": "float",
-    "u_mouse_pos": "vec2",
-    "u_mouse_uv": "vec2",
-}
-
-BUILTIN_INPUTS: dict[str, str] = {
-    "vs_uv": "vec2",
-}
-
-
-# =============================================================================
 # Data Classes
 # =============================================================================
 

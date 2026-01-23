@@ -78,8 +78,41 @@ MAX_SWIZZLE_LENGTH = 4
 # Valid swizzle characters
 SWIZZLE_CHARS = frozenset("xyzwrgba")
 
+# =============================================================================
+# Builtin Function Signatures
+# =============================================================================
+
+# Vector types for signature generation
+_VEC_TYPES = ["float", "vec2", "vec3", "vec4"]
+
+
+def _unary_vec_sigs() -> list[tuple[str, list[str]]]:
+    """Generate signatures for unary functions: T func(T) for all vec types."""
+    return [(t, [t]) for t in _VEC_TYPES]
+
+
+def _binary_vec_sigs() -> list[tuple[str, list[str]]]:
+    """Generate signatures for binary functions: T func(T, T) for all vec types."""
+    return [(t, [t, t]) for t in _VEC_TYPES]
+
+
+def _ternary_vec_sigs() -> list[tuple[str, list[str]]]:
+    """Generate signatures for ternary functions: T func(T, T, T) for all vec types."""
+    return [(t, [t, t, t]) for t in _VEC_TYPES]
+
+
+def _scalar_unary_vec_sigs() -> list[tuple[str, list[str]]]:
+    """Generate signatures for functions returning float: float func(vecN)."""
+    return [("float", [t]) for t in _VEC_TYPES[1:]]  # Skip float
+
+
+def _scalar_binary_vec_sigs() -> list[tuple[str, list[str]]]:
+    """Generate signatures for functions: float func(vecN, vecN)."""
+    return [("float", [t, t]) for t in _VEC_TYPES[1:]]  # Skip float
+
+
 BUILTIN_FUNCTIONS: dict[str, Any] = {
-    # Trigonometric
+    # Trigonometric (scalar only)
     "sin": ("float", ["float"]),
     "cos": ("float", ["float"]),
     "tan": ("float", ["float"]),
@@ -87,109 +120,40 @@ BUILTIN_FUNCTIONS: dict[str, Any] = {
     "acos": ("float", ["float"]),
     "atan": ("float", ["float"]),
     "radians": ("float", ["float"]),
-    # Math
-    "abs": [
-        ("float", ["float"]),
-        ("vec2", ["vec2"]),
-        ("vec3", ["vec3"]),
-        ("vec4", ["vec4"]),
-    ],
-    "floor": [
-        ("float", ["float"]),
-        ("vec2", ["vec2"]),
-        ("vec3", ["vec3"]),
-        ("vec4", ["vec4"]),
-    ],
-    "ceil": [
-        ("float", ["float"]),
-        ("vec2", ["vec2"]),
-        ("vec3", ["vec3"]),
-        ("vec4", ["vec4"]),
-    ],
-    "fract": [
-        ("float", ["float"]),
-        ("vec2", ["vec2"]),
-        ("vec3", ["vec3"]),
-        ("vec4", ["vec4"]),
-    ],
-    "sqrt": [
-        ("float", ["float"]),
-        ("vec2", ["vec2"]),
-        ("vec3", ["vec3"]),
-        ("vec4", ["vec4"]),
-    ],
-    "mod": [
-        ("float", ["float", "float"]),
-        ("vec2", ["vec2", "float"]),
-        ("vec3", ["vec3", "float"]),
-        ("vec4", ["vec4", "float"]),
-    ],
-    "min": [
-        ("float", ["float", "float"]),
-        ("vec2", ["vec2", "vec2"]),
-        ("vec3", ["vec3", "vec3"]),
-        ("vec4", ["vec4", "vec4"]),
-    ],
-    "max": [
-        ("float", ["float", "float"]),
-        ("vec2", ["vec2", "vec2"]),
-        ("vec3", ["vec3", "vec3"]),
-        ("vec4", ["vec4", "vec4"]),
-    ],
-    "step": [
-        ("float", ["float", "float"]),
-        ("vec2", ["vec2", "vec2"]),
-        ("vec3", ["vec3", "vec3"]),
-        ("vec4", ["vec4", "vec4"]),
-    ],
-    "clamp": [
-        ("float", ["float", "float", "float"]),
-        ("vec2", ["vec2", "vec2", "vec2"]),
-        ("vec3", ["vec3", "vec3", "vec3"]),
-        ("vec4", ["vec4", "vec4", "vec4"]),
-    ],
-    "mix": [
-        ("float", ["float", "float", "float"]),
-        ("vec2", ["vec2", "vec2", "float"]),
-        ("vec3", ["vec3", "vec3", "float"]),
-        ("vec4", ["vec4", "vec4", "float"]),
-    ],
-    "smoothstep": [
-        ("float", ["float", "float", "float"]),
-        ("vec2", ["vec2", "vec2", "vec2"]),
-        ("vec3", ["vec3", "vec3", "vec3"]),
-        ("vec4", ["vec4", "vec4", "vec4"]),
-    ],
+    # Unary math functions: T func(T)
+    "abs": _unary_vec_sigs(),
+    "floor": _unary_vec_sigs(),
+    "ceil": _unary_vec_sigs(),
+    "fract": _unary_vec_sigs(),
+    "sqrt": _unary_vec_sigs(),
+    "normalize": [(t, [t]) for t in _VEC_TYPES[1:]],  # vec only
+    # Binary math functions: T func(T, T)
+    "min": _binary_vec_sigs(),
+    "max": _binary_vec_sigs(),
+    "step": _binary_vec_sigs(),
+    # Binary with scalar second arg: T func(T, float)
+    "mod": [(t, [t, "float" if t != "float" else t]) for t in _VEC_TYPES],
+    # Ternary functions: T func(T, T, T)
+    "clamp": _ternary_vec_sigs(),
+    "smoothstep": _ternary_vec_sigs(),
+    # mix: T func(T, T, float) for vec types, float func(float, float, float)
+    "mix": [("float", ["float", "float", "float"])]
+    + [(t, [t, t, "float"]) for t in _VEC_TYPES[1:]],
+    # Scalar-only math
     "pow": ("float", ["float", "float"]),
     "exp": ("float", ["float"]),
     "log": ("float", ["float"]),
     "exp2": ("float", ["float"]),
     "log2": ("float", ["float"]),
     "round": ("float", ["float"]),
-    # Geometric
-    "length": [("float", ["vec2"]), ("float", ["vec3"]), ("float", ["vec4"])],
-    "distance": [
-        ("float", ["vec2", "vec2"]),
-        ("float", ["vec3", "vec3"]),
-        ("float", ["vec4", "vec4"]),
-    ],
-    "dot": [
-        ("float", ["vec2", "vec2"]),
-        ("float", ["vec3", "vec3"]),
-        ("float", ["vec4", "vec4"]),
-    ],
+    # Geometric functions returning scalar
+    "length": _scalar_unary_vec_sigs(),
+    "distance": _scalar_binary_vec_sigs(),
+    "dot": _scalar_binary_vec_sigs(),
     "cross": ("vec3", ["vec3", "vec3"]),
-    "normalize": [("vec2", ["vec2"]), ("vec3", ["vec3"]), ("vec4", ["vec4"])],
-    "reflect": [
-        ("vec2", ["vec2", "vec2"]),
-        ("vec3", ["vec3", "vec3"]),
-        ("vec4", ["vec4", "vec4"]),
-    ],
-    "refract": [
-        ("vec2", ["vec2", "vec2", "float"]),
-        ("vec3", ["vec3", "vec3", "float"]),
-        ("vec4", ["vec4", "vec4", "float"]),
-    ],
+    # Reflection/refraction
+    "reflect": [(t, [t, t]) for t in _VEC_TYPES[1:]],
+    "refract": [(t, [t, t, "float"]) for t in _VEC_TYPES[1:]],
     # Type conversion
     "float": ("float", ["int"]),
     "int": ("int", ["float"]),
@@ -264,3 +228,23 @@ OPERATOR_PRECEDENCE: dict[str, int] = {
     "member": 10,
     "?": 14,
 }
+
+
+# =============================================================================
+# AST Operator Conversion Functions
+# =============================================================================
+
+
+def binop_to_str(op_type_name: str) -> str:
+    """Convert AST binary operator type name to string operator."""
+    return AST_BINOP_MAP.get(op_type_name, "+")
+
+
+def unaryop_to_str(op_type_name: str) -> str:
+    """Convert AST unary operator type name to string operator."""
+    return AST_UNARYOP_MAP.get(op_type_name, "-")
+
+
+def cmpop_to_str(op_type_name: str) -> str:
+    """Convert AST comparison operator type name to string operator."""
+    return AST_CMPOP_MAP.get(op_type_name, "==")

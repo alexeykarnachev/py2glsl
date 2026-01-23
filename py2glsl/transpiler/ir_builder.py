@@ -1,21 +1,18 @@
 """Build IR from CollectedInfo."""
 
 import ast
-import re
 
 from py2glsl.context import CONTEXT_BUILTINS
+from py2glsl.transpiler.ast_parser import get_annotation_type_with_default
+from py2glsl.transpiler.ast_utils import eval_constant, substitute_name
 from py2glsl.transpiler.constants import (
-    AST_BINOP_MAP,
-    AST_CMPOP_MAP,
-    AST_UNARYOP_MAP,
     BOOL_RESULT_FUNCTIONS,
-    MATRIX_TO_VECTOR,
-    MAX_SWIZZLE_LENGTH,
     PRESERVE_TYPE_FUNCTIONS,
     SCALAR_RESULT_FUNCTIONS,
-    SWIZZLE_CHARS,
     TYPE_CONSTRUCTORS,
-    VECTOR_ELEMENT_TYPE,
+    binop_to_str,
+    cmpop_to_str,
+    unaryop_to_str,
 )
 from py2glsl.transpiler.ir import (
     IRAssign,
@@ -50,7 +47,15 @@ from py2glsl.transpiler.ir import (
     StorageClass,
 )
 from py2glsl.transpiler.models import CollectedInfo, FunctionInfo, TranspilerError
-from py2glsl.transpiler.type_checker import infer_binop_result_type
+from py2glsl.transpiler.type_checker import get_expr_type, infer_binop_result_type
+from py2glsl.transpiler.type_utils import (
+    get_indexable_size,
+    infer_literal_type,
+    is_swizzle,
+    parse_type_string,
+    subscript_result_type,
+    swizzle_result_type,
+)
 
 
 class IRBuilder:
@@ -271,40 +276,21 @@ class IRBuilder:
                 self._collect_assigned_vars(stmt, assigned)
 
     def _infer_expr_type(self, node: ast.expr) -> IRType:
-        """Infer the IR type of an expression without building it."""
-        match node:
-            case ast.Constant(value=value):
-                return self._infer_literal_type(value)
-            case ast.Name(id=name):
-                return self.symbols.get(name, IRType("float"))
-            case ast.Call(func=func):
-                if isinstance(func, ast.Name):
-                    func_name = func.id
-                    # Check structs
-                    if func_name in self.collected.structs:
-                        return IRType(func_name)
-                    # Check type constructors
-                    if func_name in TYPE_CONSTRUCTORS:
-                        return IRType(func_name)
-                    # Check functions
-                    if func_name in self.collected.functions:
-                        ret = self.collected.functions[func_name].return_type
-                        if ret:
-                            return IRType(ret)
-                return IRType("float")
-            case ast.BinOp(left=left):
-                return self._infer_expr_type(left)
-            case ast.UnaryOp(operand=operand):
-                return self._infer_expr_type(operand)
-            case ast.Attribute(value=value, attr=attr):
-                base_type = self._infer_expr_type(value)
-                if self._is_swizzle(attr):
-                    return self._swizzle_result_type(base_type, attr)
-                return self._field_access_type(base_type, attr)
-            case ast.Subscript(value=value):
-                base_type = self._infer_expr_type(value)
-                return self._subscript_result_type(base_type)
-        return IRType("float")
+        """Infer the IR type of an expression without building it.
+
+        Delegates to type_checker.get_expr_type() and wraps result in IRType.
+        """
+        # Build symbols dict with string types for type_checker
+        # Use str(v) to preserve array size info (e.g., "vec3[2]" not just "vec3")
+        str_symbols: dict[str, str | None] = {
+            k: str(v) for k, v in self.symbols.items()
+        }
+        try:
+            type_str = get_expr_type(node, str_symbols, self.collected)
+            return parse_type_string(type_str)
+        except TranspilerError:
+            # Fallback for cases not handled by type_checker
+            return IRType("float")
 
     def _build_stmt(self, node: ast.stmt) -> list[IRStmt]:
         """Build IR statement(s) from AST statement."""
@@ -349,8 +335,8 @@ class IRBuilder:
                 return result
 
             case ast.AnnAssign(target=target, annotation=ann, value=value):
-                type_name = self._get_type_from_annotation(ann)
-                ir_type = self._parse_type_string(type_name)
+                type_name = get_annotation_type_with_default(ann)
+                ir_type = parse_type_string(type_name)
                 if isinstance(target, ast.Name):
                     init = None
                     if value:
@@ -364,7 +350,7 @@ class IRBuilder:
                 return []
 
             case ast.AugAssign(target=target, op=op, value=value):
-                op_str = self._binop_to_str(op)
+                op_str = binop_to_str(type(op).__name__)
                 target_expr = self._build_expr(target)
                 value_expr = self._build_expr(value)
                 return [
@@ -499,7 +485,7 @@ class IRBuilder:
         """Build IR expression from AST expression."""
         match node:
             case ast.Constant(value=value):
-                ir_type = self._infer_literal_type(value)
+                ir_type = infer_literal_type(value)
                 return IRLiteral(result_type=ir_type, value=value)
 
             case ast.Name(id=name):
@@ -509,7 +495,7 @@ class IRBuilder:
             case ast.BinOp(left=left, op=op, right=right):
                 left_expr = self._build_expr(left)
                 right_expr = self._build_expr(right)
-                op_str = self._binop_to_str(op)
+                op_str = binop_to_str(type(op).__name__)
 
                 # Convert % on floats/vectors to mod() function call
                 if op_str == "%" and left_expr.result_type.base not in ("int", "uint"):
@@ -550,7 +536,7 @@ class IRBuilder:
 
             case ast.UnaryOp(op=op, operand=operand):
                 operand_expr = self._build_expr(operand)
-                op_str = self._unaryop_to_str(op)
+                op_str = unaryop_to_str(type(op).__name__)
                 return IRUnaryOp(
                     result_type=operand_expr.result_type,
                     op=op_str,
@@ -573,8 +559,8 @@ class IRBuilder:
                     return IRName(result_type=IRType(glsl_type), name=attr)
 
                 base_expr = self._build_expr(value)
-                if self._is_swizzle(attr):
-                    result_type = self._swizzle_result_type(base_expr.result_type, attr)
+                if is_swizzle(attr):
+                    result_type = swizzle_result_type(attr)
                     return IRSwizzle(
                         result_type=result_type, base=base_expr, components=attr
                     )
@@ -586,7 +572,7 @@ class IRBuilder:
             case ast.Subscript(value=value, slice=slice_):
                 base_expr = self._build_expr(value)
                 index_expr = self._build_negative_index(slice_, base_expr.result_type)
-                result_type = self._subscript_result_type(base_expr.result_type)
+                result_type = subscript_result_type(base_expr.result_type)
                 return IRSubscript(
                     result_type=result_type, base=base_expr, index=index_expr
                 )
@@ -673,7 +659,7 @@ class IRBuilder:
         if len(ops) == 1:
             left_expr = self._build_expr(left)
             right_expr = self._build_expr(comparators[0])
-            op_str = self._cmpop_to_str(ops[0])
+            op_str = cmpop_to_str(type(ops[0]).__name__)
             return IRBinOp(
                 result_type=IRType("bool"), op=op_str, left=left_expr, right=right_expr
             )
@@ -684,7 +670,7 @@ class IRBuilder:
         for op, comp in zip(ops, comparators, strict=False):
             left_expr = self._build_expr(current)
             right_expr = self._build_expr(comp)
-            op_str = self._cmpop_to_str(op)
+            op_str = cmpop_to_str(type(op).__name__)
             parts.append(
                 IRBinOp(
                     result_type=IRType("bool"),
@@ -712,60 +698,6 @@ class IRBuilder:
                 result_type=IRType("bool"), op=op_str, left=result, right=expr
             )
         return result
-
-    def _binop_to_str(self, op: ast.operator) -> str:
-        """Convert AST operator to string."""
-        return AST_BINOP_MAP.get(type(op).__name__, "+")
-
-    def _unaryop_to_str(self, op: ast.unaryop) -> str:
-        """Convert AST unary operator to string."""
-        return AST_UNARYOP_MAP.get(type(op).__name__, "-")
-
-    def _cmpop_to_str(self, op: ast.cmpop) -> str:
-        """Convert AST comparison operator to string."""
-        return AST_CMPOP_MAP.get(type(op).__name__, "==")
-
-    def _get_type_from_annotation(self, ann: ast.expr | None) -> str:
-        """Extract type name from annotation."""
-        if ann is None:
-            return "float"
-        if isinstance(ann, ast.Name):
-            return ann.id
-        if isinstance(ann, ast.Constant):
-            return str(ann.value)
-        # Handle list[T] syntax for arrays
-        if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
-            type_name = ann.value.id
-            if type_name == "list":
-                elem_type = self._get_type_from_annotation(ann.slice)
-                return f"{elem_type}[]"
-        return "float"
-
-    def _parse_type_string(self, type_str: str) -> IRType:
-        """Parse type string like 'float[3]' or 'float[]' into IRType."""
-        # Match 'type[size]' with explicit size
-        match = re.match(r"(\w+)\[(\d+)\]", type_str)
-        if match:
-            base = match.group(1)
-            size = int(match.group(2))
-            return IRType(base=base, array_size=size)
-        # Match 'type[]' without size (size to be inferred from literal)
-        match = re.match(r"(\w+)\[\]", type_str)
-        if match:
-            base = match.group(1)
-            # array_size=-1 means "infer from literal"
-            return IRType(base=base, array_size=-1)
-        return IRType(base=type_str)
-
-    def _infer_literal_type(self, value: object) -> IRType:
-        """Infer IR type from literal value."""
-        if isinstance(value, bool):
-            return IRType("bool")
-        if isinstance(value, int):
-            return IRType("int")
-        if isinstance(value, float):
-            return IRType("float")
-        return IRType("float")
 
     def _infer_binop_type(self, left: IRExpr, right: IRExpr, op: str) -> IRType:
         """Infer result type of binary operation."""
@@ -801,19 +733,6 @@ class IRBuilder:
 
         return IRType("float")
 
-    def _is_swizzle(self, attr: str) -> bool:
-        """Check if attribute access is a vector swizzle."""
-        if not attr or len(attr) > MAX_SWIZZLE_LENGTH:
-            return False
-        return all(c in SWIZZLE_CHARS for c in attr)
-
-    def _swizzle_result_type(self, _base_type: IRType, components: str) -> IRType:
-        """Get result type of swizzle operation."""
-        n = len(components)
-        if n == 1:
-            return IRType("float")
-        return IRType(f"vec{n}")
-
     def _field_access_type(self, base_type: IRType, field: str) -> IRType:
         """Get result type of struct field access."""
         struct_def = self.collected.structs.get(base_type.base)
@@ -821,22 +740,6 @@ class IRBuilder:
             for f in struct_def.fields:
                 if f.name == field:
                     return IRType(f.type_name)
-        return IRType("float")
-
-    def _subscript_result_type(self, base_type: IRType) -> IRType:
-        """Get result type of subscript operation."""
-        # Array subscript returns the element type
-        if base_type.array_size is not None:
-            return IRType(base_type.base)
-
-        base = base_type.base
-        # Check vector types (vec, ivec, uvec, bvec)
-        for prefix, element_type in VECTOR_ELEMENT_TYPE.items():
-            if base.startswith(prefix):
-                return IRType(element_type)
-        # Matrix subscript returns corresponding vector
-        if base in MATRIX_TO_VECTOR:
-            return IRType(MATRIX_TO_VECTOR[base])
         return IRType("float")
 
     def _is_context_access(self, value: ast.expr, attr: str) -> bool:
@@ -863,7 +766,7 @@ class IRBuilder:
             and isinstance(slice_.operand.value, int)
         ):
             neg_index = -slice_.operand.value
-            size = self._get_indexable_size(base_type)
+            size = get_indexable_size(base_type)
             if size is not None and neg_index < 0:
                 # Convert negative index to positive
                 positive_index = size + neg_index
@@ -874,26 +777,11 @@ class IRBuilder:
             and isinstance(slice_.value, int)
             and slice_.value < 0
         ):
-            size = self._get_indexable_size(base_type)
+            size = get_indexable_size(base_type)
             if size is not None:
                 positive_index = size + slice_.value
                 return IRLiteral(result_type=IRType("int"), value=positive_index)
         return self._build_expr(slice_)
-
-    def _get_indexable_size(self, ir_type: IRType) -> int | None:
-        """Get the size of an indexable type (vector or array)."""
-        # Check for array types
-        if ir_type.array_size is not None:
-            return ir_type.array_size
-        # Check for vector types (vec2, vec3, vec4, ivec2, etc.)
-        base = ir_type.base
-        for prefix in ("vec", "ivec", "uvec", "bvec"):
-            if base.startswith(prefix) and len(base) == len(prefix) + 1:
-                try:
-                    return int(base[-1])
-                except ValueError:
-                    pass
-        return None
 
     def _build_power_expr(
         self, base_expr: IRExpr, exp_expr: IRExpr, exp_node: ast.expr
@@ -986,28 +874,29 @@ class IRBuilder:
 
         # Parse range arguments
         range_args = gen.iter.args
+        globals_dict = self.collected.globals
         start: int
         end: int
         step: int
         if len(range_args) == 1:
-            end_val = self._eval_constant(range_args[0])
+            end_val = eval_constant(range_args[0], globals_dict)
             if end_val is None:
                 raise TranspilerError(
                     "List comprehension range() args must be compile-time constants"
                 )
             start, end, step = 0, end_val, 1
         elif len(range_args) == 2:
-            start_val = self._eval_constant(range_args[0])
-            end_val = self._eval_constant(range_args[1])
+            start_val = eval_constant(range_args[0], globals_dict)
+            end_val = eval_constant(range_args[1], globals_dict)
             if start_val is None or end_val is None:
                 raise TranspilerError(
                     "List comprehension range() args must be compile-time constants"
                 )
             start, end, step = start_val, end_val, 1
         elif len(range_args) == 3:
-            start_val = self._eval_constant(range_args[0])
-            end_val = self._eval_constant(range_args[1])
-            step_val = self._eval_constant(range_args[2])
+            start_val = eval_constant(range_args[0], globals_dict)
+            end_val = eval_constant(range_args[1], globals_dict)
+            step_val = eval_constant(range_args[2], globals_dict)
             if start_val is None or end_val is None or step_val is None:
                 raise TranspilerError(
                     "List comprehension range() args must be compile-time constants"
@@ -1025,7 +914,7 @@ class IRBuilder:
             self.symbols[loop_var] = IRType("int")
 
             # Create a modified AST with the loop variable replaced by constant
-            substituted_elt = self._substitute_name(elt, loop_var, i)
+            substituted_elt = substitute_name(elt, loop_var, i)
             elem_expr = self._build_expr(substituted_elt)
             elements.append(elem_expr)
 
@@ -1043,99 +932,6 @@ class IRBuilder:
         result_type = IRType(base=elem_type.base, array_size=len(elements))
 
         return IRConstruct(result_type=result_type, args=elements)
-
-    def _eval_constant(self, node: ast.expr) -> int | None:
-        """Evaluate an AST node as a compile-time constant integer."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, int):
-            return node.value
-        if isinstance(node, ast.Name) and node.id in self.collected.globals:
-            # Check if it's a known constant (globals store tuple of (type, value))
-            type_str, value_str = self.collected.globals[node.id]
-            if type_str == "int":
-                return int(value_str)
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-            inner = self._eval_constant(node.operand)
-            if inner is not None:
-                return -inner
-        if isinstance(node, ast.BinOp):
-            left = self._eval_constant(node.left)
-            right = self._eval_constant(node.right)
-            if left is not None and right is not None:
-                if isinstance(node.op, ast.Add):
-                    return left + right
-                if isinstance(node.op, ast.Sub):
-                    return left - right
-                if isinstance(node.op, ast.Mult):
-                    return left * right
-                if isinstance(node.op, ast.FloorDiv):
-                    return left // right
-        return None
-
-    def _substitute_name(self, node: ast.expr, name: str, value: int) -> ast.expr:
-        """Substitute a name with a constant value in an AST expression."""
-        if isinstance(node, ast.Name) and node.id == name:
-            return ast.Constant(value=value)
-        if isinstance(node, ast.BinOp):
-            return ast.BinOp(
-                left=self._substitute_name(node.left, name, value),
-                op=node.op,
-                right=self._substitute_name(node.right, name, value),
-            )
-        if isinstance(node, ast.UnaryOp):
-            return ast.UnaryOp(
-                op=node.op,
-                operand=self._substitute_name(node.operand, name, value),
-            )
-        if isinstance(node, ast.Call):
-            return ast.Call(
-                func=node.func,
-                args=[self._substitute_name(a, name, value) for a in node.args],
-                keywords=[
-                    ast.keyword(
-                        arg=kw.arg,
-                        value=self._substitute_name(kw.value, name, value),
-                    )
-                    for kw in node.keywords
-                ],
-            )
-        if isinstance(node, ast.IfExp):
-            return ast.IfExp(
-                test=self._substitute_name(node.test, name, value),
-                body=self._substitute_name(node.body, name, value),
-                orelse=self._substitute_name(node.orelse, name, value),
-            )
-        if isinstance(node, ast.Compare):
-            return ast.Compare(
-                left=self._substitute_name(node.left, name, value),
-                ops=node.ops,
-                comparators=[
-                    self._substitute_name(c, name, value) for c in node.comparators
-                ],
-            )
-        if isinstance(node, ast.Subscript):
-            return ast.Subscript(
-                value=self._substitute_name(node.value, name, value),
-                slice=self._substitute_name(node.slice, name, value),
-                ctx=node.ctx,
-            )
-        if isinstance(node, ast.Attribute):
-            return ast.Attribute(
-                value=self._substitute_name(node.value, name, value),
-                attr=node.attr,
-                ctx=node.ctx,
-            )
-        if isinstance(node, ast.Tuple):
-            return ast.Tuple(
-                elts=[self._substitute_name(e, name, value) for e in node.elts],
-                ctx=node.ctx,
-            )
-        if isinstance(node, ast.List):
-            return ast.List(
-                elts=[self._substitute_name(e, name, value) for e in node.elts],
-                ctx=node.ctx,
-            )
-        # For constants and other nodes, return as-is
-        return node
 
     def _build_chained_minmax(self, func_name: str, arg_exprs: list[IRExpr]) -> IRExpr:
         """Build chained min/max calls for more than 2 arguments.
@@ -1299,7 +1095,7 @@ class IRBuilder:
         try:
             node = ast.parse(value_str, mode="eval").body
             if isinstance(node, ast.Constant):
-                ir_type = self._infer_literal_type(node.value)
+                ir_type = infer_literal_type(node.value)
                 return IRLiteral(result_type=ir_type, value=node.value)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 # vec2/vec3/vec4 constructor

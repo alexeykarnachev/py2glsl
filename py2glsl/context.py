@@ -53,3 +53,16 @@ CONTEXT_BUILTINS: dict[str, tuple[str, str]] = {
     "u_mouse_pos": ("vec2", "uniform"),
     "u_mouse_uv": ("vec2", "uniform"),
 }
+
+# Derived dicts for convenience
+BUILTIN_UNIFORMS: dict[str, str] = {
+    name: glsl_type
+    for name, (glsl_type, storage) in CONTEXT_BUILTINS.items()
+    if storage == "uniform"
+}
+
+BUILTIN_INPUTS: dict[str, str] = {
+    name: glsl_type
+    for name, (glsl_type, storage) in CONTEXT_BUILTINS.items()
+    if storage == "input"
+}
