@@ -352,11 +352,14 @@ class IRBuilder:
                 type_name = self._get_type_from_annotation(ann)
                 ir_type = self._parse_type_string(type_name)
                 if isinstance(target, ast.Name):
-                    var = IRVariable(name=target.id, type=ir_type)
-                    self.symbols[target.id] = ir_type
                     init = None
                     if value:
                         init = self._build_expr_with_type_hint(value, ir_type)
+                        # If size was inferred (-1), use the actual type from init
+                        if ir_type.array_size == -1 and init is not None:
+                            ir_type = init.result_type
+                    var = IRVariable(name=target.id, type=ir_type)
+                    self.symbols[target.id] = ir_type
                     return [IRDeclare(var=var, init=init)]
                 return []
 
@@ -471,12 +474,24 @@ class IRBuilder:
         # If it's a list/tuple and we have an array type hint, build as array
         if isinstance(node, ast.List | ast.Tuple) and type_hint.array_size is not None:
             ir_args = [self._build_expr(e) for e in node.elts]
+            # array_size == -1 means infer from literal
+            if type_hint.array_size == -1:
+                actual_type = IRType(base=type_hint.base, array_size=len(ir_args))
+                return IRConstruct(result_type=actual_type, args=ir_args)
             if len(ir_args) != type_hint.array_size:
                 raise TranspilerError(
                     f"Array size mismatch: expected {type_hint.array_size} elements, "
                     f"got {len(ir_args)}"
                 )
             return IRConstruct(result_type=type_hint, args=ir_args)
+
+        # If it's a list comprehension with array type hint, use that type
+        if isinstance(node, ast.ListComp) and type_hint.array_size is not None:
+            result = self._build_list_comprehension(node.elt, node.generators)
+            # Override the inferred type with the type hint (unless -1 = infer)
+            if isinstance(result, IRConstruct) and type_hint.array_size != -1:
+                result.result_type = type_hint
+            return result
 
         return self._build_expr(node)
 
@@ -591,11 +606,14 @@ class IRBuilder:
                 if len(elts) < 2 or len(elts) > 4:
                     raise TranspilerError(
                         f"List/tuple must have 2-4 elements for vec conversion, "
-                        f"got {len(elts)}. Use array[T, N] for arrays."
+                        f"got {len(elts)}. Use list[T] for arrays."
                     )
                 ir_args: list[IRExpr] = [self._build_expr(e) for e in elts]
                 result_type = IRType(f"vec{len(ir_args)}")
                 return IRConstruct(result_type=result_type, args=ir_args)
+
+            case ast.ListComp(elt=elt, generators=generators):
+                return self._build_list_comprehension(elt, generators)
 
         raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
 
@@ -715,28 +733,28 @@ class IRBuilder:
             return ann.id
         if isinstance(ann, ast.Constant):
             return str(ann.value)
-        # Handle array[T, N] syntax
-        if (
-            isinstance(ann, ast.Subscript)
-            and isinstance(ann.value, ast.Name)
-            and ann.value.id == "array"
-            and isinstance(ann.slice, ast.Tuple)
-            and len(ann.slice.elts) == 2
-        ):
-            elem_type = self._get_type_from_annotation(ann.slice.elts[0])
-            size_node = ann.slice.elts[1]
-            if isinstance(size_node, ast.Constant):
-                size = size_node.value
-                return f"{elem_type}[{size}]"
+        # Handle list[T] syntax for arrays
+        if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
+            type_name = ann.value.id
+            if type_name == "list":
+                elem_type = self._get_type_from_annotation(ann.slice)
+                return f"{elem_type}[]"
         return "float"
 
     def _parse_type_string(self, type_str: str) -> IRType:
-        """Parse type string like 'float[3]' into IRType."""
+        """Parse type string like 'float[3]' or 'float[]' into IRType."""
+        # Match 'type[size]' with explicit size
         match = re.match(r"(\w+)\[(\d+)\]", type_str)
         if match:
             base = match.group(1)
             size = int(match.group(2))
             return IRType(base=base, array_size=size)
+        # Match 'type[]' without size (size to be inferred from literal)
+        match = re.match(r"(\w+)\[\]", type_str)
+        if match:
+            base = match.group(1)
+            # array_size=-1 means "infer from literal"
+            return IRType(base=base, array_size=-1)
         return IRType(base=type_str)
 
     def _infer_literal_type(self, value: object) -> IRType:
@@ -928,6 +946,196 @@ class IRBuilder:
 
         # Default: use pow()
         return IRCall(result_type=result_type, func="pow", args=[base_expr, exp_expr])
+
+    def _build_list_comprehension(
+        self, elt: ast.expr, generators: list[ast.comprehension]
+    ) -> IRExpr:
+        """Build IR for list comprehension by unrolling at compile time.
+
+        Supports: [expr for var in range(n)]
+        Where n must be a constant.
+
+        Example: [i * 2.0 for i in range(4)]
+        Becomes: float[4](0.0, 2.0, 4.0, 6.0)
+        """
+        if len(generators) != 1:
+            raise TranspilerError(
+                "List comprehensions with multiple 'for' clauses are not supported"
+            )
+
+        gen = generators[0]
+
+        # Check for conditions (if clauses)
+        if gen.ifs:
+            raise TranspilerError(
+                "List comprehensions with 'if' conditions are not supported"
+            )
+
+        # Get loop variable name
+        if not isinstance(gen.target, ast.Name):
+            raise TranspilerError(
+                "List comprehension target must be a simple variable name"
+            )
+        loop_var = gen.target.id
+
+        # Parse the iterator - must be range()
+        if not isinstance(gen.iter, ast.Call):
+            raise TranspilerError("List comprehension iterator must be range()")
+        if not isinstance(gen.iter.func, ast.Name) or gen.iter.func.id != "range":
+            raise TranspilerError("List comprehension iterator must be range()")
+
+        # Parse range arguments
+        range_args = gen.iter.args
+        start: int
+        end: int
+        step: int
+        if len(range_args) == 1:
+            end_val = self._eval_constant(range_args[0])
+            if end_val is None:
+                raise TranspilerError(
+                    "List comprehension range() args must be compile-time constants"
+                )
+            start, end, step = 0, end_val, 1
+        elif len(range_args) == 2:
+            start_val = self._eval_constant(range_args[0])
+            end_val = self._eval_constant(range_args[1])
+            if start_val is None or end_val is None:
+                raise TranspilerError(
+                    "List comprehension range() args must be compile-time constants"
+                )
+            start, end, step = start_val, end_val, 1
+        elif len(range_args) == 3:
+            start_val = self._eval_constant(range_args[0])
+            end_val = self._eval_constant(range_args[1])
+            step_val = self._eval_constant(range_args[2])
+            if start_val is None or end_val is None or step_val is None:
+                raise TranspilerError(
+                    "List comprehension range() args must be compile-time constants"
+                )
+            start, end, step = start_val, end_val, step_val
+        else:
+            raise TranspilerError("range() requires 1-3 arguments")
+
+        # Generate the elements by evaluating the expression for each iteration
+        elements: list[IRExpr] = []
+        old_symbol = self.symbols.get(loop_var)
+
+        for i in range(start, end, step):
+            # Temporarily bind loop variable to current value
+            self.symbols[loop_var] = IRType("int")
+
+            # Create a modified AST with the loop variable replaced by constant
+            substituted_elt = self._substitute_name(elt, loop_var, i)
+            elem_expr = self._build_expr(substituted_elt)
+            elements.append(elem_expr)
+
+        # Restore old symbol
+        if old_symbol is not None:
+            self.symbols[loop_var] = old_symbol
+        elif loop_var in self.symbols:
+            del self.symbols[loop_var]
+
+        if not elements:
+            raise TranspilerError("List comprehension produced empty result")
+
+        # Infer element type from first element
+        elem_type = elements[0].result_type
+        result_type = IRType(base=elem_type.base, array_size=len(elements))
+
+        return IRConstruct(result_type=result_type, args=elements)
+
+    def _eval_constant(self, node: ast.expr) -> int | None:
+        """Evaluate an AST node as a compile-time constant integer."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, int):
+            return node.value
+        if isinstance(node, ast.Name) and node.id in self.collected.globals:
+            # Check if it's a known constant (globals store tuple of (type, value))
+            type_str, value_str = self.collected.globals[node.id]
+            if type_str == "int":
+                return int(value_str)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            inner = self._eval_constant(node.operand)
+            if inner is not None:
+                return -inner
+        if isinstance(node, ast.BinOp):
+            left = self._eval_constant(node.left)
+            right = self._eval_constant(node.right)
+            if left is not None and right is not None:
+                if isinstance(node.op, ast.Add):
+                    return left + right
+                if isinstance(node.op, ast.Sub):
+                    return left - right
+                if isinstance(node.op, ast.Mult):
+                    return left * right
+                if isinstance(node.op, ast.FloorDiv):
+                    return left // right
+        return None
+
+    def _substitute_name(self, node: ast.expr, name: str, value: int) -> ast.expr:
+        """Substitute a name with a constant value in an AST expression."""
+        if isinstance(node, ast.Name) and node.id == name:
+            return ast.Constant(value=value)
+        if isinstance(node, ast.BinOp):
+            return ast.BinOp(
+                left=self._substitute_name(node.left, name, value),
+                op=node.op,
+                right=self._substitute_name(node.right, name, value),
+            )
+        if isinstance(node, ast.UnaryOp):
+            return ast.UnaryOp(
+                op=node.op,
+                operand=self._substitute_name(node.operand, name, value),
+            )
+        if isinstance(node, ast.Call):
+            return ast.Call(
+                func=node.func,
+                args=[self._substitute_name(a, name, value) for a in node.args],
+                keywords=[
+                    ast.keyword(
+                        arg=kw.arg,
+                        value=self._substitute_name(kw.value, name, value),
+                    )
+                    for kw in node.keywords
+                ],
+            )
+        if isinstance(node, ast.IfExp):
+            return ast.IfExp(
+                test=self._substitute_name(node.test, name, value),
+                body=self._substitute_name(node.body, name, value),
+                orelse=self._substitute_name(node.orelse, name, value),
+            )
+        if isinstance(node, ast.Compare):
+            return ast.Compare(
+                left=self._substitute_name(node.left, name, value),
+                ops=node.ops,
+                comparators=[
+                    self._substitute_name(c, name, value) for c in node.comparators
+                ],
+            )
+        if isinstance(node, ast.Subscript):
+            return ast.Subscript(
+                value=self._substitute_name(node.value, name, value),
+                slice=self._substitute_name(node.slice, name, value),
+                ctx=node.ctx,
+            )
+        if isinstance(node, ast.Attribute):
+            return ast.Attribute(
+                value=self._substitute_name(node.value, name, value),
+                attr=node.attr,
+                ctx=node.ctx,
+            )
+        if isinstance(node, ast.Tuple):
+            return ast.Tuple(
+                elts=[self._substitute_name(e, name, value) for e in node.elts],
+                ctx=node.ctx,
+            )
+        if isinstance(node, ast.List):
+            return ast.List(
+                elts=[self._substitute_name(e, name, value) for e in node.elts],
+                ctx=node.ctx,
+            )
+        # For constants and other nodes, return as-is
+        return node
 
     def _build_chained_minmax(self, func_name: str, arg_exprs: list[IRExpr]) -> IRExpr:
         """Build chained min/max calls for more than 2 arguments.

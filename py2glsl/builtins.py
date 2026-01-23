@@ -5,7 +5,7 @@ This module provides Python implementations of GLSL types
 (sin, cos, mix, etc.) that match GLSL semantics.
 """
 
-from typing import Any, Generic, TypeVar, overload
+from typing import TypeVar, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,35 +14,6 @@ FloatArray = NDArray[np.float32]
 
 # Type variable for array element type
 E = TypeVar("E")
-N = TypeVar("N", bound=int)
-
-
-class array(Generic[E, N]):
-    """Fixed-size array type for GLSL arrays.
-
-    Usage:
-        weights: array[float, Literal[8]] = [0.1, 0.2, ...]
-        colors: array[vec3, Literal[3]] = [vec3(1,0,0), vec3(0,1,0), vec3(0,0,1)]
-
-    This is primarily a type hint for the transpiler. At runtime,
-    it behaves like a list.
-    """
-
-    def __init__(self, data: list[E]) -> None:
-        self._data = data
-
-    def __getitem__(self, index: int) -> E:
-        return self._data[index]
-
-    def __setitem__(self, index: int, value: E) -> None:
-        self._data[index] = value
-
-    def __len__(self) -> int:
-        return len(self._data)
-
-    def __class_getitem__(cls, params: Any) -> type["array[Any, Any]"]:
-        """Support array[T, N] syntax for type hints."""
-        return cls  # type: ignore[return-value]
 
 
 class vec2:

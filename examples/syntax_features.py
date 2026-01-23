@@ -16,7 +16,7 @@ Features demonstrated:
 9. Integer/floor division (//)
 10. Power optimization (x**2, x**3, x**0.5)
 11. min/max with multiple arguments
-12. Arrays with typed annotations
+12. Arrays with typed annotations (list[T] with size inference)
 13. Vector swizzling and component access
 14. Control flow (if/elif/else, for, while, break, continue)
 15. Augmented assignments (+=, -=, *=, /=)
@@ -25,6 +25,7 @@ Features demonstrated:
 18. Ternary expressions
 19. Struct definitions with dataclasses
 20. Matrix operations
+21. List comprehensions (unrolled at compile time)
 
 Example Usage:
     # Interactive preview
@@ -42,7 +43,6 @@ from dataclasses import dataclass
 from py2glsl import ShaderContext
 from py2glsl.builtins import (
     abs,
-    array,
     atan,
     clamp,
     cos,
@@ -224,8 +224,8 @@ def shader(ctx: ShaderContext) -> vec4:
     # ARRAYS AND NEGATIVE INDEXING
     # ---------------------------------------------------------------------
 
-    # Array with type annotation
-    colors: array[vec3, 4] = [  # type: ignore[valid-type]
+    # Array with type annotation (size inferred from literal)
+    colors: list[vec3] = [
         vec3(1.0, 0.2, 0.3),  # Red
         vec3(0.2, 1.0, 0.3),  # Green
         vec3(0.2, 0.3, 1.0),  # Blue
@@ -245,6 +245,51 @@ def shader(ctx: ShaderContext) -> vec4:
 
     # Tuple unpacking from swizzle
     x_comp, y_comp = uv.xy
+
+    # ---------------------------------------------------------------------
+    # LIST COMPREHENSIONS - Unrolled at compile time
+    # ---------------------------------------------------------------------
+
+    # Simple list comprehension - generates array initialization
+    weights: list[float] = [1.0 / float(i + 1) for i in range(4)]
+    # Transpiles to: float[4](1.0, 0.5, 0.333..., 0.25)
+
+    # List comprehension with expression
+    offsets: list[float] = [float(i) * 0.1 - 0.2 for i in range(5)]
+    # Transpiles to: float[5](-0.2, -0.1, 0.0, 0.1, 0.2)
+
+    # List comprehension with step
+    even_values: list[float] = [float(i) for i in range(0, 8, 2)]
+    # Transpiles to: float[4](0.0, 2.0, 4.0, 6.0)
+
+    # List comprehension for vec3 array
+    gradient_colors: list[vec3] = [
+        vec3(float(i) * 0.5, 1.0 - float(i) * 0.3, 0.5) for i in range(3)
+    ]
+
+    # List comprehension with structs
+    sample_palettes: list[ColorPalette] = [
+        ColorPalette(
+            primary=vec3(float(i) * 0.3, 0.2, 0.1),
+            accent=vec3(0.1, float(i) * 0.3, 0.2),
+            background=vec3(0.05),
+            intensity=1.0 + float(i) * 0.1,
+        )
+        for i in range(3)
+    ]
+
+    # Use the list comprehension results
+    weighted_sum = (
+        weights[0] * offsets[0]
+        + weights[1] * offsets[1]
+        + weights[2] * offsets[2]
+        + weights[3] * offsets[3]
+    )
+
+    # Use even_values and gradient_colors
+    pattern_val = sin(even_values[1] * uv.x + even_values[2] * uv.y + ctx.u_time)
+    blend_t = pattern_val * 0.5 + 0.5
+    gradient_sample = mix(gradient_colors[0], gradient_colors[2], blend_t)
 
     # Use grid coordinates for pattern
     grid_pattern = sin(grid_x * 3.14159) * sin(grid_y * 3.14159)
@@ -362,6 +407,13 @@ def shader(ctx: ShaderContext) -> vec4:
     color = mix(color, unpacked_color, 0.05)
     color += detail * 0.01
     color *= 1.0 + coord_factor * 0.01
+
+    # Mix in list comprehension results
+    color = mix(color, gradient_sample, 0.1)
+    color += vec3(weighted_sum * 0.01)
+
+    # Use struct list comprehension result
+    color = mix(color, sample_palettes[1].primary, 0.05)
 
     # Clamp final color
     color = clamp(color, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0))

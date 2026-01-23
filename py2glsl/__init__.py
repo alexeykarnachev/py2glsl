@@ -2,7 +2,6 @@ __version__ = "2.0.0"
 
 from py2glsl.builtins import (
     abs,
-    array,
     cos,
     cross,
     distance,
@@ -33,7 +32,6 @@ __all__ = [
     "ShaderContext",
     "TargetType",
     "abs",
-    "array",
     "cos",
     "cross",
     "distance",

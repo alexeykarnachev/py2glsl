@@ -97,7 +97,7 @@
 - name: array_float_basic
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        weights: array[float, 3] = [0.2, 0.5, 0.3]
+        weights: list[float] = [0.2, 0.5, 0.3]
         return vec4(weights[0], weights[1], weights[2], 1.0)
   expected: |
     #version 460 core
@@ -121,7 +121,7 @@
 - name: array_float_large
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        data: array[float, 8] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+        data: list[float] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
         return vec4(data[0], data[4], data[7], 1.0)
   expected: |
     #version 460 core
@@ -145,7 +145,7 @@
 - name: array_vec3
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        colors: array[vec3, 3] = [
+        colors: list[vec3] = [
             vec3(1.0, 0.0, 0.0),
             vec3(0.0, 1.0, 0.0),
             vec3(0.0, 0.0, 1.0)
@@ -173,7 +173,7 @@
 - name: array_dynamic_index
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        values: array[float, 4] = [0.25, 0.5, 0.75, 1.0]
+        values: list[float] = [0.25, 0.5, 0.75, 1.0]
         i: int = 2
         return vec4(values[i], 0.0, 0.0, 1.0)
   expected: |
@@ -199,7 +199,7 @@
 - name: array_element_assign
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        arr: array[float, 3] = [1.0, 2.0, 3.0]
+        arr: list[float] = [1.0, 2.0, 3.0]
         arr[0] = 5.0
         return vec4(arr[0], arr[1], arr[2], 1.0)
   expected: |
@@ -225,7 +225,7 @@
 - name: array_loop_access
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        weights: array[float, 4] = [0.1, 0.2, 0.3, 0.4]
+        weights: list[float] = [0.1, 0.2, 0.3, 0.4]
         total: float = 0.0
         for i in range(4):
             total += weights[i]
@@ -256,7 +256,7 @@
 - name: array_in_expression
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        offsets: array[float, 3] = [0.1, 0.2, 0.3]
+        offsets: list[float] = [0.1, 0.2, 0.3]
         result = ctx.vs_uv.x + offsets[0] * offsets[1]
         return vec4(result, 0.0, 0.0, 1.0)
   expected: |
@@ -282,7 +282,7 @@
 - name: array_int
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        indices: array[int, 3] = [0, 1, 2]
+        indices: list[int] = [0, 1, 2]
         return vec4(float(indices[0]), float(indices[1]), float(indices[2]), 1.0)
   expected: |
     #version 460 core
@@ -335,7 +335,7 @@
 - name: negative_index_array
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        arr: array[float, 4] = [1.0, 2.0, 3.0, 4.0]
+        arr: list[float] = [1.0, 2.0, 3.0, 4.0]
         last = arr[-1]
         first = arr[-4]
         return vec4(last, first, 0.0, 1.0)
@@ -388,7 +388,7 @@
 - name: array_vec3_element_type
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        colors: array[vec3, 3] = [
+        colors: list[vec3] = [
             vec3(1.0, 0.0, 0.0),
             vec3(0.0, 1.0, 0.0),
             vec3(0.0, 0.0, 1.0)
@@ -418,7 +418,7 @@
 - name: array_vec3_negative_index_type
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        colors: array[vec3, 4] = [
+        colors: list[vec3] = [
             vec3(1.0, 0.0, 0.0),
             vec3(0.0, 1.0, 0.0),
             vec3(0.0, 0.0, 1.0),
@@ -451,7 +451,7 @@
 - name: array_vec2_element_type
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        points: array[vec2, 2] = [
+        points: list[vec2] = [
             vec2(0.0, 0.0),
             vec2(1.0, 1.0)
         ]
@@ -480,7 +480,7 @@
 - name: array_vec4_element_type
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        quads: array[vec4, 2] = [
+        quads: list[vec4] = [
             vec4(1.0, 0.0, 0.0, 1.0),
             vec4(0.0, 1.0, 0.0, 1.0)
         ]
@@ -509,7 +509,7 @@
 - name: array_vec3_in_if_branch
   python: |
     def shader(ctx: ShaderContext) -> vec4:
-        colors: array[vec3, 2] = [
+        colors: list[vec3] = [
             vec3(1.0, 0.0, 0.0),
             vec3(0.0, 1.0, 0.0)
         ]
@@ -538,6 +538,165 @@
             c = colors[1];
         }
         return vec4(c, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+# List comprehensions - unrolled at compile time
+- name: listcomp_simple_range
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        values: list[float] = [float(i) for i in range(4)]
+        return vec4(values[0], values[1], values[2], values[3])
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float values[4] = float[4](float(0), float(1), float(2), float(3));
+        return vec4(values[0], values[1], values[2], values[3]);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: listcomp_expression
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        weights: list[float] = [1.0 / float(i + 1) for i in range(4)]
+        return vec4(weights[0], weights[1], weights[2], weights[3])
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float weights[4] = float[4](1.0 / float(0 + 1), 1.0 / float(1 + 1), 1.0 / float(2 + 1), 1.0 / float(3 + 1));
+        return vec4(weights[0], weights[1], weights[2], weights[3]);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: listcomp_with_range_start_end
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        values: list[float] = [float(i) * 0.5 for i in range(2, 5)]
+        return vec4(values[0], values[1], values[2], 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float values[3] = float[3](float(2) * 0.5, float(3) * 0.5, float(4) * 0.5);
+        return vec4(values[0], values[1], values[2], 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: listcomp_with_step
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        evens: list[float] = [float(i) for i in range(0, 8, 2)]
+        return vec4(evens[0], evens[1], evens[2], evens[3])
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        float evens[4] = float[4](float(0), float(2), float(4), float(6));
+        return vec4(evens[0], evens[1], evens[2], evens[3]);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: listcomp_vec3_construction
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        colors: list[vec3] = [vec3(float(i) * 0.5, 0.0, 0.0) for i in range(3)]
+        return vec4(colors[0] + colors[1] + colors[2], 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec3 colors[3] = vec3[3](vec3(float(0) * 0.5, 0.0, 0.0), vec3(float(1) * 0.5, 0.0, 0.0), vec3(float(2) * 0.5, 0.0, 0.0));
+        return vec4(colors[0] + colors[1] + colors[2], 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }
+- name: listcomp_struct_construction
+  python: |
+    from dataclasses import dataclass
+
+    @dataclass
+    class Light:
+        pos: vec3
+        intensity: float
+
+    def shader(ctx: ShaderContext) -> vec4:
+        lights: list[Light] = [Light(pos=vec3(float(i), 0.0, 0.0), intensity=float(i) * 0.5) for i in range(3)]
+        total = lights[0].intensity + lights[1].intensity + lights[2].intensity
+        return vec4(total, total, total, 1.0)
+  expected: |
+    #version 460 core
+
+    struct Light {
+        vec3 pos;
+        float intensity;
+    };
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        Light lights[3] = Light[3](Light(vec3(float(0), 0.0, 0.0), float(0) * 0.5), Light(vec3(float(1), 0.0, 0.0), float(1) * 0.5), Light(vec3(float(2), 0.0, 0.0), float(2) * 0.5));
+        float total = lights[0].intensity + lights[1].intensity + lights[2].intensity;
+        return vec4(total, total, total, 1.0);
     }
 
     void main() {
