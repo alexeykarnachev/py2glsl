@@ -1,8 +1,18 @@
 """Build IR from CollectedInfo."""
 
 import ast
+import re
 
 from py2glsl.context import CONTEXT_BUILTINS
+from py2glsl.transpiler.constants import (
+    BOOL_RESULT_FUNCTIONS,
+    MATRIX_TO_VECTOR,
+    MAX_SWIZZLE_LENGTH,
+    PRESERVE_TYPE_FUNCTIONS,
+    SCALAR_RESULT_FUNCTIONS,
+    SWIZZLE_CHARS,
+    TYPE_CONSTRUCTORS,
+)
 from py2glsl.transpiler.ir import (
     IRAssign,
     IRAugmentedAssign,
@@ -36,27 +46,6 @@ from py2glsl.transpiler.ir import (
     StorageClass,
 )
 from py2glsl.transpiler.models import CollectedInfo, FunctionInfo, TranspilerError
-
-# GLSL type constructors that can be called as functions
-TYPE_CONSTRUCTORS = frozenset(
-    {
-        "vec2",
-        "vec3",
-        "vec4",
-        "ivec2",
-        "ivec3",
-        "ivec4",
-        "uvec2",
-        "uvec3",
-        "uvec4",
-        "mat2",
-        "mat3",
-        "mat4",
-        "float",
-        "int",
-        "bool",
-    }
-)
 
 
 class IRBuilder:
@@ -732,8 +721,6 @@ class IRBuilder:
 
     def _parse_type_string(self, type_str: str) -> IRType:
         """Parse type string like 'float[3]' into IRType."""
-        import re
-
         match = re.match(r"(\w+)\[(\d+)\]", type_str)
         if match:
             base = match.group(1)
@@ -764,16 +751,15 @@ class IRBuilder:
             return left.result_type
 
         # Vector-scalar: vector result
-        if left_type.startswith("vec") and right_type in ["float", "int"]:
+        if left_type.startswith("vec") and right_type in ("float", "int"):
             return left.result_type
-        if right_type.startswith("vec") and left_type in ["float", "int"]:
+        if right_type.startswith("vec") and left_type in ("float", "int"):
             return right.result_type
 
         # Matrix-vector multiplication: mat * vec -> vec, vec * mat -> vec
-        mat_to_vec = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
-        if left_type in mat_to_vec and right_type == mat_to_vec[left_type]:
+        if left_type in MATRIX_TO_VECTOR and right_type == MATRIX_TO_VECTOR[left_type]:
             return right.result_type  # mat * vec -> vec
-        if right_type in mat_to_vec and left_type == mat_to_vec[right_type]:
+        if right_type in MATRIX_TO_VECTOR and left_type == MATRIX_TO_VECTOR[right_type]:
             return left.result_type  # vec * mat -> vec
 
         # Matrix-matrix: same type result
@@ -781,9 +767,9 @@ class IRBuilder:
             return left.result_type
 
         # Matrix-scalar: matrix result
-        if left_type.startswith("mat") and right_type in ["float", "int"]:
+        if left_type.startswith("mat") and right_type in ("float", "int"):
             return left.result_type
-        if right_type.startswith("mat") and left_type in ["float", "int"]:
+        if right_type.startswith("mat") and left_type in ("float", "int"):
             return right.result_type
 
         # Default: return left type (handles int, float, etc.)
@@ -796,48 +782,13 @@ class IRBuilder:
             if func_info.return_type:
                 return IRType(func_info.return_type)
 
-        scalar_result = {"length", "distance", "dot", "determinant"}
-        if func_name in scalar_result:
+        if func_name in SCALAR_RESULT_FUNCTIONS:
             return IRType("float")
 
-        bool_result = {"any", "all", "not"}
-        if func_name in bool_result:
+        if func_name in BOOL_RESULT_FUNCTIONS:
             return IRType("bool")
 
-        preserve_type = {
-            "abs",
-            "sign",
-            "floor",
-            "ceil",
-            "fract",
-            "mod",
-            "min",
-            "max",
-            "clamp",
-            "mix",
-            "step",
-            "smoothstep",
-            "sin",
-            "cos",
-            "tan",
-            "asin",
-            "acos",
-            "atan",
-            "sinh",
-            "cosh",
-            "tanh",
-            "exp",
-            "log",
-            "exp2",
-            "log2",
-            "sqrt",
-            "inversesqrt",
-            "pow",
-            "normalize",
-            "reflect",
-            "refract",
-        }
-        if func_name in preserve_type and args:
+        if func_name in PRESERVE_TYPE_FUNCTIONS and args:
             return args[0].result_type
 
         if func_name in ("texture", "texelFetch"):
@@ -850,9 +801,9 @@ class IRBuilder:
 
     def _is_swizzle(self, attr: str) -> bool:
         """Check if attribute access is a vector swizzle."""
-        if not attr or len(attr) > 4:
+        if not attr or len(attr) > MAX_SWIZZLE_LENGTH:
             return False
-        return all(c in "xyzwrgba" for c in attr)
+        return all(c in SWIZZLE_CHARS for c in attr)
 
     def _swizzle_result_type(self, _base_type: IRType, components: str) -> IRType:
         """Get result type of swizzle operation."""
@@ -879,9 +830,8 @@ class IRBuilder:
             if base.startswith("uvec"):
                 return IRType("uint")
             return IRType("float")
-        if base.startswith("mat"):
-            size = base[3] if len(base) > 3 else "4"
-            return IRType(f"vec{size}")
+        if base in MATRIX_TO_VECTOR:
+            return IRType(MATRIX_TO_VECTOR[base])
         return IRType("float")
 
     def _is_context_access(self, value: ast.expr, attr: str) -> bool:

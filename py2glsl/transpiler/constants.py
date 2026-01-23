@@ -2,6 +2,79 @@
 
 from typing import Any
 
+# GLSL type constructors that can be called as functions
+TYPE_CONSTRUCTORS = frozenset(
+    {
+        "vec2",
+        "vec3",
+        "vec4",
+        "ivec2",
+        "ivec3",
+        "ivec4",
+        "uvec2",
+        "uvec3",
+        "uvec4",
+        "mat2",
+        "mat3",
+        "mat4",
+        "float",
+        "int",
+        "bool",
+    }
+)
+
+# Functions that always return a scalar float
+SCALAR_RESULT_FUNCTIONS = frozenset({"length", "distance", "dot", "determinant"})
+
+# Functions that always return bool
+BOOL_RESULT_FUNCTIONS = frozenset({"any", "all", "not"})
+
+# Functions that preserve the type of their first argument
+PRESERVE_TYPE_FUNCTIONS = frozenset(
+    {
+        "abs",
+        "sign",
+        "floor",
+        "ceil",
+        "fract",
+        "mod",
+        "min",
+        "max",
+        "clamp",
+        "mix",
+        "step",
+        "smoothstep",
+        "sin",
+        "cos",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "sinh",
+        "cosh",
+        "tanh",
+        "exp",
+        "log",
+        "exp2",
+        "log2",
+        "sqrt",
+        "inversesqrt",
+        "pow",
+        "normalize",
+        "reflect",
+        "refract",
+    }
+)
+
+# Matrix to vector type mapping
+MATRIX_TO_VECTOR = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
+
+# Maximum swizzle length (xyzw or rgba)
+MAX_SWIZZLE_LENGTH = 4
+
+# Valid swizzle characters
+SWIZZLE_CHARS = frozenset("xyzwrgba")
+
 BUILTIN_FUNCTIONS: dict[str, Any] = {
     # Trigonometric
     "sin": ("float", ["float"]),

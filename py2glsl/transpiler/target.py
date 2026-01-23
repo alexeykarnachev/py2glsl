@@ -219,18 +219,27 @@ class Target(ABC):
 
 
 # =============================================================================
-# OpenGL 4.6 Target (Standard Desktop)
+# OpenGL Base Target (shared implementation for OpenGL targets)
 # =============================================================================
 
 
-class OpenGL46Target(Target):
-    """Standard OpenGL 4.6 desktop target."""
+class OpenGLTarget(Target):
+    """Base class for OpenGL-based targets with shared implementation.
+
+    Subclasses only need to define:
+    - _version: GLSL version string (e.g., "460 core", "330 core", "300 es")
+    - _gl_version: OpenGL version tuple (e.g., (4, 6), (3, 3))
+    - _gl_profile: Profile string ("core" or "es")
+    """
+
+    _version: str  # e.g., "460 core"
+    _gl_version: tuple[int, int]  # e.g., (4, 6)
+    _gl_profile: str  # "core" or "es"
 
     def version_directive(self) -> str | None:
-        return "#version 460 core"
+        return f"#version {self._version}"
 
     def get_uniform_mapping(self) -> dict[str, str]:
-        # Direct mapping - canonical names are used as-is
         return {}
 
     def entry_point_wrapper(
@@ -243,12 +252,10 @@ class OpenGL46Target(Target):
         """Generate standard OpenGL main() wrapper."""
         lines = ["void main() {"]
 
-        # Build argument list for entry function call
         args = [param.name for param in entry_func.params]
         args_str = ", ".join(args)
 
         if entry_func.return_type:
-            # Assign result to output variable
             output_name = outputs[0].name if outputs else "fragColor"
             lines.append(f"    {output_name} = {entry_func.name}({args_str});")
         else:
@@ -258,20 +265,37 @@ class OpenGL46Target(Target):
         return lines
 
     def get_vertex_shader(self) -> str:
-        return """#version 460 core
+        version_line = f"#version {self._version}"
+        precision = "\n".join(self.precision_qualifiers())
+        if precision:
+            precision = f"\n{precision}"
+        return f"""{version_line}{precision}
 in vec2 in_position;
 out vec2 vs_uv;
-void main() {
+void main() {{
     vs_uv = (in_position + 1.0) * 0.5;
     gl_Position = vec4(in_position, 0.0, 1.0);
-}
+}}
 """
 
     def get_gl_version(self) -> tuple[int, int]:
-        return (4, 6)
+        return self._gl_version
 
     def get_gl_profile(self) -> str:
-        return "core"
+        return self._gl_profile
+
+
+# =============================================================================
+# OpenGL 4.6 Target (Standard Desktop)
+# =============================================================================
+
+
+class OpenGL46Target(OpenGLTarget):
+    """Standard OpenGL 4.6 desktop target."""
+
+    _version = "460 core"
+    _gl_version = (4, 6)
+    _gl_profile = "core"
 
 
 # =============================================================================
@@ -279,52 +303,12 @@ void main() {
 # =============================================================================
 
 
-class OpenGL33Target(Target):
+class OpenGL33Target(OpenGLTarget):
     """OpenGL 3.3 desktop target for older systems."""
 
-    def version_directive(self) -> str | None:
-        return "#version 330 core"
-
-    def get_uniform_mapping(self) -> dict[str, str]:
-        return {}
-
-    def entry_point_wrapper(
-        self,
-        _stage: ShaderStage,
-        entry_func: IRFunction,
-        _inputs: list[IRVariable],
-        outputs: list[IRVariable],
-    ) -> list[str]:
-        """Generate standard OpenGL main() wrapper."""
-        lines = ["void main() {"]
-
-        args = [param.name for param in entry_func.params]
-        args_str = ", ".join(args)
-
-        if entry_func.return_type:
-            output_name = outputs[0].name if outputs else "fragColor"
-            lines.append(f"    {output_name} = {entry_func.name}({args_str});")
-        else:
-            lines.append(f"    {entry_func.name}({args_str});")
-
-        lines.append("}")
-        return lines
-
-    def get_vertex_shader(self) -> str:
-        return """#version 330 core
-in vec2 in_position;
-out vec2 vs_uv;
-void main() {
-    vs_uv = (in_position + 1.0) * 0.5;
-    gl_Position = vec4(in_position, 0.0, 1.0);
-}
-"""
-
-    def get_gl_version(self) -> tuple[int, int]:
-        return (3, 3)
-
-    def get_gl_profile(self) -> str:
-        return "core"
+    _version = "330 core"
+    _gl_version = (3, 3)
+    _gl_profile = "core"
 
 
 # =============================================================================
@@ -410,56 +394,15 @@ class ShadertoyTarget(Target):
 # =============================================================================
 
 
-class WebGL2Target(Target):
+class WebGL2Target(OpenGLTarget):
     """WebGL 2.0 target for browsers."""
 
-    def version_directive(self) -> str | None:
-        return "#version 300 es"
+    _version = "300 es"
+    _gl_version = (3, 0)  # WebGL 2.0 maps to OpenGL ES 3.0
+    _gl_profile = "es"
 
     def precision_qualifiers(self) -> list[str]:
         return ["precision highp float;", "precision highp int;"]
-
-    def get_uniform_mapping(self) -> dict[str, str]:
-        return {}
-
-    def entry_point_wrapper(
-        self,
-        _stage: ShaderStage,
-        entry_func: IRFunction,
-        _inputs: list[IRVariable],
-        outputs: list[IRVariable],
-    ) -> list[str]:
-        """Generate WebGL main() wrapper."""
-        lines = ["void main() {"]
-
-        args = [param.name for param in entry_func.params]
-        args_str = ", ".join(args)
-
-        if entry_func.return_type:
-            output_name = outputs[0].name if outputs else "fragColor"
-            lines.append(f"    {output_name} = {entry_func.name}({args_str});")
-        else:
-            lines.append(f"    {entry_func.name}({args_str});")
-
-        lines.append("}")
-        return lines
-
-    def get_vertex_shader(self) -> str:
-        return """#version 300 es
-precision highp float;
-in vec2 in_position;
-out vec2 vs_uv;
-void main() {
-    vs_uv = (in_position + 1.0) * 0.5;
-    gl_Position = vec4(in_position, 0.0, 1.0);
-}
-"""
-
-    def get_gl_version(self) -> tuple[int, int]:
-        return (3, 0)  # WebGL 2.0 maps to OpenGL ES 3.0
-
-    def get_gl_profile(self) -> str:
-        return "es"
 
 
 # =============================================================================

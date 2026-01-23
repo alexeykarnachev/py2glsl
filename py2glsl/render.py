@@ -55,6 +55,44 @@ class FrameParams:
     resolution: tuple[int, int] | None = None
     frame_num: int = 0
 
+    @classmethod
+    def from_render_context(
+        cls,
+        render_ctx: "RenderContext",
+        size: tuple[int, int],
+        time: float,
+        uniforms: dict[str, float | tuple[float, ...]] | None = None,
+        mouse_pos: list[float] | None = None,
+        mouse_uv: list[float] | None = None,
+        use_screen: bool = False,
+    ) -> "FrameParams":
+        """Create FrameParams from a RenderContext.
+
+        Args:
+            render_ctx: The rendering context
+            size: Frame size as (width, height)
+            time: Shader time value
+            uniforms: Additional uniform values
+            mouse_pos: Mouse position in pixels
+            mouse_uv: Mouse position in UV coordinates
+            use_screen: Use screen instead of FBO (for windowed mode)
+
+        Returns:
+            FrameParams configured for rendering
+        """
+        return cls(
+            ctx=render_ctx.ctx,
+            program=render_ctx.program,
+            vao=render_ctx.vao,
+            target_fbo=render_ctx.ctx.screen if use_screen else render_ctx.fbo,
+            size=size,
+            time=time,
+            target=render_ctx.target,
+            uniforms=uniforms,
+            mouse_pos=mouse_pos,
+            mouse_uv=mouse_uv,
+        )
+
 
 def _init_glfw(
     size: tuple[int, int],
@@ -401,17 +439,14 @@ def animate(
                 frame_count = 0
                 fps_timer = current_time
 
-            frame_params = FrameParams(
-                ctx=render_ctx.ctx,
-                program=render_ctx.program,
-                vao=render_ctx.vao,
-                target_fbo=render_ctx.ctx.screen,
+            frame_params = FrameParams.from_render_context(
+                render_ctx,
                 size=size,
                 time=glfw.get_time(),
-                target=render_ctx.target,
                 uniforms=uniforms,
                 mouse_pos=mouse_pos,
                 mouse_uv=mouse_uv,
+                use_screen=True,
             )
 
             _render_frame(frame_params)
@@ -448,17 +483,9 @@ def render_array(
         windowed=False,
         target=target,
     ) as render_ctx:
-        frame_params = FrameParams(
-            ctx=render_ctx.ctx,
-            program=render_ctx.program,
-            vao=render_ctx.vao,
-            target_fbo=render_ctx.fbo,
-            size=size,
-            time=time,
-            target=render_ctx.target,
-            uniforms=uniforms,
+        frame_params = FrameParams.from_render_context(
+            render_ctx, size=size, time=time, uniforms=uniforms
         )
-
         result = _render_frame(frame_params)
 
         if result is None:
@@ -494,17 +521,9 @@ def render_image(
     with _setup_rendering_context(
         shader_input, size, windowed=False, target=target
     ) as render_ctx:
-        frame_params = FrameParams(
-            ctx=render_ctx.ctx,
-            program=render_ctx.program,
-            vao=render_ctx.vao,
-            target_fbo=render_ctx.fbo,
-            size=size,
-            time=time,
-            target=render_ctx.target,
-            uniforms=uniforms,
+        frame_params = FrameParams.from_render_context(
+            render_ctx, size=size, time=time, uniforms=uniforms
         )
-
         array = _render_frame(frame_params)
 
         assert array is not None
@@ -551,18 +570,9 @@ def render_gif(
 
         for i in range(num_frames):
             frame_time = time_offset + (i / fps)
-
-            frame_params = FrameParams(
-                ctx=render_ctx.ctx,
-                program=render_ctx.program,
-                vao=render_ctx.vao,
-                target_fbo=render_ctx.fbo,
-                size=size,
-                time=frame_time,
-                target=render_ctx.target,
-                uniforms=uniforms,
+            frame_params = FrameParams.from_render_context(
+                render_ctx, size=size, time=frame_time, uniforms=uniforms
             )
-
             array = _render_frame(frame_params)
 
             assert array is not None
@@ -630,18 +640,9 @@ def render_video(
 
         for i in range(num_frames):
             frame_time = time_offset + (i / fps)
-
-            frame_params = FrameParams(
-                ctx=render_ctx.ctx,
-                program=render_ctx.program,
-                vao=render_ctx.vao,
-                target_fbo=render_ctx.fbo,
-                size=size,
-                time=frame_time,
-                target=render_ctx.target,
-                uniforms=uniforms,
+            frame_params = FrameParams.from_render_context(
+                render_ctx, size=size, time=frame_time, uniforms=uniforms
             )
-
             array = _render_frame(frame_params)
 
             assert array is not None
