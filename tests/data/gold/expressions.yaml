@@ -596,7 +596,6 @@
     void main() {
         fragColor = shader();
     }
-# Integer division
 - name: expr_int_division
   python: |
     def shader(ctx: ShaderContext) -> vec4:
@@ -649,7 +648,6 @@
     void main() {
         fragColor = shader();
     }
-# Power optimization
 - name: expr_power_squared
   python: |
     def shader(ctx: ShaderContext) -> vec4:

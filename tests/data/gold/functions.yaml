@@ -309,7 +309,6 @@
     void main() {
         fragColor = shader();
     }
-# Default parameters
 - name: func_default_param_single
   python: |
     def blend(a: vec3, b: vec3, t: float = 0.5) -> vec3:
@@ -407,7 +406,6 @@
     void main() {
         fragColor = shader();
     }
-# Tuple returns (multiple return values)
 - name: func_tuple_return_basic
   python: |
     def get_polar(p: vec2) -> tuple[float, float]:

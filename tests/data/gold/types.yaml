@@ -733,7 +733,6 @@
     void main() {
         fragColor = shader();
     }
-# Component assignment (single component)
 - name: component_assign_xyz
   python: |
     def shader(ctx: ShaderContext) -> vec4:
@@ -822,7 +821,6 @@
     void main() {
         fragColor = shader();
     }
-# Tuple unpacking from vectors
 - name: tuple_unpack_vec2
   python: |
     def shader(ctx: ShaderContext) -> vec4:

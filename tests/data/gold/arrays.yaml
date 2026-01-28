@@ -303,7 +303,6 @@
     void main() {
         fragColor = shader();
     }
-# Negative indexing
 - name: negative_index_vec4
   python: |
     def shader(ctx: ShaderContext) -> vec4:
@@ -384,7 +383,6 @@
     void main() {
         fragColor = shader();
     }
-# Array element type inference (subscript should return element type, not float)
 - name: array_vec3_element_type
   python: |
     def shader(ctx: ShaderContext) -> vec4:
@@ -543,7 +541,6 @@
     void main() {
         fragColor = shader();
     }
-# List comprehensions - unrolled at compile time
 - name: listcomp_simple_range
   python: |
     def shader(ctx: ShaderContext) -> vec4:

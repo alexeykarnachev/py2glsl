@@ -95,9 +95,11 @@ class Target(ABC):
             return str(int(value))
         return str(value)
 
-    def builtin_function(self, _name: str) -> str | None:
-        """Map function name to target builtin. Default: None (use as-is)."""
-        return None
+    def builtin_function(self, name: str) -> str | None:
+        """Map function name to target builtin. Default: use FUNCTION_NAME_MAP."""
+        from py2glsl.transpiler.constants import FUNCTION_NAME_MAP
+
+        return FUNCTION_NAME_MAP.get(name)
 
     def storage_qualifier(self, storage: StorageClass) -> str:
         """Map storage class to qualifier string."""

@@ -53,18 +53,36 @@ PRESERVE_TYPE_FUNCTIONS = frozenset(
         "sinh",
         "cosh",
         "tanh",
+        "asinh",
+        "acosh",
+        "atanh",
         "exp",
         "log",
         "exp2",
         "log2",
         "sqrt",
-        "inversesqrt",
+        "inverse_sqrt",
         "pow",
         "normalize",
         "reflect",
         "refract",
+        "radians",
+        "degrees",
+        "trunc",
+        "faceforward",
+        "round",
+        "matrix_comp_mult",
+        "transpose",
+        "inverse",
     }
 )
+
+# Python-to-GLSL function name remapping (snake_case -> camelCase)
+FUNCTION_NAME_MAP: dict[str, str] = {
+    "inverse_sqrt": "inversesqrt",
+    "matrix_comp_mult": "matrixCompMult",
+    "outer_product": "outerProduct",
+}
 
 # Matrix to vector type mapping
 MATRIX_TO_VECTOR = {"mat2": "vec2", "mat3": "vec3", "mat4": "vec4"}
@@ -111,23 +129,42 @@ def _scalar_binary_vec_sigs() -> list[tuple[str, list[str]]]:
     return [("float", [t, t]) for t in _VEC_TYPES[1:]]  # Skip float
 
 
+_MAT_TYPES = ["mat2", "mat3", "mat4"]
+
 BUILTIN_FUNCTIONS: dict[str, Any] = {
-    # Trigonometric (scalar only)
-    "sin": ("float", ["float"]),
-    "cos": ("float", ["float"]),
-    "tan": ("float", ["float"]),
-    "asin": ("float", ["float"]),
-    "acos": ("float", ["float"]),
-    "atan": ("float", ["float"]),
-    "radians": ("float", ["float"]),
+    # Trigonometric functions: T func(T)
+    "sin": _unary_vec_sigs(),
+    "cos": _unary_vec_sigs(),
+    "tan": _unary_vec_sigs(),
+    "asin": _unary_vec_sigs(),
+    "acos": _unary_vec_sigs(),
+    "atan": _unary_vec_sigs(),
+    "radians": _unary_vec_sigs(),
+    # Hyperbolic functions: T func(T)
+    "sinh": _unary_vec_sigs(),
+    "cosh": _unary_vec_sigs(),
+    "tanh": _unary_vec_sigs(),
+    "asinh": _unary_vec_sigs(),
+    "acosh": _unary_vec_sigs(),
+    "atanh": _unary_vec_sigs(),
     # Unary math functions: T func(T)
     "abs": _unary_vec_sigs(),
+    "sign": _unary_vec_sigs(),
     "floor": _unary_vec_sigs(),
     "ceil": _unary_vec_sigs(),
     "fract": _unary_vec_sigs(),
     "sqrt": _unary_vec_sigs(),
+    "inverse_sqrt": _unary_vec_sigs(),
+    "exp": _unary_vec_sigs(),
+    "exp2": _unary_vec_sigs(),
+    "log": _unary_vec_sigs(),
+    "log2": _unary_vec_sigs(),
+    "degrees": _unary_vec_sigs(),
+    "round": _unary_vec_sigs(),
+    "trunc": _unary_vec_sigs(),
     "normalize": [(t, [t]) for t in _VEC_TYPES[1:]],  # vec only
     # Binary math functions: T func(T, T)
+    "pow": _binary_vec_sigs(),
     "min": _binary_vec_sigs(),
     "max": _binary_vec_sigs(),
     "step": _binary_vec_sigs(),
@@ -139,21 +176,26 @@ BUILTIN_FUNCTIONS: dict[str, Any] = {
     # mix: T func(T, T, float) for vec types, float func(float, float, float)
     "mix": [("float", ["float", "float", "float"])]
     + [(t, [t, t, "float"]) for t in _VEC_TYPES[1:]],
-    # Scalar-only math
-    "pow": ("float", ["float", "float"]),
-    "exp": ("float", ["float"]),
-    "log": ("float", ["float"]),
-    "exp2": ("float", ["float"]),
-    "log2": ("float", ["float"]),
-    "round": ("float", ["float"]),
     # Geometric functions returning scalar
     "length": _scalar_unary_vec_sigs(),
     "distance": _scalar_binary_vec_sigs(),
     "dot": _scalar_binary_vec_sigs(),
     "cross": ("vec3", ["vec3", "vec3"]),
+    # Geometric: faceforward(T, T, T) for vec types only
+    "faceforward": [(t, [t, t, t]) for t in _VEC_TYPES[1:]],
     # Reflection/refraction
     "reflect": [(t, [t, t]) for t in _VEC_TYPES[1:]],
     "refract": [(t, [t, t, "float"]) for t in _VEC_TYPES[1:]],
+    # Matrix functions
+    "matrix_comp_mult": [(t, [t, t]) for t in _MAT_TYPES],
+    "transpose": [(t, [t]) for t in _MAT_TYPES],
+    "inverse": [(t, [t]) for t in _MAT_TYPES],
+    "determinant": [("float", [t]) for t in _MAT_TYPES],
+    "outer_product": [
+        ("mat2", ["vec2", "vec2"]),
+        ("mat3", ["vec3", "vec3"]),
+        ("mat4", ["vec4", "vec4"]),
+    ],
     # Type conversion
     "float": ("float", ["int"]),
     "int": ("int", ["float"]),

@@ -528,7 +528,6 @@
     void main() {
         fragColor = shader();
     }
-# Constant expressions (computed at transpile time)
 - name: const_expr_arithmetic
   python: |
     PI = 3.14159

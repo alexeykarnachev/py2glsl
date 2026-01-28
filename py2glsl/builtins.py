@@ -861,24 +861,74 @@ def _apply_binary_elementwise(
 
 
 # Trigonometric functions
-def sin(x: float) -> float:
-    return float(np.sin(x))
+@overload
+def sin(x: float) -> float: ...
+@overload
+def sin(x: vec2) -> vec2: ...
+@overload
+def sin(x: vec3) -> vec3: ...
+@overload
+def sin(x: vec4) -> vec4: ...
 
 
-def cos(x: float) -> float:
-    return float(np.cos(x))
+def sin(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.sin(v)))
 
 
-def tan(x: float) -> float:
-    return float(np.tan(x))
+@overload
+def cos(x: float) -> float: ...
+@overload
+def cos(x: vec2) -> vec2: ...
+@overload
+def cos(x: vec3) -> vec3: ...
+@overload
+def cos(x: vec4) -> vec4: ...
 
 
-def asin(x: float) -> float:
-    return float(np.arcsin(x))
+def cos(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.cos(v)))
 
 
-def acos(x: float) -> float:
-    return float(np.arccos(x))
+@overload
+def tan(x: float) -> float: ...
+@overload
+def tan(x: vec2) -> vec2: ...
+@overload
+def tan(x: vec3) -> vec3: ...
+@overload
+def tan(x: vec4) -> vec4: ...
+
+
+def tan(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.tan(v)))
+
+
+@overload
+def asin(x: float) -> float: ...
+@overload
+def asin(x: vec2) -> vec2: ...
+@overload
+def asin(x: vec3) -> vec3: ...
+@overload
+def asin(x: vec4) -> vec4: ...
+
+
+def asin(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.arcsin(v)))
+
+
+@overload
+def acos(x: float) -> float: ...
+@overload
+def acos(x: vec2) -> vec2: ...
+@overload
+def acos(x: vec3) -> vec3: ...
+@overload
+def acos(x: vec4) -> vec4: ...
+
+
+def acos(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.arccos(v)))
 
 
 @overload
@@ -892,6 +942,90 @@ def atan(y: float, x: float | None = None) -> float:
     if x is None:
         return float(np.arctan(y))
     return float(np.arctan2(y, x))
+
+
+@overload
+def sinh(x: float) -> float: ...
+@overload
+def sinh(x: vec2) -> vec2: ...
+@overload
+def sinh(x: vec3) -> vec3: ...
+@overload
+def sinh(x: vec4) -> vec4: ...
+
+
+def sinh(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.sinh(v)))
+
+
+@overload
+def cosh(x: float) -> float: ...
+@overload
+def cosh(x: vec2) -> vec2: ...
+@overload
+def cosh(x: vec3) -> vec3: ...
+@overload
+def cosh(x: vec4) -> vec4: ...
+
+
+def cosh(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.cosh(v)))
+
+
+@overload
+def tanh(x: float) -> float: ...
+@overload
+def tanh(x: vec2) -> vec2: ...
+@overload
+def tanh(x: vec3) -> vec3: ...
+@overload
+def tanh(x: vec4) -> vec4: ...
+
+
+def tanh(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.tanh(v)))
+
+
+@overload
+def asinh(x: float) -> float: ...
+@overload
+def asinh(x: vec2) -> vec2: ...
+@overload
+def asinh(x: vec3) -> vec3: ...
+@overload
+def asinh(x: vec4) -> vec4: ...
+
+
+def asinh(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.arcsinh(v)))
+
+
+@overload
+def acosh(x: float) -> float: ...
+@overload
+def acosh(x: vec2) -> vec2: ...
+@overload
+def acosh(x: vec3) -> vec3: ...
+@overload
+def acosh(x: vec4) -> vec4: ...
+
+
+def acosh(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.arccosh(v)))
+
+
+@overload
+def atanh(x: float) -> float: ...
+@overload
+def atanh(x: vec2) -> vec2: ...
+@overload
+def atanh(x: vec3) -> vec3: ...
+@overload
+def atanh(x: vec4) -> vec4: ...
+
+
+def atanh(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.arctanh(v)))
 
 
 # Math functions
@@ -965,32 +1099,158 @@ def sign(x: VecOrFloat) -> VecOrFloat:
     return _apply_elementwise(x, lambda v: float(np.sign(v)))
 
 
-def sqrt(x: float) -> float:
-    return float(np.sqrt(x))
+@overload
+def sqrt(x: float) -> float: ...
+@overload
+def sqrt(x: vec2) -> vec2: ...
+@overload
+def sqrt(x: vec3) -> vec3: ...
+@overload
+def sqrt(x: vec4) -> vec4: ...
 
 
-def pow(x: float, y: float) -> float:
-    return float(np.power(x, y))
+def sqrt(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.sqrt(v)))
 
 
-def exp(x: float) -> float:
-    return float(np.exp(x))
+@overload
+def inverse_sqrt(x: float) -> float: ...
+@overload
+def inverse_sqrt(x: vec2) -> vec2: ...
+@overload
+def inverse_sqrt(x: vec3) -> vec3: ...
+@overload
+def inverse_sqrt(x: vec4) -> vec4: ...
 
 
-def exp2(x: float) -> float:
-    return float(np.exp2(x))
+def inverse_sqrt(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(1.0 / np.sqrt(v)))
 
 
-def log(x: float) -> float:
-    return float(np.log(x))
+@overload
+def pow(x: float, y: float) -> float: ...
+@overload
+def pow(x: vec2, y: vec2) -> vec2: ...
+@overload
+def pow(x: vec3, y: vec3) -> vec3: ...
+@overload
+def pow(x: vec4, y: vec4) -> vec4: ...
 
 
-def log2(x: float) -> float:
-    return float(np.log2(x))
+def pow(x: VecOrFloat, y: VecOrFloat) -> VecOrFloat:
+    return _apply_binary_elementwise(x, y, lambda a, b: float(np.power(a, b)))
 
 
-def radians(degrees: float) -> float:
-    return float(np.radians(degrees))
+@overload
+def exp(x: float) -> float: ...
+@overload
+def exp(x: vec2) -> vec2: ...
+@overload
+def exp(x: vec3) -> vec3: ...
+@overload
+def exp(x: vec4) -> vec4: ...
+
+
+def exp(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.exp(v)))
+
+
+@overload
+def exp2(x: float) -> float: ...
+@overload
+def exp2(x: vec2) -> vec2: ...
+@overload
+def exp2(x: vec3) -> vec3: ...
+@overload
+def exp2(x: vec4) -> vec4: ...
+
+
+def exp2(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.exp2(v)))
+
+
+@overload
+def log(x: float) -> float: ...
+@overload
+def log(x: vec2) -> vec2: ...
+@overload
+def log(x: vec3) -> vec3: ...
+@overload
+def log(x: vec4) -> vec4: ...
+
+
+def log(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.log(v)))
+
+
+@overload
+def log2(x: float) -> float: ...
+@overload
+def log2(x: vec2) -> vec2: ...
+@overload
+def log2(x: vec3) -> vec3: ...
+@overload
+def log2(x: vec4) -> vec4: ...
+
+
+def log2(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.log2(v)))
+
+
+@overload
+def radians(x: float) -> float: ...
+@overload
+def radians(x: vec2) -> vec2: ...
+@overload
+def radians(x: vec3) -> vec3: ...
+@overload
+def radians(x: vec4) -> vec4: ...
+
+
+def radians(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.radians(v)))
+
+
+@overload
+def degrees(x: float) -> float: ...
+@overload
+def degrees(x: vec2) -> vec2: ...
+@overload
+def degrees(x: vec3) -> vec3: ...
+@overload
+def degrees(x: vec4) -> vec4: ...
+
+
+def degrees(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.degrees(v)))
+
+
+@overload
+def round(x: float) -> float: ...
+@overload
+def round(x: vec2) -> vec2: ...
+@overload
+def round(x: vec3) -> vec3: ...
+@overload
+def round(x: vec4) -> vec4: ...
+
+
+def round(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.round(v)))
+
+
+@overload
+def trunc(x: float) -> float: ...
+@overload
+def trunc(x: vec2) -> vec2: ...
+@overload
+def trunc(x: vec3) -> vec3: ...
+@overload
+def trunc(x: vec4) -> vec4: ...
+
+
+def trunc(x: VecOrFloat) -> VecOrFloat:
+    return _apply_elementwise(x, lambda v: float(np.trunc(v)))
 
 
 # Vector functions
@@ -1438,3 +1698,77 @@ def refract(I: vec3, N: vec3, eta: float) -> vec3:
     if k < 0.0:
         return vec3(0.0, 0.0, 0.0)
     return eta * I - (eta * d + sqrt(k)) * N
+
+
+# Geometric functions
+@overload
+def faceforward(N: vec2, I: vec2, Nref: vec2) -> vec2: ...
+@overload
+def faceforward(N: vec3, I: vec3, Nref: vec3) -> vec3: ...
+@overload
+def faceforward(N: vec4, I: vec4, Nref: vec4) -> vec4: ...
+
+
+def faceforward(N: Vec, I: Vec, Nref: Vec) -> Vec:
+    """Orient N to face away from I based on Nref."""
+    if isinstance(N, vec2) and isinstance(I, vec2) and isinstance(Nref, vec2):
+        return N if dot(Nref, I) < 0 else vec2(-N.data[0], -N.data[1])
+    if isinstance(N, vec3) and isinstance(I, vec3) and isinstance(Nref, vec3):
+        return N if dot(Nref, I) < 0 else vec3(-N.data[0], -N.data[1], -N.data[2])
+    if isinstance(N, vec4) and isinstance(I, vec4) and isinstance(Nref, vec4):
+        return (
+            N
+            if dot(Nref, I) < 0
+            else vec4(-N.data[0], -N.data[1], -N.data[2], -N.data[3])
+        )
+    raise TypeError(f"faceforward() types: {type(N)}, {type(I)}, {type(Nref)}")
+
+
+# Matrix functions
+Mat = mat2 | mat3 | mat4
+
+
+def matrix_comp_mult(a: Mat, b: Mat) -> Mat:
+    """Component-wise matrix multiply."""
+    result_data = a.data * b.data
+    if isinstance(a, mat2):
+        return mat2(*result_data.flatten().tolist())
+    if isinstance(a, mat3):
+        return mat3(*result_data.flatten().tolist())
+    return mat4(*result_data.flatten().tolist())
+
+
+def transpose(m: Mat) -> Mat:
+    """Matrix transpose."""
+    result_data = m.data.T
+    if isinstance(m, mat2):
+        return mat2(*result_data.flatten().tolist())
+    if isinstance(m, mat3):
+        return mat3(*result_data.flatten().tolist())
+    return mat4(*result_data.flatten().tolist())
+
+
+def determinant(m: Mat) -> float:
+    """Matrix determinant."""
+    return float(np.linalg.det(m.data))
+
+
+def inverse(m: Mat) -> Mat:
+    """Matrix inverse."""
+    result_data = np.linalg.inv(m.data)
+    if isinstance(m, mat2):
+        return mat2(*result_data.flatten().tolist())
+    if isinstance(m, mat3):
+        return mat3(*result_data.flatten().tolist())
+    return mat4(*result_data.flatten().tolist())
+
+
+def outer_product(c: Vec, r: Vec) -> Mat:
+    """Outer product of two vectors (column * row)."""
+    result_data = np.outer(c.data, r.data).astype(np.float32)
+    n = len(c.data)
+    if n == 2:
+        return mat2(*result_data.flatten().tolist())
+    if n == 3:
+        return mat3(*result_data.flatten().tolist())
+    return mat4(*result_data.flatten().tolist())
