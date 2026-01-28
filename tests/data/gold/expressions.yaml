@@ -752,3 +752,33 @@
     void main() {
         fragColor = shader();
     }
+- name: expr_walrus_operator
+  python: |
+    def shader(ctx: ShaderContext) -> vec4:
+        p = ctx.vs_uv - vec2(0.5, 0.5)
+        if (d := length(p)) < 0.3:
+            return vec4(1.0 - d, 0.0, 0.0, 1.0)
+        return vec4(0.0, 0.0, 0.0, 1.0)
+  expected: |
+    #version 460 core
+
+    in vec2 vs_uv;
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform float u_aspect;
+    uniform vec2 u_mouse_pos;
+    uniform vec2 u_mouse_uv;
+    out vec4 fragColor;
+
+    vec4 shader() {
+        vec2 p = vs_uv - vec2(0.5, 0.5);
+        float d = length(p);
+        if (d < 0.3) {
+            return vec4(1.0 - d, 0.0, 0.0, 1.0);
+        }
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    void main() {
+        fragColor = shader();
+    }

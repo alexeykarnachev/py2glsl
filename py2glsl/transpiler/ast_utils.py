@@ -119,6 +119,29 @@ def eval_constant(
                 return left * right
             if isinstance(node.op, ast.FloorDiv):
                 return left // right
+            if isinstance(node.op, ast.Mod):
+                return left % right
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and len(node.comparators) == 1
+    ):
+        left = eval_constant(node.left, globals_dict)
+        right = eval_constant(node.comparators[0], globals_dict)
+        if left is not None and right is not None:
+            op = node.ops[0]
+            if isinstance(op, ast.Eq):
+                return 1 if left == right else 0
+            if isinstance(op, ast.NotEq):
+                return 1 if left != right else 0
+            if isinstance(op, ast.Lt):
+                return 1 if left < right else 0
+            if isinstance(op, ast.LtE):
+                return 1 if left <= right else 0
+            if isinstance(op, ast.Gt):
+                return 1 if left > right else 0
+            if isinstance(op, ast.GtE):
+                return 1 if left >= right else 0
     return None
 
 

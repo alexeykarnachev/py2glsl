@@ -67,6 +67,7 @@ class IRBuilder:
         self.symbols: dict[str, IRType] = {}
         self._context_param_name: str | None = None
         self._tmp_var_counter: int = 0
+        self._pending_stmts: list[IRStmt] = []
 
     def build(self, stage: ShaderStage = ShaderStage.FRAGMENT) -> ShaderIR:
         """Build complete ShaderIR."""
@@ -292,6 +293,14 @@ class IRBuilder:
             # Fallback for cases not handled by type_checker
             return IRType("float")
 
+    def _flush_pending_stmts(self) -> list[IRStmt]:
+        """Flush and return any pending statements from walrus operator expressions."""
+        if not self._pending_stmts:
+            return []
+        stmts = self._pending_stmts
+        self._pending_stmts = []
+        return stmts
+
     def _build_stmt(self, node: ast.stmt) -> list[IRStmt]:
         """Build IR statement(s) from AST statement."""
         match node:
@@ -303,10 +312,13 @@ class IRBuilder:
                         elts = value.elts
                         if 2 <= len(elts) <= 4:
                             args = [self._build_expr(e) for e in elts]
+                            pending = self._flush_pending_stmts()
                             vec_type = IRType(f"vec{len(elts)}")
                             vec_construct = IRConstruct(result_type=vec_type, args=args)
-                            return [IRReturn(value=vec_construct)]
-                    return [IRReturn(value=self._build_expr(value))]
+                            return [*pending, IRReturn(value=vec_construct)]
+                    expr = self._build_expr(value)
+                    pending = self._flush_pending_stmts()
+                    return [*pending, IRReturn(value=expr)]
                 return [IRReturn()]
 
             case ast.Assign(targets=targets, value=value):
@@ -317,6 +329,8 @@ class IRBuilder:
                     return self._build_tuple_unpack(targets[0], value)
 
                 value_expr = self._build_expr(value)
+                pending = self._flush_pending_stmts()
+                result.extend(pending)
                 for target in targets:
                     is_new_var = isinstance(target, ast.Name) and (
                         target.id not in self.symbols
@@ -346,21 +360,25 @@ class IRBuilder:
                             ir_type = init.result_type
                     var = IRVariable(name=target.id, type=ir_type)
                     self.symbols[target.id] = ir_type
-                    return [IRDeclare(var=var, init=init)]
+                    pending = self._flush_pending_stmts()
+                    return [*pending, IRDeclare(var=var, init=init)]
                 return []
 
             case ast.AugAssign(target=target, op=op, value=value):
                 op_str = binop_to_str(type(op).__name__)
                 target_expr = self._build_expr(target)
                 value_expr = self._build_expr(value)
+                pending = self._flush_pending_stmts()
                 return [
-                    IRAugmentedAssign(target=target_expr, op=op_str, value=value_expr)
+                    *pending,
+                    IRAugmentedAssign(target=target_expr, op=op_str, value=value_expr),
                 ]
 
             case ast.If(test=test, body=body, orelse=orelse):
                 # Pre-scan to hoist variable declarations assigned in branches
                 hoisted = self._hoist_if_variables(node)
                 cond = self._build_expr(test)
+                pending = self._flush_pending_stmts()
                 then_body = []
                 for s in body:
                     then_body.extend(self._build_stmt(s))
@@ -369,6 +387,7 @@ class IRBuilder:
                     else_body.extend(self._build_stmt(s))
                 return [
                     *hoisted,
+                    *pending,
                     IRIf(condition=cond, then_body=then_body, else_body=else_body),
                 ]
 
@@ -377,13 +396,16 @@ class IRBuilder:
 
             case ast.While(test=test, body=body):
                 cond = self._build_expr(test)
+                pending = self._flush_pending_stmts()
                 while_body = []
                 for s in body:
                     while_body.extend(self._build_stmt(s))
-                return [IRWhile(condition=cond, body=while_body)]
+                return [*pending, IRWhile(condition=cond, body=while_body)]
 
             case ast.Expr(value=value):
-                return [IRExprStmt(expr=self._build_expr(value))]
+                expr = self._build_expr(value)
+                pending = self._flush_pending_stmts()
+                return [*pending, IRExprStmt(expr=expr)]
 
             case ast.Break():
                 return [IRBreak()]
@@ -399,7 +421,33 @@ class IRBuilder:
     def _build_for_loop(
         self, target: ast.expr, iter_expr: ast.expr, body: list[ast.stmt]
     ) -> list[IRStmt]:
-        """Build IR for a for loop (only supports range())."""
+        """Build IR for a for loop.
+
+        Supports:
+        - range() iteration
+        - for item in array (direct array iteration)
+        - for i, item in enumerate(array)
+        """
+        # Check for enumerate(array) pattern
+        if (
+            isinstance(iter_expr, ast.Call)
+            and isinstance(iter_expr.func, ast.Name)
+            and iter_expr.func.id == "enumerate"
+            and len(iter_expr.args) == 1
+            and isinstance(target, ast.Tuple)
+            and len(target.elts) == 2
+            and all(isinstance(e, ast.Name) for e in target.elts)
+        ):
+            return self._build_enumerate_loop(target, iter_expr.args[0], body)
+
+        # Check for direct array iteration: for item in array_name
+        if isinstance(target, ast.Name) and isinstance(iter_expr, ast.Name):
+            array_type = self.symbols.get(iter_expr.id)
+            if array_type and array_type.array_size is not None:
+                return self._build_array_iteration_loop(
+                    target.id, iter_expr.id, array_type, body
+                )
+
         if not isinstance(target, ast.Name):
             raise TranspilerError("For loop target must be a simple name")
 
@@ -445,6 +493,102 @@ class IRBuilder:
         )
 
         for_body = []
+        for s in body:
+            for_body.extend(self._build_stmt(s))
+
+        return [IRFor(init=init, condition=condition, update=update, body=for_body)]
+
+    def _build_array_iteration_loop(
+        self,
+        item_name: str,
+        array_name: str,
+        array_type: IRType,
+        body: list[ast.stmt],
+    ) -> list[IRStmt]:
+        """Build IR for: for item in array."""
+        size = array_type.array_size
+        elem_type = IRType(array_type.base)
+        counter_name = f"_i{self._tmp_var_counter}"
+        self._tmp_var_counter += 1
+
+        loop_var = IRVariable(name=counter_name, type=IRType("int"))
+        self.symbols[counter_name] = IRType("int")
+        self.symbols[item_name] = elem_type
+
+        zero = IRLiteral(result_type=IRType("int"), value=0)
+        init = IRDeclare(var=loop_var, init=zero)
+        condition = IRBinOp(
+            result_type=IRType("bool"),
+            op="<",
+            left=IRName(result_type=IRType("int"), name=counter_name),
+            right=IRLiteral(result_type=IRType("int"), value=size),
+        )
+        update = IRAugmentedAssign(
+            target=IRName(result_type=IRType("int"), name=counter_name),
+            op="+",
+            value=IRLiteral(result_type=IRType("int"), value=1),
+        )
+
+        # Prepend element declaration to body
+        elem_var = IRVariable(name=item_name, type=elem_type)
+        elem_init = IRSubscript(
+            result_type=elem_type,
+            base=IRName(result_type=array_type, name=array_name),
+            index=IRName(result_type=IRType("int"), name=counter_name),
+        )
+        for_body: list[IRStmt] = [IRDeclare(var=elem_var, init=elem_init)]
+        for s in body:
+            for_body.extend(self._build_stmt(s))
+
+        return [IRFor(init=init, condition=condition, update=update, body=for_body)]
+
+    def _build_enumerate_loop(
+        self,
+        target: ast.Tuple,
+        array_node: ast.expr,
+        body: list[ast.stmt],
+    ) -> list[IRStmt]:
+        """Build IR for: for i, item in enumerate(array)."""
+        idx_name = target.elts[0].id  # type: ignore[attr-defined]
+        item_name = target.elts[1].id  # type: ignore[attr-defined]
+
+        array_expr_name = array_node
+        if not isinstance(array_expr_name, ast.Name):
+            raise TranspilerError("enumerate() argument must be a variable name")
+
+        array_type = self.symbols.get(array_expr_name.id)
+        if not array_type or array_type.array_size is None:
+            raise TranspilerError("enumerate() argument must be an array")
+
+        size = array_type.array_size
+        elem_type = IRType(array_type.base)
+
+        loop_var = IRVariable(name=idx_name, type=IRType("int"))
+        self.symbols[idx_name] = IRType("int")
+        self.symbols[item_name] = elem_type
+
+        zero = IRLiteral(result_type=IRType("int"), value=0)
+        init = IRDeclare(var=loop_var, init=zero)
+        condition = IRBinOp(
+            result_type=IRType("bool"),
+            op="<",
+            left=IRName(result_type=IRType("int"), name=idx_name),
+            right=IRLiteral(result_type=IRType("int"), value=size),
+        )
+        update = IRAugmentedAssign(
+            target=IRName(result_type=IRType("int"), name=idx_name),
+            op="+",
+            value=IRLiteral(result_type=IRType("int"), value=1),
+        )
+
+        # Prepend element declaration to body
+        elem_var = IRVariable(name=item_name, type=elem_type)
+        elem_init = IRSubscript(
+            result_type=elem_type,
+            base=IRName(result_type=array_type, name=array_expr_name.id),
+            index=IRName(result_type=IRType("int"), name=idx_name),
+        )
+        for_body: list[IRStmt] = [IRDeclare(var=elem_var, init=elem_init)]
         for s in body:
             for_body.extend(self._build_stmt(s))
 
@@ -601,6 +745,20 @@ class IRBuilder:
             case ast.ListComp(elt=elt, generators=generators):
                 return self._build_list_comprehension(elt, generators)
 
+            case ast.NamedExpr(target=target, value=value):
+                # Walrus operator (:=) — hoist declaration as a pending statement
+                value_expr = self._build_expr(value)
+                if not isinstance(target, ast.Name):
+                    raise TranspilerError(
+                        "Walrus operator target must be a simple name"
+                    )
+                var_name = target.id
+                ir_type = value_expr.result_type
+                var = IRVariable(name=var_name, type=ir_type)
+                self.symbols[var_name] = ir_type
+                self._pending_stmts.append(IRDeclare(var=var, init=value_expr))
+                return IRName(result_type=ir_type, name=var_name)
+
         raise TranspilerError(f"Unsupported expression: {type(node).__name__}")
 
     def _build_call(
@@ -623,6 +781,14 @@ class IRBuilder:
                 for kw in keywords:
                     arg_exprs.append(self._build_expr(kw.value))
                 return IRConstruct(result_type=IRType(func_name), args=arg_exprs)
+
+            # Handle sum() builtin
+            if func_name == "sum":
+                return self._build_sum_call(args)
+
+            # Handle len() builtin
+            if func_name == "len":
+                return self._build_len_call(args)
 
             # Regular function call - filter out ShaderContext arguments
             filtered_args = self._filter_context_args(func_name, args)
@@ -840,26 +1006,44 @@ class IRBuilder:
     ) -> IRExpr:
         """Build IR for list comprehension by unrolling at compile time.
 
-        Supports: [expr for var in range(n)]
-        Where n must be a constant.
-
-        Example: [i * 2.0 for i in range(4)]
-        Becomes: float[4](0.0, 2.0, 4.0, 6.0)
+        Supports:
+        - [expr for var in range(n)]
+        - [expr for var in range(n) if condition]
+        - [expr for var1 in range(n) for var2 in range(m)]
+        Where ranges must be compile-time constants.
         """
-        if len(generators) != 1:
-            raise TranspilerError(
-                "List comprehensions with multiple 'for' clauses are not supported"
-            )
+        elements: list[IRExpr] = []
+        self._unroll_generators(elt, generators, 0, {}, elements)
 
-        gen = generators[0]
+        if not elements:
+            raise TranspilerError("List comprehension produced empty result")
 
-        # Check for conditions (if clauses)
-        if gen.ifs:
-            raise TranspilerError(
-                "List comprehensions with 'if' conditions are not supported"
-            )
+        # Infer element type from first element
+        elem_type = elements[0].result_type
+        result_type = IRType(base=elem_type.base, array_size=len(elements))
 
-        # Get loop variable name
+        return IRConstruct(result_type=result_type, args=elements)
+
+    def _unroll_generators(
+        self,
+        elt: ast.expr,
+        generators: list[ast.comprehension],
+        gen_idx: int,
+        substitutions: dict[str, int],
+        elements: list[IRExpr],
+    ) -> None:
+        """Recursively unroll comprehension generators."""
+        if gen_idx >= len(generators):
+            # All generators exhausted - evaluate the element expression
+            substituted_elt = elt
+            for var_name, var_val in substitutions.items():
+                substituted_elt = substitute_name(substituted_elt, var_name, var_val)
+            elem_expr = self._build_expr(substituted_elt)
+            elements.append(elem_expr)
+            return
+
+        gen = generators[gen_idx]
+
         if not isinstance(gen.target, ast.Name):
             raise TranspilerError(
                 "List comprehension target must be a simple variable name"
@@ -873,18 +1057,55 @@ class IRBuilder:
             raise TranspilerError("List comprehension iterator must be range()")
 
         # Parse range arguments
-        range_args = gen.iter.args
+        start, end, step = self._parse_range_args(gen.iter.args)
+
+        old_symbol = self.symbols.get(loop_var)
         globals_dict = self.collected.globals
-        start: int
-        end: int
-        step: int
+
+        for i in range(start, end, step):
+            self.symbols[loop_var] = IRType("int")
+
+            # Check if conditions (filters) - evaluate at compile time
+            if gen.ifs:
+                skip = False
+                for if_node in gen.ifs:
+                    substituted_cond = if_node
+                    for var_name, var_val in substitutions.items():
+                        substituted_cond = substitute_name(
+                            substituted_cond, var_name, var_val
+                        )
+                    substituted_cond = substitute_name(substituted_cond, loop_var, i)
+                    cond_val = eval_constant(substituted_cond, globals_dict)
+                    if cond_val is None:
+                        raise TranspilerError(
+                            "List comprehension 'if' condition must be evaluable "
+                            "at compile time"
+                        )
+                    if not cond_val:
+                        skip = True
+                        break
+                if skip:
+                    continue
+
+            new_subs = {**substitutions, loop_var: i}
+            self._unroll_generators(elt, generators, gen_idx + 1, new_subs, elements)
+
+        # Restore old symbol
+        if old_symbol is not None:
+            self.symbols[loop_var] = old_symbol
+        elif loop_var in self.symbols:
+            del self.symbols[loop_var]
+
+    def _parse_range_args(self, range_args: list[ast.expr]) -> tuple[int, int, int]:
+        """Parse range() arguments, all must be compile-time constants."""
+        globals_dict = self.collected.globals
         if len(range_args) == 1:
             end_val = eval_constant(range_args[0], globals_dict)
             if end_val is None:
                 raise TranspilerError(
                     "List comprehension range() args must be compile-time constants"
                 )
-            start, end, step = 0, end_val, 1
+            return 0, end_val, 1
         elif len(range_args) == 2:
             start_val = eval_constant(range_args[0], globals_dict)
             end_val = eval_constant(range_args[1], globals_dict)
@@ -892,7 +1113,7 @@ class IRBuilder:
                 raise TranspilerError(
                     "List comprehension range() args must be compile-time constants"
                 )
-            start, end, step = start_val, end_val, 1
+            return start_val, end_val, 1
         elif len(range_args) == 3:
             start_val = eval_constant(range_args[0], globals_dict)
             end_val = eval_constant(range_args[1], globals_dict)
@@ -901,37 +1122,87 @@ class IRBuilder:
                 raise TranspilerError(
                     "List comprehension range() args must be compile-time constants"
                 )
-            start, end, step = start_val, end_val, step_val
+            return start_val, end_val, step_val
         else:
             raise TranspilerError("range() requires 1-3 arguments")
 
-        # Generate the elements by evaluating the expression for each iteration
-        elements: list[IRExpr] = []
-        old_symbol = self.symbols.get(loop_var)
+    def _build_sum_call(self, args: list[ast.expr]) -> IRExpr:
+        """Build IR for sum() builtin.
 
-        for i in range(start, end, step):
-            # Temporarily bind loop variable to current value
-            self.symbols[loop_var] = IRType("int")
+        Handles:
+        - sum(array_name) -> unrolled addition of all elements
+        - sum(generator_expr) -> unrolled addition from generator
+        """
+        if len(args) != 1:
+            raise TranspilerError("sum() requires exactly 1 argument")
 
-            # Create a modified AST with the loop variable replaced by constant
-            substituted_elt = substitute_name(elt, loop_var, i)
-            elem_expr = self._build_expr(substituted_elt)
-            elements.append(elem_expr)
+        arg = args[0]
 
-        # Restore old symbol
-        if old_symbol is not None:
-            self.symbols[loop_var] = old_symbol
-        elif loop_var in self.symbols:
-            del self.symbols[loop_var]
+        # sum(array_name) - array variable reference
+        if isinstance(arg, ast.Name):
+            array_type = self.symbols.get(arg.id)
+            if array_type and array_type.array_size is not None:
+                elem_type = IRType(array_type.base)
+                array_ref = IRName(result_type=array_type, name=arg.id)
+                result: IRExpr = IRSubscript(
+                    result_type=elem_type,
+                    base=array_ref,
+                    index=IRLiteral(result_type=IRType("int"), value=0),
+                )
+                for i in range(1, array_type.array_size):
+                    elem = IRSubscript(
+                        result_type=elem_type,
+                        base=array_ref,
+                        index=IRLiteral(result_type=IRType("int"), value=i),
+                    )
+                    result = IRBinOp(
+                        result_type=elem_type, op="+", left=result, right=elem
+                    )
+                return result
 
-        if not elements:
-            raise TranspilerError("List comprehension produced empty result")
+        # sum(generator_expr) or sum(list_comp) - unroll and chain additions
+        if isinstance(arg, ast.GeneratorExp | ast.ListComp):
+            elements: list[IRExpr] = []
+            self._unroll_generators(arg.elt, arg.generators, 0, {}, elements)
+            if not elements:
+                raise TranspilerError("sum() over empty generator")
+            gen_result: IRExpr = elements[0]
+            for el in elements[1:]:
+                gen_result = IRBinOp(
+                    result_type=gen_result.result_type,
+                    op="+",
+                    left=gen_result,
+                    right=el,
+                )
+            return gen_result
 
-        # Infer element type from first element
-        elem_type = elements[0].result_type
-        result_type = IRType(base=elem_type.base, array_size=len(elements))
+        # Fallback: try to build the expression normally
+        arg_expr = self._build_expr(arg)
+        return arg_expr
 
-        return IRConstruct(result_type=result_type, args=elements)
+    def _build_len_call(self, args: list[ast.expr]) -> IRExpr:
+        """Build IR for len() builtin.
+
+        Returns compile-time constant for arrays and vectors.
+        """
+        if len(args) != 1:
+            raise TranspilerError("len() requires exactly 1 argument")
+
+        arg = args[0]
+        if isinstance(arg, ast.Name):
+            var_type = self.symbols.get(arg.id)
+            if var_type:
+                # Array with known size
+                if var_type.array_size is not None:
+                    return IRLiteral(
+                        result_type=IRType("int"), value=var_type.array_size
+                    )
+                # Vector types
+                size = get_indexable_size(var_type)
+                if size is not None:
+                    return IRLiteral(result_type=IRType("int"), value=size)
+
+        raise TranspilerError("len() argument must be an array or vector variable")
 
     def _build_chained_minmax(self, func_name: str, arg_exprs: list[IRExpr]) -> IRExpr:
         """Build chained min/max calls for more than 2 arguments.

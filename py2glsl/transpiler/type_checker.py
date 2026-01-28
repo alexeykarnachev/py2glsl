@@ -126,6 +126,24 @@ def _get_call_type(node: ast.Call, symbols: Symbols, collected: CollectedInfo) -
     if func_name in collected.structs:
         return func_name
 
+    # sum() builtin - returns element type of array/generator
+    if func_name == "sum":
+        if node.args:
+            arg_type = get_expr_type(node.args[0], symbols, collected)
+            # Array type "float[3]" -> element type "float"
+            if "[" in arg_type:
+                return arg_type.split("[")[0]
+            return arg_type
+        return "float"
+
+    # len() builtin - always returns int
+    if func_name == "len":
+        return "int"
+
+    # enumerate() - not a standalone expression, handled in for loops
+    if func_name == "enumerate":
+        return "int"
+
     raise TranspilerError(f"Unknown function: {func_name}")
 
 
@@ -243,5 +261,10 @@ def get_expr_type(node: ast.AST, symbols: Symbols, collected: CollectedInfo) -> 
             return _get_unaryop_type(node, symbols, collected)
         case ast.Subscript():
             return _get_subscript_type(node, symbols, collected)
+        case ast.NamedExpr():
+            value_type = get_expr_type(node.value, symbols, collected)
+            if isinstance(node.target, ast.Name):
+                symbols[node.target.id] = value_type
+            return value_type
         case _:
             raise TranspilerError(f"Unsupported expression type: {type(node).__name__}")

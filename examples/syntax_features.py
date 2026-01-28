@@ -26,6 +26,13 @@ Features demonstrated:
 19. Struct definitions with dataclasses
 20. Matrix operations
 21. List comprehensions (unrolled at compile time)
+22. for item in array (direct array iteration)
+23. enumerate(array) (index + element iteration)
+24. Filtered list comprehensions ([x for x in range(n) if cond])
+25. Nested list comprehensions ([f(i,j) for i in range(n) for j in range(m)])
+26. sum() builtin (array sum, generator sum)
+27. len() builtin (compile-time array/vector length)
+28. Walrus operator (:= inline assignment)
 
 Example Usage:
     # Interactive preview
@@ -74,6 +81,9 @@ LAYER_COUNT: int = 4
 TAU = PI * 2.0
 HALF_PI = PI / 2.0
 QUARTER_PI = PI / 4.0
+
+# Constants for filtered comprehensions
+NUM_SAMPLES = 8
 
 # Mutable global (will be non-const in GLSL)
 frame_accumulator = 0.0
@@ -291,6 +301,89 @@ def shader(ctx: ShaderContext) -> vec4:
     blend_t = pattern_val * 0.5 + 0.5
     gradient_sample = mix(gradient_colors[0], gradient_colors[2], blend_t)
 
+    # ---------------------------------------------------------------------
+    # FILTERED LIST COMPREHENSIONS - With compile-time if conditions
+    # ---------------------------------------------------------------------
+
+    # Only include even indices: [0, 2, 4, 6]
+    even_indices: list[int] = [i for i in range(NUM_SAMPLES) if i % 2 == 0]
+    # Transpiles to: int[4](0, 2, 4, 6)
+
+    # Only include values where condition holds
+    small_offsets: list[float] = [
+        float(i) * 0.1 for i in range(NUM_SAMPLES) if i % 3 != 0
+    ]
+
+    # ---------------------------------------------------------------------
+    # NESTED LIST COMPREHENSIONS - Multiple for clauses
+    # ---------------------------------------------------------------------
+
+    # 2D grid: generates 3x3 = 9 elements
+    grid_values: list[float] = [float(i + j * 3) for i in range(3) for j in range(3)]
+    # Transpiles to: float[9](0, 3, 6, 1, 4, 7, 2, 5, 8)
+
+    # Use grid_values and filtered results
+    grid_sum_val = grid_values[0] + grid_values[4] + grid_values[8]
+
+    # ---------------------------------------------------------------------
+    # sum() BUILTIN - Unrolled addition
+    # ---------------------------------------------------------------------
+
+    # sum() over an array - unrolls to chained additions
+    total_weight = sum(weights)
+    # Transpiles to: weights[0] + weights[1] + weights[2] + weights[3]
+
+    # sum() over a generator expression
+    gen_total = sum(float(i) * 0.1 for i in range(4))
+    # Transpiles to: float(0) * 0.1 + float(1) * 0.1 + ...
+
+    # ---------------------------------------------------------------------
+    # len() BUILTIN - Compile-time constant
+    # ---------------------------------------------------------------------
+
+    # len() on array - replaced with compile-time constant
+    num_colors = len(colors)
+    # Transpiles to: int num_colors = 4;
+
+    # Use len() in expression
+    color_scale = 1.0 / float(num_colors)
+
+    # ---------------------------------------------------------------------
+    # WALRUS OPERATOR (:=) - Inline assignment
+    # ---------------------------------------------------------------------
+
+    # Walrus operator hoists the assignment before the if statement
+    # Python: if (d := length(p)) < threshold:
+    # GLSL:   float d = length(p); if (d < threshold) { ... }
+    walrus_color = vec3(0.0)
+    center_p = uv * 0.5
+    if (center_d := length(center_p)) < 0.4:
+        walrus_color = vec3(1.0 - center_d * 2.0, center_d, 0.5)
+
+    # ---------------------------------------------------------------------
+    # FOR ITEM IN ARRAY - Direct array iteration
+    # ---------------------------------------------------------------------
+
+    # Iterate directly over array elements (no index needed)
+    color_sum = vec3(0.0)
+    for c in colors:
+        color_sum = color_sum + c
+    # Transpiles to: for (int _i0 = 0; _i0 < 4; _i0++) {
+    #     vec3 c = colors[_i0]; color_sum = color_sum + c; }
+
+    avg_color = color_sum * color_scale
+
+    # ---------------------------------------------------------------------
+    # ENUMERATE - Index + element iteration
+    # ---------------------------------------------------------------------
+
+    # Iterate with both index and element
+    weighted_color = vec3(0.0)
+    for idx, col in enumerate(colors):
+        weighted_color = weighted_color + col * float(idx)
+    # Transpiles to: for (int idx = 0; idx < 4; idx++) {
+    #     vec3 col = colors[idx]; weighted_color += col * float(idx); }
+
     # Use grid coordinates for pattern
     grid_pattern = sin(grid_x * 3.14159) * sin(grid_y * 3.14159)
 
@@ -414,6 +507,15 @@ def shader(ctx: ShaderContext) -> vec4:
 
     # Use struct list comprehension result
     color = mix(color, sample_palettes[1].primary, 0.05)
+
+    # Mix in new feature results
+    color = mix(color, avg_color, 0.05)
+    color = mix(color, walrus_color, 0.1)
+    color += weighted_color * 0.01
+    color += vec3(total_weight * 0.01, gen_total * 0.01, grid_sum_val * 0.001)
+    color += vec3(float(even_indices[0]) * 0.001)
+    color += vec3(small_offsets[0] * 0.001)
+    color += vec3(grid_values[0] * 0.001)
 
     # Clamp final color
     color = clamp(color, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0))
