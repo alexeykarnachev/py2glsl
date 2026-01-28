@@ -20,11 +20,26 @@ class StructField:
 
 
 @dataclass
+class MethodInfo:
+    """Instance method information."""
+
+    name: str
+    struct_name: str
+    return_type: str | None
+    param_types: list[str | None]  # Excludes 'self'
+    param_names: list[str]  # Parameter names (excludes 'self')
+    node: ast.FunctionDef
+    param_defaults: list[str] = field(default_factory=list)
+
+
+@dataclass
 class StructDefinition:
-    """Struct definition."""
+    """Struct definition (from dataclass or regular class)."""
 
     name: str
     fields: list[StructField]
+    methods: dict[str, MethodInfo] = field(default_factory=dict)
+    has_custom_init: bool = False  # True if class has __init__ method
 
 
 @dataclass

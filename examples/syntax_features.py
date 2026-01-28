@@ -33,6 +33,8 @@ Features demonstrated:
 26. sum() builtin (array sum, generator sum)
 27. len() builtin (compile-time array/vector length)
 28. Walrus operator (:= inline assignment)
+29. Regular classes with __init__ (auto-converted to structs)
+30. Instance methods (converted to functions with struct as first param)
 
 Example Usage:
     # Interactive preview
@@ -111,6 +113,44 @@ class ShapeResult:
     distance: float
     color: vec3
     glow: float
+
+
+# =============================================================================
+# CLASSES - Regular Python classes (converted to structs with methods)
+# =============================================================================
+
+
+class Circle:
+    """A circle defined by center and radius, with distance method."""
+
+    def __init__(self, center: vec2, radius: float):
+        self.center = center
+        self.radius = radius
+
+    def signed_distance(self, point: vec2) -> float:
+        """Return signed distance from point to circle edge."""
+        return length(point - self.center) - self.radius
+
+    def contains(self, point: vec2) -> float:
+        """Return 1.0 if point is inside, 0.0 otherwise."""
+        d = self.signed_distance(point)
+        return 1.0 if d < 0.0 else 0.0
+
+
+class Transform2D:
+    """A 2D transformation with position and scale."""
+
+    def __init__(self, position: vec2, scale: float):
+        self.position = position
+        self.scale = scale
+
+    def apply(self, point: vec2) -> vec2:
+        """Apply the transformation to a point."""
+        return (point - self.position) / self.scale
+
+    def apply_inverse(self, point: vec2) -> vec2:
+        """Apply the inverse transformation."""
+        return point * self.scale + self.position
 
 
 # =============================================================================
@@ -384,6 +424,27 @@ def shader(ctx: ShaderContext) -> vec4:
     # Transpiles to: for (int idx = 0; idx < 4; idx++) {
     #     vec3 col = colors[idx]; weighted_color += col * float(idx); }
 
+    # ---------------------------------------------------------------------
+    # CLASSES WITH METHODS - Regular Python classes
+    # ---------------------------------------------------------------------
+
+    # Create a circle using regular class with __init__
+    circle = Circle(vec2(0.5, 0.5), 0.25)
+    # Transpiles to: Circle circle = Circle(vec2(0.5, 0.5), 0.25);
+
+    # Call instance method - transpiles to function call with struct as first arg
+    circle_dist = circle.signed_distance(ctx.vs_uv)
+    # Transpiles to: float circle_dist = Circle_signed_distance(circle, vs_uv);
+
+    # Use method result
+    circle_mask = circle.contains(ctx.vs_uv)
+    # Transpiles to: float circle_mask = Circle_contains(circle, vs_uv);
+
+    # Another class with methods
+    transform = Transform2D(vec2(0.5, 0.5), 2.0)
+    transformed_uv = transform.apply(ctx.vs_uv)
+    # Transpiles to: vec2 transformed_uv = Transform2D_apply(transform, vs_uv);
+
     # Use grid coordinates for pattern
     grid_pattern = sin(grid_x * 3.14159) * sin(grid_y * 3.14159)
 
@@ -516,6 +577,11 @@ def shader(ctx: ShaderContext) -> vec4:
     color += vec3(float(even_indices[0]) * 0.001)
     color += vec3(small_offsets[0] * 0.001)
     color += vec3(grid_values[0] * 0.001)
+
+    # Mix in class/method results
+    color = mix(color, vec3(1.0, 0.5, 0.0), circle_mask * 0.1)
+    color += vec3(circle_dist * 0.01)
+    color += vec3(transformed_uv.x * 0.01, transformed_uv.y * 0.01, 0.0)
 
     # Clamp final color
     color = clamp(color, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0))

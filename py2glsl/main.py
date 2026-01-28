@@ -86,6 +86,7 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
 
         # Check if it's a global constant with type annotation or a dataclass
         # or a simple constant (int, float, bool) without annotation
+        # or a regular class (for struct/method support)
         elif (
             (
                 not callable(obj)
@@ -94,6 +95,12 @@ def _find_shader_function(module: Any) -> tuple[Callable[..., Any], dict[str, An
                 and name in module.__annotations__
             )
             or hasattr(obj, "__dataclass_fields__")  # Check for dataclasses
+            or (
+                # Regular classes (for struct/method support)
+                inspect.isclass(obj)
+                and not name.startswith("_")
+                and hasattr(obj, "__init__")
+            )
             or (
                 # Simple constants without annotations (int, float, bool)
                 not callable(obj)
@@ -167,7 +174,14 @@ def _load_shader_module(file_path: str) -> Any:
         raise ImportError(f"Could not load module from {file_path}")
 
     shader_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(shader_module)
+    # Register in sys.modules before exec - required for dataclass in Python 3.13+
+    sys.modules[module_name] = shader_module
+    try:
+        spec.loader.exec_module(shader_module)
+    except Exception:
+        # Clean up on error
+        sys.modules.pop(module_name, None)
+        raise
 
     return shader_module
 
@@ -227,6 +241,9 @@ def _prepare_transpilation_args(
             not_builtin = has_module and not is_builtin
             if not_builtin:
                 function_args.append(item)
+        elif inspect.isclass(item) and not name.startswith("_"):
+            # Include regular classes for struct/method support
+            function_args.append(item)
         else:
             other_globals[name] = item
 
@@ -294,16 +311,14 @@ def _get_transpiled_shader(
         logger.info(f"Transpiling main function: {main_func.__name__}")
         logger.info(f"Globals: {list(globals_dict.keys())}")
 
-        # Extract functions and other globals
-        result = _prepare_transpilation_args(globals_dict, main_func)
-        function_args, other_globals = result
-        logger.info(f"Including functions: {[func.__name__ for func in function_args]}")
+        # Read source code directly from file to preserve class definitions
+        with open(shader_file) as f:
+            source_code = f.read()
 
         glsl_code, used_uniforms = transpile(
-            *function_args,
+            source_code,
             main_func=main_func.__name__,
             target=target,
-            **other_globals,
         )
 
         logger.info(f"Used uniforms: {used_uniforms}")

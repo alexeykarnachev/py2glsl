@@ -9,6 +9,7 @@ from py2glsl.transpiler.ast_utils import eval_const_expr, infer_literal_glsl_typ
 from py2glsl.transpiler.models import (
     CollectedInfo,
     FunctionInfo,
+    MethodInfo,
     StructDefinition,
     StructField,
     TranspilerError,
@@ -39,35 +40,146 @@ def _collect_function(node: ast.FunctionDef, collected: CollectedInfo) -> None:
 
 
 def _collect_struct(node: ast.ClassDef, collected: CollectedInfo) -> None:
-    """Collect struct info from a dataclass ClassDef node."""
+    """Collect struct info from a dataclass or regular class.
+
+    Supports:
+    - @dataclass decorated classes (fields from annotations)
+    - Regular classes with __init__ (fields from self.x = y assignments)
+    - Instance methods (converted to functions with struct as first param)
+    """
     is_dataclass = any(
         isinstance(d, ast.Name) and d.id == "dataclass" for d in node.decorator_list
     )
+
+    fields: list[StructField] = []
+    methods: dict[str, MethodInfo] = {}
+    has_custom_init = False
+    init_param_types: dict[str, str] = {}
+
+    # First pass: find __init__ and extract parameter types for regular classes
     if not is_dataclass:
+        for stmt in node.body:
+            if isinstance(stmt, ast.FunctionDef) and stmt.name == "__init__":
+                has_custom_init = True
+                # Extract parameter types from __init__ (skip self)
+                for arg in stmt.args.args[1:]:
+                    param_type = get_annotation_type(arg.annotation)
+                    if param_type:
+                        init_param_types[arg.arg] = param_type
+                break
+
+    # Collect fields
+    for stmt in node.body:
+        # Dataclass style: annotated class attributes
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            field_type = get_annotation_type(stmt.annotation)
+            if field_type is None:
+                raise TranspilerError(
+                    f"Missing type annotation for struct field {stmt.target.id}"
+                )
+            default_value = generate_simple_expr(stmt.value) if stmt.value else None
+            fields.append(
+                StructField(
+                    name=stmt.target.id,
+                    type_name=field_type,
+                    default_value=default_value,
+                )
+            )
+
+        # Regular class: extract fields from __init__ body
+        elif (
+            isinstance(stmt, ast.FunctionDef)
+            and stmt.name == "__init__"
+            and not is_dataclass
+        ):
+            fields.extend(_extract_fields_from_init(stmt, init_param_types))
+
+        # Collect instance methods (not __init__, not dunder methods)
+        elif isinstance(stmt, ast.FunctionDef) and not stmt.name.startswith("_"):
+            method_info = _collect_method(stmt, node.name)
+            if method_info:
+                methods[stmt.name] = method_info
+
+    # Skip classes with no fields (not a struct)
+    if not fields and not is_dataclass:
         return
 
-    fields = []
-    for stmt in node.body:
-        if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
+    collected.structs[node.name] = StructDefinition(
+        name=node.name,
+        fields=fields,
+        methods=methods,
+        has_custom_init=has_custom_init,
+    )
+    logger.debug(
+        f"Collected struct: {node.name} with {len(fields)} fields, "
+        f"{len(methods)} methods"
+    )
+
+
+def _extract_fields_from_init(
+    init_node: ast.FunctionDef, param_types: dict[str, str]
+) -> list[StructField]:
+    """Extract struct fields from __init__ body by finding self.x = y patterns."""
+    fields: list[StructField] = []
+    seen_fields: set[str] = set()
+
+    for stmt in init_node.body:
+        if not isinstance(stmt, ast.Assign):
             continue
+        for target in stmt.targets:
+            # Look for self.field_name = ...
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+            ):
+                field_name = target.attr
+                if field_name in seen_fields:
+                    continue
+                seen_fields.add(field_name)
 
-        field_type = get_annotation_type(stmt.annotation)
-        if field_type is None:
-            raise TranspilerError(
-                f"Missing type annotation for struct field {stmt.target.id}"
-            )
+                # Try to get type from parameter with same name
+                field_type = None
+                if isinstance(stmt.value, ast.Name) and stmt.value.id in param_types:
+                    field_type = param_types[stmt.value.id]
 
-        default_value = generate_simple_expr(stmt.value) if stmt.value else None
-        fields.append(
-            StructField(
-                name=stmt.target.id,
-                type_name=field_type,
-                default_value=default_value,
-            )
-        )
+                # Skip fields without type annotations (class won't be usable as struct)
+                if field_type is None:
+                    continue
 
-    collected.structs[node.name] = StructDefinition(name=node.name, fields=fields)
-    logger.debug(f"Collected struct: {node.name} with {len(fields)} fields")
+                fields.append(StructField(name=field_name, type_name=field_type))
+
+    return fields
+
+
+def _collect_method(node: ast.FunctionDef, struct_name: str) -> MethodInfo | None:
+    """Collect method info from a method definition."""
+    # Skip if no self parameter
+    if not node.args.args or node.args.args[0].arg != "self":
+        return None
+
+    # Get parameter types (skip self)
+    param_types = [get_annotation_type(arg.annotation) for arg in node.args.args[1:]]
+    param_names = [arg.arg for arg in node.args.args[1:]]
+    return_type = get_annotation_type(node.returns)
+
+    # Collect default values
+    param_defaults: list[str] = []
+    for default in node.args.defaults:
+        try:
+            param_defaults.append(generate_simple_expr(default))
+        except TranspilerError:
+            param_defaults.append("")
+
+    return MethodInfo(
+        name=node.name,
+        struct_name=struct_name,
+        return_type=return_type,
+        param_types=param_types,
+        param_names=param_names,
+        node=node,
+        param_defaults=param_defaults,
+    )
 
 
 def _collect_constant(

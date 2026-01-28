@@ -298,3 +298,68 @@ def validate_gold_glsl():
     print("=" * 60)
 
     return len(failed) == 0
+
+
+CLI_IMPORTS = """from dataclasses import dataclass
+from py2glsl import ShaderContext
+from py2glsl.builtins import (
+    vec2, vec3, vec4, mat2, mat3, mat4,
+    sin, cos, tan, asin, acos, atan,
+    sinh, cosh, tanh, asinh, acosh, atanh,
+    abs, floor, ceil, fract, sqrt, pow, exp, log, exp2, log2,
+    mod, min, max, clamp, mix, step, smoothstep,
+    length, distance, dot, cross, normalize, reflect, refract, faceforward,
+    sign, radians, degrees, inverse_sqrt, round, trunc,
+)
+"""
+
+
+class TestCLICodePath:
+    """Test the CLI's file-loading code path using gold test cases.
+
+    This ensures the CLI's _get_transpiled_shader function produces
+    the same output as the direct transpile() call used in gold tests.
+    """
+
+    @pytest.mark.parametrize(
+        "name,case,gold_file", get_test_params(), ids=get_test_ids()
+    )
+    def test_cli_code_path(self, name, case, gold_file, tmp_path):
+        """Test that CLI code path produces same output as direct transpile."""
+        # Import CLI internals
+        from py2glsl.main import _get_transpiled_shader
+
+        python_code = case["python"]
+        target_str = case.get("target", "opengl46")
+        main_func = case.get("main_func", "shader")
+
+        # Add imports so the file can be loaded as a module
+        # The CLI needs to import the file to find the main function
+        full_code = CLI_IMPORTS + python_code
+
+        # Write the Python code to a temp file
+        temp_file = tmp_path / f"{name}.py"
+        temp_file.write_text(full_code)
+
+        # Get expected output from direct transpile (the gold standard)
+        expected = case["expected"].rstrip("\n")
+
+        # Get actual output through CLI code path
+        try:
+            actual, _ = _get_transpiled_shader(str(temp_file), target_str, main_func)
+        except SystemExit:
+            pytest.fail(f"CLI code path raised SystemExit for '{name}'")
+
+        if actual != expected:
+            import difflib
+
+            diff = difflib.unified_diff(
+                expected.splitlines(keepends=True),
+                actual.splitlines(keepends=True),
+                fromfile="expected (direct transpile)",
+                tofile="actual (CLI code path)",
+            )
+            diff_str = "".join(diff)
+            pytest.fail(
+                f"CLI code path mismatch for '{name}' in {gold_file.name}:\n{diff_str}"
+            )

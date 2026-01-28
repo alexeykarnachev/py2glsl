@@ -46,7 +46,12 @@ from py2glsl.transpiler.ir import (
     ShaderStage,
     StorageClass,
 )
-from py2glsl.transpiler.models import CollectedInfo, FunctionInfo, TranspilerError
+from py2glsl.transpiler.models import (
+    CollectedInfo,
+    FunctionInfo,
+    MethodInfo,
+    TranspilerError,
+)
 from py2glsl.transpiler.type_checker import get_expr_type, infer_binop_result_type
 from py2glsl.transpiler.type_utils import (
     get_indexable_size,
@@ -68,6 +73,8 @@ class IRBuilder:
         self._context_param_name: str | None = None
         self._tmp_var_counter: int = 0
         self._pending_stmts: list[IRStmt] = []
+        self._self_param_name: str | None = None  # For method 'self' parameter
+        self._self_type: IRType | None = None  # Type of 'self' in methods
 
     def build(self, stage: ShaderStage = ShaderStage.FRAGMENT) -> ShaderIR:
         """Build complete ShaderIR."""
@@ -146,12 +153,20 @@ class IRBuilder:
         return False
 
     def _build_functions(self) -> list[IRFunction]:
-        """Convert FunctionInfos to IRFunctions."""
+        """Convert FunctionInfos and MethodInfos to IRFunctions."""
         result = []
+        # Build regular functions
         for func_name, func_info in self.collected.functions.items():
             is_entry = func_name == self.entry_point_name
             ir_func = self._build_function(func_info, is_entry)
             result.append(ir_func)
+
+        # Build methods from all structs
+        for struct_def in self.collected.structs.values():
+            for method_info in struct_def.methods.values():
+                ir_func = self._build_method(method_info)
+                result.append(ir_func)
+
         return result
 
     def _build_function(self, func_info: FunctionInfo, is_entry: bool) -> IRFunction:
@@ -206,6 +221,64 @@ class IRBuilder:
             is_entry_point=is_entry,
         )
 
+    def _build_method(self, method_info: MethodInfo) -> IRFunction:
+        """Build an IRFunction from a MethodInfo (instance method).
+
+        Transforms: def method(self, x: float) -> float
+        Into GLSL:  float StructName_method(StructName self, float x)
+        """
+        struct_type = IRType(method_info.struct_name)
+        func_name = f"{method_info.struct_name}_{method_info.name}"
+
+        # Reset state
+        self.symbols = {}
+        self._context_param_name = None
+        self._global_constants = set()
+        self._self_param_name = "self"
+        self._self_type = struct_type
+
+        # First parameter is always self (the struct instance)
+        params: list[IRParameter] = [IRParameter(name="self", type=struct_type)]
+        self.symbols["self"] = struct_type
+
+        # Add remaining parameters
+        for i, param_name in enumerate(method_info.param_names):
+            param_type = method_info.param_types[i] or "float"
+            ir_type = IRType(param_type)
+            params.append(IRParameter(name=param_name, type=ir_type))
+            self.symbols[param_name] = ir_type
+
+        # Add globals to symbols
+        for name, (type_name, _) in self.collected.globals.items():
+            if name not in self.symbols:
+                self.symbols[name] = IRType(type_name)
+                if name not in self.collected.mutable_globals:
+                    self._global_constants.add(name)
+
+        # Build return type
+        return_type = None
+        if method_info.return_type:
+            return_type = IRType(method_info.return_type)
+
+        # Build body statements
+        body: list[IRStmt] = []
+        for i, stmt in enumerate(method_info.node.body):
+            if i == 0 and self._is_docstring(stmt):
+                continue
+            body.extend(self._build_stmt(stmt))
+
+        # Reset method state
+        self._self_param_name = None
+        self._self_type = None
+
+        return IRFunction(
+            name=func_name,
+            params=params,
+            return_type=return_type,
+            body=body,
+            is_entry_point=False,
+        )
+
     def _is_context_param(self, arg: ast.arg) -> bool:
         """Check if argument is a ShaderContext parameter."""
         if arg.annotation and isinstance(arg.annotation, ast.Name):
@@ -236,6 +309,39 @@ class IRBuilder:
         if not isinstance(stmt.value, ast.Constant):
             return False
         return isinstance(stmt.value.value, str)
+
+    def _fill_method_default_args(
+        self, method_info: MethodInfo, arg_exprs: list[IRExpr]
+    ) -> list[IRExpr]:
+        """Fill in default arguments for method calls.
+
+        arg_exprs[0] is 'self', remaining are method arguments.
+        """
+        if not method_info.param_defaults:
+            return arg_exprs
+
+        # Number of params (excluding self)
+        num_params = len(method_info.param_names)
+        # Number of provided args (excluding self)
+        num_provided = len(arg_exprs) - 1
+        num_defaults = len(method_info.param_defaults)
+
+        if num_provided >= num_params:
+            return arg_exprs
+
+        # Build the required defaults
+        result = list(arg_exprs)
+        for i in range(num_provided, num_params):
+            default_idx = i - (num_params - num_defaults)
+            if default_idx >= 0 and default_idx < num_defaults:
+                default_val = method_info.param_defaults[default_idx]
+                if default_val:
+                    param_type = method_info.param_types[i] or "float"
+                    result.append(
+                        IRLiteral(result_type=IRType(param_type), value=default_val)
+                    )
+
+        return result
 
     def _hoist_if_variables(self, if_node: ast.If) -> list[IRStmt]:
         """Find variables assigned in if/elif/else branches and hoist declarations.
@@ -812,6 +918,27 @@ class IRBuilder:
             method_arg_exprs = [self._build_expr(a) for a in args]
             for kw in keywords:
                 method_arg_exprs.append(self._build_expr(kw.value))
+
+            # Check if this is a struct method call
+            base_type = base_expr.result_type.base
+            struct_def = self.collected.structs.get(base_type)
+            if struct_def and method_name in struct_def.methods:
+                # Transform obj.method(args) -> StructName_method(obj, args)
+                method_info = struct_def.methods[method_name]
+                full_func_name = f"{base_type}_{method_name}"
+                all_args = [base_expr, *method_arg_exprs]
+                # Fill in default args for method
+                all_args = self._fill_method_default_args(method_info, all_args)
+                result_type = (
+                    IRType(method_info.return_type)
+                    if method_info.return_type
+                    else IRType("void")
+                )
+                return IRCall(
+                    result_type=result_type, func=full_func_name, args=all_args
+                )
+
+            # Regular method call (e.g., vec3 methods, builtins)
             all_args = [base_expr, *method_arg_exprs]
             result_type = self._infer_call_type(method_name, all_args)
             return IRCall(result_type=result_type, func=method_name, args=all_args)

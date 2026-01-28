@@ -103,6 +103,10 @@ module = "py2glsl.builtins"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
+module = "py2glsl.main"
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_decorators = false
 disallow_untyped_defs = false
